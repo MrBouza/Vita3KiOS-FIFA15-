@@ -27,6 +27,7 @@
 #include <io/state.h>
 #include <kernel/state.h>
 #include <motion/state.h>
+#include <overlay/display_manager.h>
 #include <renderer/functions.h>
 #include <util/log.h>
 
