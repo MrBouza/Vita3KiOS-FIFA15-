@@ -158,6 +158,7 @@ void io_deinit(IOState &io) {
 
 void init_device_paths(IOState &io) {
     io.device_paths.savedata0 = "user/" + io.user_id + "/savedata/" + io.savedata;
+    io.device_paths.savedata1.clear();
     io.device_paths.app0 = "app/" + io.app_path;
     io.device_paths.addcont0 = "addcont/" + io.addcont;
     io.device_paths.cache0.clear();
@@ -230,9 +231,13 @@ std::string translate_path(const char *path, VitaIoDevice &device, const IOState
     // TODO: Handle dot-dot paths
 
     switch (device) {
-    case VitaIoDevice::savedata0: // Redirect savedata0: to ux0:user/00/savedata/<title_id>
-    case VitaIoDevice::savedata1: {
+    case VitaIoDevice::savedata0: { // Redirect savedata0: to ux0:user/00/savedata/<title_id>
         relative_path = device::remove_device_from_path(relative_path, device, device_paths.savedata0);
+        device = VitaIoDevice::ux0;
+        break;
+    }
+    case VitaIoDevice::savedata1: { // Redirect savedata1: to the save data mounted by sceAppUtilSaveDataMount
+        relative_path = device::remove_device_from_path(relative_path, device, device_paths.savedata1.empty() ? "savedata1_not_mounted" : device_paths.savedata1);
         device = VitaIoDevice::ux0;
         break;
     }
