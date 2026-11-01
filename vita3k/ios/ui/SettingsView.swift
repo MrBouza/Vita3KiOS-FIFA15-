@@ -54,8 +54,10 @@ struct SettingsView: View {
                 }
 
                 Section("JIT") {
-                    LabeledContent("Status", value: model.jitEnabled ? "Enabled" : "Not enabled")
-                    Text("Enable JIT by launching Vita3K from StikDebug, or with “Launch with JIT” in LiveContainer.")
+                    LabeledContent("Status", value: model.jitEnabled ? "Ready" : "Not ready")
+                    Text(model.jitStatus)
+                        .font(.footnote)
+                    Text("Launch Vita3K from StikDebug, or with “Launch with JIT” in LiveContainer. On iOS 26 with an A15 or newer chip, also choose StikDebug's universal.js as Vita3K's JIT script.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

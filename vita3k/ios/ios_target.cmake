@@ -16,6 +16,8 @@ add_executable(vita3k MACOSX_BUNDLE
 	ios/ios_platform.h
 	ios/ios_session.cpp
 	ios/ios_session.h
+	ios/jit/ios_jit.cpp
+	ios/jit/ios_jit.h
 	ios/bridge/vita3k_bridge.cpp
 	ios/bridge/vita3k_bridge.h
 	${VITA3K_IOS_SWIFT_SOURCES}

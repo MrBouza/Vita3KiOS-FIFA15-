@@ -134,6 +134,23 @@ endif()
 set(DYNARMIC_TESTS OFF CACHE BOOL "")
 set(DYNARMIC_NO_BUNDLED_FMT ON CACHE BOOL "")
 set(DYNARMIC_FRONTENDS "A32" CACHE STRING "")
+if(IOS)
+	# iOS JIT: let dynarmic write code through a separate writable alias of its executable memory
+	# (needed on iOS 26 TXM devices). Applied to the submodule checkout, once.
+	set(DYNARMIC_IOS_PATCH "${CMAKE_SOURCE_DIR}/vita3k/ios/patches/dynarmic-ios-jit.patch")
+	execute_process(COMMAND git apply --reverse --check "${DYNARMIC_IOS_PATCH}"
+		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dynarmic"
+		RESULT_VARIABLE DYNARMIC_IOS_PATCH_PRESENT OUTPUT_QUIET ERROR_QUIET)
+	if(NOT DYNARMIC_IOS_PATCH_PRESENT EQUAL 0)
+		execute_process(COMMAND git apply "${DYNARMIC_IOS_PATCH}"
+			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dynarmic"
+			RESULT_VARIABLE DYNARMIC_IOS_PATCH_RESULT)
+		if(NOT DYNARMIC_IOS_PATCH_RESULT EQUAL 0)
+			message(FATAL_ERROR "Could not apply ${DYNARMIC_IOS_PATCH} to external/dynarmic")
+		endif()
+		message(STATUS "Applied the iOS JIT patch to dynarmic")
+	endif()
+endif()
 add_subdirectory(dynarmic)
 
 if(MSVC)

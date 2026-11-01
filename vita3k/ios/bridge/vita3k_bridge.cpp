@@ -18,6 +18,7 @@
 #include "vita3k_bridge.h"
 
 #include "../ios_session.h"
+#include "../jit/ios_jit.h"
 #include "archive.h"
 
 #include <app/functions.h>
@@ -188,7 +189,11 @@ const char *v3k_version(void) {
 }
 
 bool v3k_is_jit_enabled(void) {
-    return ios::is_jit_enabled();
+    return ios::jit_ready();
+}
+
+const char *v3k_jit_status_text(void) {
+    return ios::jit_status().detail.c_str();
 }
 
 const char *v3k_storage_path(void) {

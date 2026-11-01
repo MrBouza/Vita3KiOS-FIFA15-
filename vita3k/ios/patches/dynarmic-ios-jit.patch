@@ -1,0 +1,166 @@
+diff --git a/externals/oaknut/include/oaknut/code_block.hpp b/externals/oaknut/include/oaknut/code_block.hpp
+index bfa87d9..078b789 100644
+--- a/externals/oaknut/include/oaknut/code_block.hpp
++++ b/externals/oaknut/include/oaknut/code_block.hpp
+@@ -21,6 +21,14 @@
+ #    include <sys/mman.h>
+ #endif
+ 
++#if defined(__APPLE__) && TARGET_OS_IPHONE
++// iOS: executable memory comes from the host app's JIT arena, which hands out an executable
++// region plus a writable alias of the same pages (required on iOS 26 TXM devices, where a
++// debugger must prepare executable memory up front). Implemented by the host application.
++extern "C" void* oaknut_ios_jit_alloc(std::size_t size, void** writable);
++extern "C" void oaknut_ios_jit_free(void* executable, std::size_t size);
++#endif
++
+ namespace oaknut {
+ 
+ class CodeBlock {
+@@ -32,7 +40,9 @@ public:
+         m_memory = (std::uint32_t*)VirtualAlloc(nullptr, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+ #elif defined(__APPLE__)
+ #    if TARGET_OS_IPHONE
+-        m_memory = (std::uint32_t*)mmap(nullptr, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
++        void* writable = nullptr;
++        m_memory = (std::uint32_t*)oaknut_ios_jit_alloc(size, &writable);
++        m_wmem = (std::uint32_t*)writable;
+ #    else
+         m_memory = (std::uint32_t*)mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0);
+ #    endif
+@@ -46,6 +56,8 @@ public:
+ 
+         if (m_memory == nullptr)
+             throw std::bad_alloc{};
++        if (m_wmem == nullptr)
++            m_wmem = m_memory;
+     }
+ 
+     ~CodeBlock()
+@@ -55,6 +67,8 @@ public:
+ 
+ #if defined(_WIN32)
+         VirtualFree((void*)m_memory, 0, MEM_RELEASE);
++#elif defined(__APPLE__) && TARGET_OS_IPHONE
++        oaknut_ios_jit_free(m_memory, m_size);
+ #else
+         munmap(m_memory, m_size);
+ #endif
+@@ -65,14 +79,23 @@ public:
+     CodeBlock(CodeBlock&&) = delete;
+     CodeBlock& operator=(CodeBlock&&) = delete;
+ 
++    // Address code executes from
+     std::uint32_t* ptr() const
+     {
+         return m_memory;
+     }
+ 
++    // Address code is written through (a separate alias of ptr() on iOS, the same address elsewhere)
++    std::uint32_t* wptr() const
++    {
++        return m_wmem;
++    }
++
+     void protect()
+     {
+-#if defined(__APPLE__) && !TARGET_OS_IPHONE
++#if defined(__APPLE__) && TARGET_OS_IPHONE
++        // Writable and executable views are separate mappings, nothing to switch
++#elif defined(__APPLE__) && !TARGET_OS_IPHONE
+         pthread_jit_write_protect_np(1);
+ #elif defined(__APPLE__) || defined(__NetBSD__) || defined(__OpenBSD__)
+         mprotect(m_memory, m_size, PROT_READ | PROT_EXEC);
+@@ -81,7 +104,9 @@ public:
+ 
+     void unprotect()
+     {
+-#if defined(__APPLE__) && !TARGET_OS_IPHONE
++#if defined(__APPLE__) && TARGET_OS_IPHONE
++        // Writable and executable views are separate mappings, nothing to switch
++#elif defined(__APPLE__) && !TARGET_OS_IPHONE
+         pthread_jit_write_protect_np(0);
+ #elif defined(__APPLE__) || defined(__NetBSD__) || defined(__OpenBSD__)
+         mprotect(m_memory, m_size, PROT_READ | PROT_WRITE);
+@@ -137,6 +162,7 @@ public:
+ 
+ protected:
+     std::uint32_t* m_memory;
++    std::uint32_t* m_wmem = nullptr;
+     std::size_t m_size = 0;
+ };
+ 
+diff --git a/src/dynarmic/backend/arm64/address_space.cpp b/src/dynarmic/backend/arm64/address_space.cpp
+index 2c7ae77..029799c 100644
+--- a/src/dynarmic/backend/arm64/address_space.cpp
++++ b/src/dynarmic/backend/arm64/address_space.cpp
+@@ -23,7 +23,7 @@ namespace Dynarmic::Backend::Arm64 {
+ AddressSpace::AddressSpace(size_t code_cache_size)
+         : code_cache_size(code_cache_size)
+         , mem(code_cache_size)
+-        , code(mem.ptr(), mem.ptr())
++        , code(mem.wptr(), mem.ptr())
+         , fastmem_manager(exception_handler) {
+     ASSERT_MSG(code_cache_size <= 128 * 1024 * 1024, "code_cache_size > 128 MiB not currently supported");
+ 
+@@ -136,7 +136,7 @@ void AddressSpace::Link(EmittedBlockInfo& block_info) {
+     using namespace oaknut::util;
+ 
+     for (auto [ptr_offset, target] : block_info.relocations) {
+-        CodeGenerator c{mem.ptr(), mem.ptr()};
++        CodeGenerator c{mem.wptr(), mem.ptr()};
+         c.set_xptr(reinterpret_cast<u32*>(block_info.entry_point + ptr_offset));
+ 
+         switch (target) {
+@@ -276,7 +276,7 @@ void AddressSpace::LinkBlockLinks(const CodePtr entry_point, const CodePtr targe
+     using namespace oaknut::util;
+ 
+     for (auto [ptr_offset, type] : block_relocations_list) {
+-        CodeGenerator c{mem.ptr(), mem.ptr()};
++        CodeGenerator c{mem.wptr(), mem.ptr()};
+         c.set_xptr(reinterpret_cast<u32*>(entry_point + ptr_offset));
+ 
+         switch (type) {
+diff --git a/src/dynarmic/common/spin_lock_arm64.cpp b/src/dynarmic/common/spin_lock_arm64.cpp
+index ccf807e..9a75b6c 100644
+--- a/src/dynarmic/common/spin_lock_arm64.cpp
++++ b/src/dynarmic/common/spin_lock_arm64.cpp
+@@ -50,11 +50,18 @@ struct SpinLockImpl {
+ };
+ 
+ std::once_flag flag;
+-SpinLockImpl impl;
++// Created on first use rather than at static initialisation, so that hosts which provide
++// executable memory later (the iOS JIT arena) have it ready by then
++SpinLockImpl* impl = nullptr;
++
++void InitializeImpl() {
++    impl = new SpinLockImpl();
++    impl->Initialize();
++}
+ 
+ SpinLockImpl::SpinLockImpl()
+         : mem{4096}
+-        , code{mem.ptr(), mem.ptr()} {}
++        , code{mem.wptr(), mem.ptr()} {}
+ 
+ void SpinLockImpl::Initialize() {
+     mem.unprotect();
+@@ -74,13 +81,13 @@ void SpinLockImpl::Initialize() {
+ }  // namespace
+ 
+ void SpinLock::Lock() {
+-    std::call_once(flag, &SpinLockImpl::Initialize, impl);
+-    impl.lock(&storage);
++    std::call_once(flag, InitializeImpl);
++    impl->lock(&storage);
+ }
+ 
+ void SpinLock::Unlock() {
+-    std::call_once(flag, &SpinLockImpl::Initialize, impl);
+-    impl.unlock(&storage);
++    std::call_once(flag, InitializeImpl);
++    impl->unlock(&storage);
+ }
+ 
+ }  // namespace Dynarmic

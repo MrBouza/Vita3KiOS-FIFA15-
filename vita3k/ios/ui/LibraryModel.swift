@@ -71,6 +71,7 @@ final class LibraryModel: ObservableObject {
     @Published var apps: [GameApp] = []
     @Published var firmwareState: Int32 = 0
     @Published var jitEnabled = false
+    @Published var jitStatus = ""
     @Published var settings = EmulatorSettings()
 
     @Published var installProgress: InstallProgress?
@@ -87,6 +88,7 @@ final class LibraryModel: ObservableObject {
 
     func reload() {
         jitEnabled = v3k_is_jit_enabled()
+        jitStatus = String(cString: v3k_jit_status_text())
         firmwareState = v3k_firmware_state()
         if let json = takeString(v3k_apps_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode([GameApp].self, from: data) {

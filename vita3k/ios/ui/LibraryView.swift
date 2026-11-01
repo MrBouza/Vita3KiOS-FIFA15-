@@ -101,14 +101,10 @@ struct LibraryView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView().environmentObject(model)
             }
-            .alert("JIT is not enabled", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
-                Button("Launch anyway", role: .destructive) {
-                    if let app = pendingLaunch { model.launch(app) }
-                    pendingLaunch = nil
-                }
-                Button("Cancel", role: .cancel) { pendingLaunch = nil }
+            .alert("JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
+                Button("OK", role: .cancel) { pendingLaunch = nil }
             } message: {
-                Text("Vita3K needs JIT to run games. Launch it from StikDebug (or with JIT in LiveContainer), then try again. Without JIT the game will most likely crash.")
+                Text("\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
             }
             .alert("Delete \(pendingDelete?.title ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
                 Button("Delete", role: .destructive) {
@@ -203,7 +199,7 @@ struct StatusBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Pill(text: jitEnabled ? "JIT on" : "JIT off", systemImage: "bolt.fill", good: jitEnabled)
+            Pill(text: jitEnabled ? "JIT ready" : "JIT off", systemImage: "bolt.fill", good: jitEnabled)
             Pill(text: hasFirmware ? "Firmware" : "No firmware", systemImage: "cpu", good: hasFirmware)
             Pill(text: hasFonts ? "Fonts" : "No fonts", systemImage: "textformat", good: hasFonts)
             Spacer()

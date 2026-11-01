@@ -24,6 +24,7 @@
 //      SDL frontend (the same runner Android uses). When the game exits, the library comes back.
 
 #include "ios_session.h"
+#include "jit/ios_jit.h"
 
 #include <emuenv/app_launch_request.h>
 #include <sdl-frontend/session.h>
@@ -48,11 +49,16 @@ int main(int argc, char *argv[]) {
 
     SDL_SetAppMetadata("Vita3K", nullptr, "org.vita3k.ios");
 
+    // First, while the JIT enabler (and its iOS 26 script) is still attached
+    const auto &jit = ios::jit_init();
+
     const fs::path documents = fs::path(ios::get_documents_path());
     if (!ios::initialize(documents)) {
         show_message("Vita3K", "The emulator failed to initialise. Check vita3k.log in the app's folder in the Files app.");
         return 1;
     }
+
+    LOG_INFO("JIT: {} (arena {} MiB)", jit.detail, jit.arena_size / (1024 * 1024));
 
     // Files dropped into Documents/Import through the Files app or a computer
     const auto import = ios::import_pending_files(documents / "Import");
@@ -68,7 +74,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        LOG_INFO("Launching {} (JIT {})", title_id, ios::is_jit_enabled() ? "enabled" : "NOT enabled");
+        LOG_INFO("Launching {} (JIT {})", title_id, ios::jit_ready() ? "ready" : "NOT ready");
 
         // The library can rotate freely; games are landscape only
         SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");

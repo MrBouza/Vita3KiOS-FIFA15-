@@ -15,6 +15,9 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 #include "cpu/common.h"
 #include <cpu/impl/dynarmic_cpu.h>
 #include <cpu/state.h>
@@ -295,6 +298,10 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     config.processor_id = core_id;
     config.optimizations = cpu_opt ? Dynarmic::all_safe_optimizations : Dynarmic::no_optimizations;
     config.enable_cycle_counting = false;
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    // Code caches come from the fixed iOS JIT arena (vita3k/ios/jit), shared by every guest thread
+    config.code_cache_size = 8 * 1024 * 1024;
+#endif
 
     return std::make_unique<Dynarmic::A32::Jit>(config);
 }
