@@ -25,6 +25,7 @@
 
 #include "ios_session.h"
 #include "bridge/vita3k_bridge.h"
+#include "controls/virtual_pad.h"
 #include "jit/ios_jit.h"
 
 #include <emuenv/app_launch_request.h>
@@ -35,6 +36,10 @@
 #include <SDL3/SDL_main.h>
 
 #include <string>
+
+// Implemented in Swift (ui/TouchControls.swift)
+extern "C" void v3k_controls_attach(void *ui_window);
+extern "C" void v3k_controls_detach(void);
 
 namespace {
 
@@ -92,8 +97,20 @@ int main(int argc, char *argv[]) {
         // The library can rotate freely; games are landscape only
         SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
 
-        // On-screen keyboard (IME) and touch controls are wired in later
-        const sdl_frontend::Hooks hooks{};
+        // On-screen touch controls: a virtual gamepad plus an overlay on the game window
+        const sdl_frontend::Hooks hooks{
+            .on_window = [](SDL_Window *window) {
+                if (window) {
+                    if (!v3k_pad_attach())
+                        LOG_WARN("Touch controls unavailable: {}", SDL_GetError());
+                    void *ui_window = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, nullptr);
+                    v3k_controls_attach(ui_window);
+                } else {
+                    v3k_controls_detach();
+                    v3k_pad_detach();
+                }
+            },
+        };
         const int result = sdl_frontend::run(*emuenv, *session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
         LOG_INFO("{} exited with code {}", title_id, result);
     }
