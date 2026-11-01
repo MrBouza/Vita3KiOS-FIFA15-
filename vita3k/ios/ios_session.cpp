@@ -60,7 +60,7 @@ bool initialize(const fs::path &storage_path) {
     try {
         Root root_paths;
         // The bundle holds data/ and shaders-builtin/ at its root
-        root_paths.set_static_assets_path(get_bundle_resources_path());
+        root_paths.set_static_assets_path(fs::path(get_bundle_resources_path()));
         root_paths.set_vita_fs_path(storage_path / "vita");
         root_paths.set_log_path(storage_path);
         root_paths.set_config_path(storage_path);

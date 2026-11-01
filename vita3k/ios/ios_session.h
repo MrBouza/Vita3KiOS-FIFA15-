@@ -21,6 +21,8 @@
 // The SwiftUI frontend (later phase) talks to the core through this layer, the same way the Android
 // Kotlin UI talks to it through JNI.
 
+#include "ios_platform.h"
+
 #include <app/functions.h>
 #include <app/session_controller.h>
 #include <emuenv/state.h>
@@ -42,12 +44,6 @@ struct SessionState {
 SessionState &session_state();
 EmuEnvState *get_emuenv();
 app::AppSessionController *get_app_session_controller();
-
-// Paths provided by the platform layer (ios_platform.mm)
-fs::path get_documents_path();
-fs::path get_bundle_resources_path();
-std::string get_os_version();
-std::string get_device_model();
 
 // Sets up logging, config and the emulated environment, storing everything under storage_path
 bool initialize(const fs::path &storage_path);

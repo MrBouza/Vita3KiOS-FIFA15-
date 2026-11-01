@@ -17,7 +17,7 @@
 
 // Small UIKit/Foundation helpers used by the C++ side of the iOS port
 
-#include "ios_session.h"
+#include "ios_platform.h"
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -26,16 +26,16 @@
 
 namespace ios {
 
-fs::path get_documents_path() {
+std::string get_documents_path() {
     @autoreleasepool {
         NSArray<NSURL *> *urls = [[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask];
-        return fs::path([urls.firstObject.path UTF8String]);
+        return [urls.firstObject.path UTF8String];
     }
 }
 
-fs::path get_bundle_resources_path() {
+std::string get_bundle_resources_path() {
     @autoreleasepool {
-        return fs::path([[NSBundle mainBundle].resourcePath UTF8String]);
+        return [[NSBundle mainBundle].resourcePath UTF8String];
     }
 }
 

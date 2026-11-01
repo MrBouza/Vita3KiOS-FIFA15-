@@ -17,7 +17,9 @@
 
 #include <audio/state.h>
 
+#ifdef VITA3K_HAS_CUBEB
 #include <audio/impl/cubeb_audio.h>
+#endif
 #include <audio/impl/sdl_audio.h>
 
 #include <util/log.h>
@@ -70,8 +72,10 @@ void AudioState::set_backend(const std::string &adapter_name) {
     adapter.reset();
     if (adapter_name == "SDL") {
         adapter = std::make_unique<SDLAudioAdapter>(*this);
+#ifdef VITA3K_HAS_CUBEB
     } else if (adapter_name == "Cubeb") {
         adapter = std::make_unique<CubebAudioAdapter>(*this);
+#endif
     } else {
         LOG_ERROR("Unknown audio adapter {}", adapter_name);
         return;

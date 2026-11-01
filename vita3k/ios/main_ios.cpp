@@ -102,7 +102,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    const fs::path documents = ios::get_documents_path();
+    const fs::path documents = fs::path(ios::get_documents_path());
     if (!ios::initialize(documents)) {
         show_message("Vita3K", "The emulator failed to initialise. Check Documents/vita3k.log in the Files app.");
         return 1;

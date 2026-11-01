@@ -17,7 +17,10 @@
 
 #include "macos_net_helper.h"
 
+#include <TargetConditionals.h>
+#if !TARGET_OS_IPHONE
 #include <SystemConfiguration/SystemConfiguration.h>
+#endif
 #include <cstring>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -30,6 +33,24 @@ bool is_physical_interface(const char *name) {
 
 // Get the primary network interface name using SystemConfiguration
 bool get_primary_interface_name(char *dest, size_t bufferSize) {
+#if TARGET_OS_IPHONE
+    // SCDynamicStore is macOS only. On iOS, Wi-Fi is en0, so use it when it is up.
+    struct ifaddrs *iflist = nullptr;
+    if (getifaddrs(&iflist) != 0)
+        return false;
+    bool found = false;
+    for (struct ifaddrs *cur = iflist; cur; cur = cur->ifa_next) {
+        if (cur->ifa_name && strcmp(cur->ifa_name, "en0") == 0 && (cur->ifa_flags & IFF_UP)) {
+            found = true;
+            break;
+        }
+    }
+    freeifaddrs(iflist);
+    if (!found || bufferSize < 4)
+        return false;
+    strncpy(dest, "en0", bufferSize);
+    return true;
+#else
     bool success = false;
     auto size = static_cast<CFIndex>(bufferSize);
 
@@ -64,6 +85,7 @@ bool get_primary_interface_name(char *dest, size_t bufferSize) {
 
     CFRelease(store);
     return success;
+#endif
 }
 
 // Get MAC address from a physical interface

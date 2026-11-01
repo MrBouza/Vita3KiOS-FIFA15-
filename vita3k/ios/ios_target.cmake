@@ -2,7 +2,7 @@
 # in place of the desktop executable and the Android shared library.
 
 add_executable(vita3k MACOSX_BUNDLE
-	ios/main_ios.mm
+	ios/main_ios.cpp
 	ios/ios_platform.mm
 	ios/ios_session.cpp
 	ios/ios_session.h
@@ -23,4 +23,4 @@ target_link_libraries(vita3k PRIVATE
 )
 
 # Objective-C++ sources use ARC
-set_source_files_properties(ios/main_ios.mm ios/ios_platform.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+set_source_files_properties(ios/ios_platform.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")

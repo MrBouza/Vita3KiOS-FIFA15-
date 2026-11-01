@@ -36,6 +36,10 @@ set(CMAKE_FOLDER externals)
 option(BUILD_SHARED_LIBS "Build shared library" OFF)
 option(CAPSTONE_ARCHITECTURE_DEFAULT "Whether architectures are enabled by default" OFF)
 option(CAPSTONE_ARM_SUPPORT "ARM support" ON)
+if(IOS)
+	# Capstone builds x86_64+arm64 on every Apple platform unless told otherwise; iOS is arm64 only
+	set(CAPSTONE_BUILD_MACOS_THIN ON CACHE BOOL "" FORCE)
+endif()
 add_subdirectory(capstone EXCLUDE_FROM_ALL)
 
 add_library(dirent INTERFACE)
