@@ -40,7 +40,7 @@ struct LibraryView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        StatusBar(jitEnabled: model.jitEnabled, hasFirmware: model.hasFirmware, hasFonts: model.hasFonts)
+                        StatusBar(jitEnabled: model.jitEnabled, jitPreparing: model.jitPreparing, hasFirmware: model.hasFirmware, hasFonts: model.hasFonts)
 
                         if !model.hasFirmware {
                             FirmwareCallout { openImporter([.item]) }
@@ -101,10 +101,10 @@ struct LibraryView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView().environmentObject(model)
             }
-            .alert("JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
+            .alert(model.jitPreparing ? "JIT is still being prepared" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
                 Button("OK", role: .cancel) { pendingLaunch = nil }
             } message: {
-                Text("\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
+                Text(model.jitPreparing ? "Give it a few seconds, then try again." : "\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
             }
             .alert("Delete \(pendingDelete?.title ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
                 Button("Delete", role: .destructive) {
@@ -194,12 +194,22 @@ struct GameCard: View {
 
 struct StatusBar: View {
     let jitEnabled: Bool
+    let jitPreparing: Bool
     let hasFirmware: Bool
     let hasFonts: Bool
 
     var body: some View {
         HStack(spacing: 10) {
-            Pill(text: jitEnabled ? "JIT ready" : "JIT off", systemImage: "bolt.fill", good: jitEnabled)
+            if jitPreparing {
+                Label("Preparing JIT", systemImage: "hourglass")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Theme.accent.opacity(0.2)))
+                    .foregroundStyle(Theme.accent)
+            } else {
+                Pill(text: jitEnabled ? "JIT ready" : "JIT off", systemImage: "bolt.fill", good: jitEnabled)
+            }
             Pill(text: hasFirmware ? "Firmware" : "No firmware", systemImage: "cpu", good: hasFirmware)
             Pill(text: hasFonts ? "Fonts" : "No fonts", systemImage: "textformat", good: hasFonts)
             Spacer()

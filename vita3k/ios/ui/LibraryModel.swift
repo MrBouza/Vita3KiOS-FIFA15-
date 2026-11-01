@@ -72,6 +72,7 @@ final class LibraryModel: ObservableObject {
     @Published var firmwareState: Int32 = 0
     @Published var jitEnabled = false
     @Published var jitStatus = ""
+    @Published var jitPreparing = false
     @Published var settings = EmulatorSettings()
 
     @Published var installProgress: InstallProgress?
@@ -88,7 +89,12 @@ final class LibraryModel: ObservableObject {
 
     func reload() {
         jitEnabled = v3k_is_jit_enabled()
-        jitStatus = String(cString: v3k_jit_status_text())
+        jitPreparing = v3k_jit_preparing()
+        jitStatus = takeString(v3k_jit_status_text()) ?? ""
+        if jitPreparing {
+            // JIT memory is prepared in the background at launch: check again shortly
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.reload() }
+        }
         firmwareState = v3k_firmware_state()
         if let json = takeString(v3k_apps_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode([GameApp].self, from: data) {

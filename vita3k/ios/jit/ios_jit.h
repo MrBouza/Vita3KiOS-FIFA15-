@@ -30,6 +30,7 @@
 // Keep this header free of Vita3K includes: the implementation uses Mach headers.
 
 #include <cstddef>
+#include <functional>
 #include <string>
 
 namespace ios {
@@ -46,12 +47,16 @@ struct JitStatus {
     std::string detail; // human-readable explanation, shown in the UI and the log
 };
 
-// Prepares the JIT arena. Call once, first thing at launch, while the JIT enabler is attached.
-const JitStatus &jit_init();
-const JitStatus &jit_status();
+// Where JIT setup reports its progress (the Vita3K log)
+void jit_set_logger(std::function<void(const std::string &)> logger);
+
+// Prepares the JIT arena on a background thread, so the UI stays responsive meanwhile
+void jit_init_async();
+bool jit_preparing();
+JitStatus jit_status();
 bool jit_ready();
 
-// Size of each dynarmic code cache carved from the arena
-constexpr std::size_t jit_code_cache_size = 8 * 1024 * 1024;
+// Size of each dynarmic code cache carved from the arena (see cpu/src/dynarmic_cpu.cpp)
+constexpr std::size_t jit_code_cache_size = 2 * 1024 * 1024;
 
 } // namespace ios

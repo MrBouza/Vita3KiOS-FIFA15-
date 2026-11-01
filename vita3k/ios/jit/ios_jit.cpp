@@ -24,6 +24,7 @@
 #include <sys/ucontext.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <csetjmp>
 #include <csignal>
@@ -62,14 +63,31 @@ namespace ios {
 namespace {
 
 constexpr std::size_t page_size = 16 * 1024;
-// Executable memory the debugger prepares (one byte written per page, so keep it reasonable)
-constexpr std::size_t txm_arena_size = 256 * 1024 * 1024;
+// Executable memory the debugger prepares. It writes one byte per page over the debug connection
+// while the app is stopped, so this stays modest: 64 MiB = 4096 pages, 32 code caches of 2 MiB.
+constexpr std::size_t txm_arena_size = 64 * 1024 * 1024;
 // Without TXM the arena only reserves address space, so it can be larger
 constexpr std::size_t legacy_arena_size = 512 * 1024 * 1024;
 constexpr uint32_t brk_f00d = 0xD43E01A0; // brk #0xf00d
 
 JitStatus status;
+std::mutex status_mutex;
+std::atomic<bool> preparing{ false };
 std::once_flag init_flag;
+std::function<void(const std::string &)> log_fn;
+
+void log(const std::string &message) {
+    if (log_fn)
+        log_fn("JIT: " + message);
+}
+
+void set_status(JitMode mode, std::size_t arena_size, std::string detail) {
+    log(detail);
+    std::lock_guard lock(status_mutex);
+    status.mode = mode;
+    status.arena_size = arena_size;
+    status.detail = std::move(detail);
+}
 
 // ---- Arena: one executable region + writable alias, handed out first-fit ----
 struct Arena {
@@ -91,6 +109,16 @@ bool is_debugged() {
     if (csops(getpid(), CS_OPS_STATUS, &flags, sizeof(flags)) != 0)
         return false;
     return (flags & CS_DEBUGGED) != 0;
+}
+
+// True while a debugger is attached right now (CS_DEBUGGED stays set after it detaches)
+bool is_traced() {
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
+    struct kinfo_proc info {};
+    size_t size = sizeof(info);
+    if (sysctl(mib, 4, &info, &size, nullptr, 0) != 0)
+        return false;
+    return (info.kp_proc.p_flag & P_TRACED) != 0;
 }
 
 int os_major_version() {
@@ -230,14 +258,17 @@ bool try_txm(std::string &detail) {
         return false;
     }
 
+    log("executable memory received, mapping the writable view");
     std::string error;
     uint8_t *write = make_writable_alias(exec, txm_arena_size, error);
 
     {
         // All regions are prepared: let the debugger go (the memory stays executable)
+        log("detaching the JIT script");
         ScopedSignal trap(SIGTRAP, trap_handler);
         v3k_jit26_detach();
     }
+    log("running the JIT self-test");
 
     if (!write) {
         detail = "Could not create the writable JIT view: " + error;
@@ -253,6 +284,7 @@ bool try_txm(std::string &detail) {
 
 // Classic path (iOS 17.4-18, or devices without TXM): RW memory plus an executable alias
 bool try_legacy(std::string &detail) {
+    log("trying the classic dual mapping");
     void *rw = mmap(nullptr, legacy_arena_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
     if (rw == MAP_FAILED) {
         detail = "Could not reserve JIT memory.";
@@ -282,50 +314,81 @@ bool try_legacy(std::string &detail) {
 }
 
 void initialize() {
+    log("checking for a debugger");
+    for (int i = 0; i < 30 && !is_debugged(); i++)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     if (!is_debugged()) {
-        // A JIT enabler may still be attaching
-        for (int i = 0; i < 10 && !is_debugged(); i++)
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    if (!is_debugged()) {
-        status.detail = "JIT is not enabled. Launch Vita3K from StikDebug, or with \"Launch with JIT\" in LiveContainer.";
+        set_status(JitMode::None, 0, "JIT is not enabled. Launch Vita3K from StikDebug, or with \"Launch with JIT\" in LiveContainer.");
         return;
     }
 
     const int os_major = os_major_version();
+    log("debugger flag set, iOS " + std::to_string(os_major) + ", debugger attached now: " + (is_traced() ? "yes" : "no"));
+
     std::string txm_detail;
-    if (os_major >= 26 && try_txm(txm_detail)) {
-        status.mode = JitMode::Txm;
-        status.arena_size = txm_arena_size;
-        status.detail = "JIT ready (iOS 26 script).";
-        return;
+    if (os_major >= 26) {
+        // A JIT script stays attached waiting for our request; a plain enabler attaches and leaves.
+        // Only send the request while something is attached to answer it, otherwise the app could
+        // stop on a breakpoint nobody handles.
+        bool attached = is_traced();
+        for (int i = 0; i < 15 && attached; i++) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            attached = is_traced();
+        }
+        if (attached) {
+            log("requesting " + std::to_string(txm_arena_size / (1024 * 1024)) + " MiB of executable memory from the JIT script");
+            if (try_txm(txm_detail)) {
+                set_status(JitMode::Txm, txm_arena_size, "JIT ready (iOS 26 script).");
+                return;
+            }
+            log(txm_detail);
+        } else {
+            txm_detail = "No JIT script is attached.";
+            log("debugger already detached, no JIT script to ask");
+        }
     }
 
     std::string legacy_detail;
     if (try_legacy(legacy_detail)) {
-        status.mode = JitMode::Legacy;
-        status.arena_size = legacy_arena_size;
-        status.detail = "JIT ready.";
+        set_status(JitMode::Legacy, legacy_arena_size, "JIT ready.");
         return;
     }
+    log(legacy_detail);
 
-    status.detail = os_major >= 26
-        ? txm_detail + " On iOS 26 with an A15 or newer chip, set the JIT script for Vita3K to StikDebug's universal.js (LiveContainer: long-press Vita3K > Settings > JIT Launch Script)."
-        : legacy_detail;
+    set_status(JitMode::None, 0,
+        os_major >= 26
+            ? txm_detail + " On iOS 26 with an A15 or newer chip, choose StikDebug's universal.js as Vita3K's JIT script (LiveContainer: long-press Vita3K > Settings > JIT Launch Script), keep Launch with JIT on, then reopen Vita3K."
+
+            : legacy_detail + " Relaunch Vita3K with JIT enabled.");
 }
 
 } // namespace
 
-const JitStatus &jit_init() {
-    std::call_once(init_flag, initialize);
-    return status;
+void jit_set_logger(std::function<void(const std::string &)> logger) {
+    log_fn = std::move(logger);
 }
 
-const JitStatus &jit_status() {
+void jit_init_async() {
+    std::call_once(init_flag, [] {
+        preparing = true;
+        std::thread([] {
+            initialize();
+            preparing = false;
+        }).detach();
+    });
+}
+
+bool jit_preparing() {
+    return preparing;
+}
+
+JitStatus jit_status() {
+    std::lock_guard lock(status_mutex);
     return status;
 }
 
 bool jit_ready() {
+    std::lock_guard lock(status_mutex);
     return status.mode != JitMode::None;
 }
 

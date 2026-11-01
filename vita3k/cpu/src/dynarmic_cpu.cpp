@@ -300,7 +300,7 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     config.enable_cycle_counting = false;
 #if defined(__APPLE__) && TARGET_OS_IPHONE
     // Code caches come from the fixed iOS JIT arena (vita3k/ios/jit), shared by every guest thread
-    config.code_cache_size = 8 * 1024 * 1024;
+    config.code_cache_size = 2 * 1024 * 1024;
 #endif
 
     return std::make_unique<Dynarmic::A32::Jit>(config);

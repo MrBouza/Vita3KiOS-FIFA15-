@@ -31,8 +31,10 @@ extern "C" {
 const char *v3k_version(void);
 // True once the JIT arena is prepared and passed its self-test
 bool v3k_is_jit_enabled(void);
-// Why JIT is or isn't available, for the UI
-const char *v3k_jit_status_text(void);
+// Why JIT is or isn't available, for the UI (free with v3k_free_string)
+char *v3k_jit_status_text(void);
+// True while JIT memory is still being prepared at launch
+bool v3k_jit_preparing(void);
 const char *v3k_storage_path(void);
 
 // Bit 0: preinstalled package, bit 1: main firmware, bit 2: font package

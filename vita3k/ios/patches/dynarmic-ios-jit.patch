@@ -91,10 +91,18 @@ index bfa87d9..078b789 100644
  };
  
 diff --git a/src/dynarmic/backend/arm64/address_space.cpp b/src/dynarmic/backend/arm64/address_space.cpp
-index 2c7ae77..029799c 100644
+index 2c7ae77..272f5b6 100644
 --- a/src/dynarmic/backend/arm64/address_space.cpp
 +++ b/src/dynarmic/backend/arm64/address_space.cpp
-@@ -23,7 +23,7 @@ namespace Dynarmic::Backend::Arm64 {
+@@ -3,6 +3,7 @@
+  * SPDX-License-Identifier: 0BSD
+  */
+ 
++#include <algorithm>
+ #include <cstdio>
+ 
+ #include <mcl/bit_cast.hpp>
+@@ -23,7 +24,7 @@ namespace Dynarmic::Backend::Arm64 {
  AddressSpace::AddressSpace(size_t code_cache_size)
          : code_cache_size(code_cache_size)
          , mem(code_cache_size)
@@ -103,7 +111,17 @@ index 2c7ae77..029799c 100644
          , fastmem_manager(exception_handler) {
      ASSERT_MSG(code_cache_size <= 128 * 1024 * 1024, "code_cache_size > 128 MiB not currently supported");
  
-@@ -136,7 +136,7 @@ void AddressSpace::Link(EmittedBlockInfo& block_info) {
+@@ -108,7 +109,8 @@ size_t AddressSpace::GetRemainingSize() {
+ }
+ 
+ EmittedBlockInfo AddressSpace::Emit(IR::Block block) {
+-    if (GetRemainingSize() < 1024 * 1024) {
++    // Keep 1 MiB spare, or an eighth of a small cache (iOS uses 2 MiB caches from a shared arena)
++    if (GetRemainingSize() < std::min<size_t>(1024 * 1024, code_cache_size / 8)) {
+         ClearCache();
+     }
+ 
+@@ -136,7 +138,7 @@ void AddressSpace::Link(EmittedBlockInfo& block_info) {
      using namespace oaknut::util;
  
      for (auto [ptr_offset, target] : block_info.relocations) {
@@ -112,7 +130,7 @@ index 2c7ae77..029799c 100644
          c.set_xptr(reinterpret_cast<u32*>(block_info.entry_point + ptr_offset));
  
          switch (target) {
-@@ -276,7 +276,7 @@ void AddressSpace::LinkBlockLinks(const CodePtr entry_point, const CodePtr targe
+@@ -276,7 +278,7 @@ void AddressSpace::LinkBlockLinks(const CodePtr entry_point, const CodePtr targe
      using namespace oaknut::util;
  
      for (auto [ptr_offset, type] : block_relocations_list) {

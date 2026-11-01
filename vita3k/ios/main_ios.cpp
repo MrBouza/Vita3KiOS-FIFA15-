@@ -49,16 +49,16 @@ int main(int argc, char *argv[]) {
 
     SDL_SetAppMetadata("Vita3K", nullptr, "org.vita3k.ios");
 
-    // First, while the JIT enabler (and its iOS 26 script) is still attached
-    const auto &jit = ios::jit_init();
-
     const fs::path documents = fs::path(ios::get_documents_path());
     if (!ios::initialize(documents)) {
         show_message("Vita3K", "The emulator failed to initialise. Check vita3k.log in the app's folder in the Files app.");
         return 1;
     }
 
-    LOG_INFO("JIT: {} (arena {} MiB)", jit.detail, jit.arena_size / (1024 * 1024));
+    // Prepare JIT memory in the background while the library comes up. It must happen early, while
+    // the JIT enabler (and its iOS 26 script) is still attached.
+    ios::jit_set_logger([](const std::string &message) { LOG_INFO("{}", message); });
+    ios::jit_init_async();
 
     // Files dropped into Documents/Import through the Files app or a computer
     const auto import = ios::import_pending_files(documents / "Import");
