@@ -100,7 +100,8 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT MSVC)
-	add_compile_options(-Wformat -Werror=format-security)
+	# C-family only: the Swift compiler (iOS frontend) rejects these flags
+	add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wformat;-Werror=format-security>")
 endif()
 
 if(VITA3K_QT_GUI)
