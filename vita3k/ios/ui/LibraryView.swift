@@ -66,7 +66,7 @@ struct LibraryView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 40)
                 }
-                .refreshable { model.refresh() }
+                .refreshable { await MainActor.run { model.refresh() } }
 
                 if let progress = model.installProgress {
                     InstallOverlay(progress: progress)

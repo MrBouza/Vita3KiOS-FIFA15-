@@ -46,9 +46,9 @@ struct SettingsView: View {
                         Slider(value: Binding(
                             get: { Double(model.settings.audioVolume) },
                             set: { model.settings.audioVolume = Int($0) }
-                        ), in: 0...100, step: 5) { editing in
+                        ), in: 0...100, step: 5, onEditingChanged: { editing in
                             if !editing { model.setNumber("audio-volume", Double(model.settings.audioVolume)) }
-                        }
+                        })
                     }
                     Toggle("NGS audio", isOn: binding(\.ngsEnable) { model.setBool("ngs-enable", $0) })
                 }
