@@ -19,7 +19,20 @@ include("external/dynarmic/CMakeModules/DetectArchitecture.cmake")
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_OSX_DEPLOYMENT_TARGET 13.3)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+	# iOS port (Vita3KiOS). 17.4 is the oldest iOS that StikDebug can enable JIT on.
+	set(IOS 1)
+	set(CMAKE_OSX_DEPLOYMENT_TARGET 17.4)
+else()
+	set(CMAKE_OSX_DEPLOYMENT_TARGET 13.3)
+endif()
+
+# Desktop builds use the Qt GUI. Android and iOS ship their own native frontends instead.
+if(ANDROID OR IOS)
+	set(VITA3K_QT_GUI OFF)
+else()
+	set(VITA3K_QT_GUI ON)
+endif()
 
 # workaround for SDL due to cmake bug
 # https://github.com/libsdl-org/SDL/issues/6454
@@ -45,7 +58,7 @@ if(ANDROID)
 		set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 	endif()
 else()
-	if((ARCHITECTURE STREQUAL "x86_64") OR APPLE)
+	if(((ARCHITECTURE STREQUAL "x86_64") OR APPLE) AND NOT IOS)
 		option(USE_DISCORD_RICH_PRESENCE "Build Vita3K with Discord Rich Presence" ON)
 	endif()
 endif()

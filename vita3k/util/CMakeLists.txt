@@ -26,7 +26,7 @@ if(ANDROID)
 endif()
 target_compile_definitions(util PRIVATE $<$<CONFIG:Debug,RelWithDebInfo>:TRACY_ENABLE>)
 
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
 	add_executable(
 		util-tests
 		tests/intrusive_list_tests.cpp

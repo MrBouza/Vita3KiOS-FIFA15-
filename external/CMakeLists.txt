@@ -80,6 +80,12 @@ add_subdirectory(libfat16)
 add_library(miniz STATIC miniz/miniz.c miniz/miniz.h)
 target_include_directories(miniz PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/miniz")
 
+if(IOS)
+	# Everything is linked into the app binary on iOS, so SDL is a static library there
+	set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+	set(SDL_STATIC ON CACHE BOOL "" FORCE)
+	set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+endif()
 add_subdirectory(sdl)
 
 # Cubeb setup, from https://github.com/RPCS3/rpcs3/blob/master/3rdparty/cubeb/CMakeLists.txt
@@ -224,7 +230,39 @@ target_include_directories(CLI11 INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/cli11")
 
 add_library(vulkan INTERFACE)
 target_include_directories(vulkan INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator-Hpp/Vulkan-Headers/include")
-if(APPLE)
+if(IOS)
+	# iOS links MoltenVK statically, so vkGetInstanceProcAddr is resolved from the app binary itself
+	set(MOLTENVK_IOS_TAR "${CMAKE_BINARY_DIR}/external/MoltenVK-ios.tar")
+	if(NOT EXISTS "${MOLTENVK_IOS_TAR}")
+		message(STATUS "Downloading MoltenVK for iOS...")
+		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-ios.tar
+			"${MOLTENVK_IOS_TAR}"
+			SHOW_PROGRESS
+			STATUS MOLTENVK_DOWNLOAD_STATUS)
+		list(GET MOLTENVK_DOWNLOAD_STATUS 0 MOLTENVK_DOWNLOAD_CODE)
+		if(NOT MOLTENVK_DOWNLOAD_CODE EQUAL 0)
+			file(REMOVE "${MOLTENVK_IOS_TAR}")
+			message(FATAL_ERROR "Failed to download MoltenVK for iOS: ${MOLTENVK_DOWNLOAD_STATUS}")
+		endif()
+	endif()
+	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK")
+		execute_process(COMMAND tar xf "${MOLTENVK_IOS_TAR}" --strip-components=1 MoltenVK/MoltenVK
+			WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/external")
+	endif()
+	file(GLOB_RECURSE MOLTENVK_IOS_STATIC_CANDIDATES "${CMAKE_BINARY_DIR}/external/MoltenVK/static/*/ios-arm64/libMoltenVK.a")
+	list(LENGTH MOLTENVK_IOS_STATIC_CANDIDATES MOLTENVK_IOS_STATIC_COUNT)
+	if(MOLTENVK_IOS_STATIC_COUNT EQUAL 0)
+		message(FATAL_ERROR "libMoltenVK.a for ios-arm64 not found in the MoltenVK iOS package")
+	endif()
+	list(GET MOLTENVK_IOS_STATIC_CANDIDATES 0 MOLTENVK_IOS_STATIC_LIB)
+	message(STATUS "MoltenVK iOS static library: ${MOLTENVK_IOS_STATIC_LIB}")
+	target_include_directories(vulkan INTERFACE "${CMAKE_BINARY_DIR}/external/MoltenVK/include")
+	add_library(moltenvk_static STATIC IMPORTED GLOBAL)
+	set_target_properties(moltenvk_static PROPERTIES IMPORTED_LOCATION "${MOLTENVK_IOS_STATIC_LIB}")
+	target_link_libraries(moltenvk_static INTERFACE
+		"-framework Metal" "-framework IOSurface" "-framework QuartzCore"
+		"-framework CoreGraphics" "-framework UIKit" "-framework Foundation" c++)
+elseif(APPLE)
 	if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/MoltenVK-macos.tar")
 		message(STATUS "Downloading MoltenVK...")
 		file(DOWNLOAD https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-macos.tar
@@ -276,7 +314,8 @@ if(MINGW)
 	target_link_libraries(ffmpeg INTERFACE bcrypt)
 endif()
 
-if(APPLE OR NOT FORCE_BUILD_OPENSSL_MAC)
+# iOS gets OpenSSL from vcpkg (arm64-ios triplet), never from the host's Homebrew
+if((APPLE OR NOT FORCE_BUILD_OPENSSL_MAC) AND NOT IOS)
 	execute_process(
 		COMMAND brew --prefix openssl
 		RESULT_VARIABLE BREW_RESULT
@@ -312,7 +351,7 @@ if(NOT OPENSSL_FOUND OR FORCE_BUILD_OPENSSL_MAC)
 		endif()
 
 		set(OPENSSL_ROOT_DIR "${CMAKE_BINARY_DIR}/external/openssl/x64" CACHE STRING "Path to OpenSSL root")
-	elseif(APPLE)
+	elseif(APPLE AND NOT IOS)
 		message(STATUS "OpenSSL not found.")
 		if(NOT EXISTS "${CMAKE_BINARY_DIR}/external/openssl.tar.gz")
 			message(STATUS "Downloading OpenSSL@4 from source...")
@@ -468,7 +507,7 @@ endif()
 # Use XDG desktop portals on Linux
 set(NFD_PORTAL ON)
 
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
 	# nativefiledialog-extended
 	add_subdirectory(nativefiledialog-extended)
 

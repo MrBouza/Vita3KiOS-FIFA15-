@@ -1,0 +1,95 @@
+name: iOS
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_CONFIG: Release
+  VCPKG_ROOT: ${{ github.workspace }}/../vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/../vcpkg-binary-cache
+
+jobs:
+  ios-build:
+    name: iOS (arm64 IPA)
+    runs-on: macos-latest
+    timeout-minutes: 150
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install build tools
+        run: |
+          brew install ccache ninja ldid
+          echo "$(brew --prefix ccache)/libexec" >> "$GITHUB_PATH"
+          ccache --set-config=compiler_check=content
+          ccache --set-config=max_size=2G
+          ccache --zero-stats
+
+      - name: Set up vcpkg
+        run: |
+          # Full clone: vcpkg.json pins a builtin-baseline commit
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-ios-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
+          restore-keys: |
+            vcpkg-ios-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-ios-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-ios-${{ env.BUILD_CONFIG }}-${{ github.sha }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-ios-${{ env.BUILD_CONFIG }}-
+
+      - name: Build and package IPA
+        run: bash ./.ci/build-ios.sh artifacts
+
+      - name: ccache statistics
+        if: always()
+        run: ccache -s
+
+      # Saved even when the build fails, so the next attempt only recompiles what changed
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-ios-${{ env.BUILD_CONFIG }}-${{ github.sha }}-${{ github.run_attempt }}
+
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-ios-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
