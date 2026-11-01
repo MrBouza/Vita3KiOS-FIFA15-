@@ -45,6 +45,14 @@
 
 #ifdef __APPLE__
 #include <MoltenVK/mvk_vulkan.h>
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+// iOS links MoltenVK statically, so there is no Vulkan library for vulkan-hpp to dlopen:
+// hand it MoltenVK's entry point directly.
+extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char *pName);
+#define VITA3K_STATIC_VULKAN_LOADER 1
 #endif
 
 #ifdef __ANDROID__
@@ -394,6 +402,8 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
 
         if (!detect_patch_bcn(&texture_cache.support_dxt))
             return false;
+#elif defined(VITA3K_STATIC_VULKAN_LOADER)
+        VULKAN_HPP_DEFAULT_DISPATCHER.init(&vkGetInstanceProcAddr);
 #else
         VULKAN_HPP_DEFAULT_DISPATCHER.init();
 #endif
@@ -1748,6 +1758,8 @@ renderer::VulkanDeviceInfo renderer::enumerate_vulkan_devices(const std::string 
             return info;
 
         dispatch.init(vk_get_instance_proc_addr);
+#elif defined(VITA3K_STATIC_VULKAN_LOADER)
+        dispatch.init(&vkGetInstanceProcAddr);
 #else
         dispatch.init();
 #endif

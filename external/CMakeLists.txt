@@ -313,6 +313,14 @@ if(ANDROID)
 	set(USE_STATIC_ANDROID_FFMPEG ON)
 endif()
 add_subdirectory(ffmpeg)
+if(IOS)
+	# ffmpeg-core links the macOS framework set on every Apple platform. AudioUnit is not a
+	# framework on iOS (it lives in AudioToolbox), so swap in the iOS set.
+	get_target_property(FFMPEG_IOS_LINK_LIBS ffmpeg INTERFACE_LINK_LIBRARIES)
+	list(REMOVE_ITEM FFMPEG_IOS_LINK_LIBS "-framework AudioUnit" "-framework CoreServices")
+	list(APPEND FFMPEG_IOS_LINK_LIBS "-framework AVFoundation")
+	set_target_properties(ffmpeg PROPERTIES INTERFACE_LINK_LIBRARIES "${FFMPEG_IOS_LINK_LIBS}")
+endif()
 if(MINGW)
 	# libavutil needs bcrypt; Boost.Filesystem used to pull it in
 	target_link_libraries(ffmpeg INTERFACE bcrypt)
