@@ -40,7 +40,7 @@ struct LibraryView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        StatusBar(jitEnabled: model.jitEnabled, jitPreparing: model.jitPreparing, hasFirmware: model.hasFirmware, hasFonts: model.hasFonts)
+                        StatusBar(jitEnabled: model.jitEnabled, jitPreparing: model.jitPreparing, jitCanRequest: model.jitCanRequest, hasFirmware: model.hasFirmware, hasFonts: model.hasFonts)
 
                         if !model.hasFirmware {
                             FirmwareCallout { openImporter([.item]) }
@@ -70,6 +70,10 @@ struct LibraryView: View {
 
                 if let progress = model.installProgress {
                     InstallOverlay(progress: progress)
+                }
+
+                if model.settingUpJIT {
+                    JITSetupOverlay()
                 }
             }
             .navigationTitle("Vita3K")
@@ -101,10 +105,10 @@ struct LibraryView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView().environmentObject(model)
             }
-            .alert(model.jitPreparing ? "JIT is still being prepared" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
+            .alert(model.jitPreparing ? "Still checking JIT" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
                 Button("OK", role: .cancel) { pendingLaunch = nil }
             } message: {
-                Text(model.jitPreparing ? "Give it a few seconds, then try again." : "\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
+                Text(model.jitPreparing ? "Give it a second, then try again." : "\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
             }
             .alert("Delete \(pendingDelete?.title ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
                 Button("Delete", role: .destructive) {
@@ -146,6 +150,14 @@ struct LibraryView: View {
         model.reload()
         if model.jitEnabled {
             model.launch(app)
+        } else if model.jitCanRequest {
+            model.setUpJIT { ready in
+                if ready {
+                    model.launch(app)
+                } else {
+                    pendingLaunch = app
+                }
+            }
         } else {
             pendingLaunch = app
         }
@@ -195,13 +207,21 @@ struct GameCard: View {
 struct StatusBar: View {
     let jitEnabled: Bool
     let jitPreparing: Bool
+    let jitCanRequest: Bool
     let hasFirmware: Bool
     let hasFonts: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             if jitPreparing {
-                Label("Preparing JIT", systemImage: "hourglass")
+                Label("Checking JIT", systemImage: "hourglass")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Theme.accent.opacity(0.2)))
+                    .foregroundStyle(Theme.accent)
+            } else if jitCanRequest {
+                Label("JIT attached", systemImage: "bolt.badge.clock")
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -278,6 +298,25 @@ struct EmptyLibrary: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 30)
+    }
+}
+
+struct JITSetupOverlay: View {
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.7).ignoresSafeArea()
+            VStack(spacing: 14) {
+                ProgressView().controlSize(.large).tint(Theme.accent)
+                Text("Setting up JIT").font(.headline)
+                Text("Vita3K pauses for a few seconds while the JIT script prepares memory. The game starts right after.")
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(24)
+            .frame(maxWidth: 340)
+            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
+        }
     }
 }
 

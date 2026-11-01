@@ -73,6 +73,8 @@ constexpr uint32_t brk_f00d = 0xD43E01A0; // brk #0xf00d
 JitStatus status;
 std::mutex status_mutex;
 std::atomic<bool> preparing{ false };
+std::atomic<bool> can_request{ false };
+std::once_flag request_flag;
 std::once_flag init_flag;
 std::function<void(const std::string &)> log_fn;
 
@@ -323,29 +325,15 @@ void initialize() {
     }
 
     const int os_major = os_major_version();
-    log("debugger flag set, iOS " + std::to_string(os_major) + ", debugger attached now: " + (is_traced() ? "yes" : "no"));
+    const bool traced = is_traced();
+    log("debugger flag set, iOS " + std::to_string(os_major) + ", debugger attached now: " + (traced ? "yes" : "no"));
 
-    std::string txm_detail;
-    if (os_major >= 26) {
-        // A JIT script stays attached waiting for our request; a plain enabler attaches and leaves.
-        // Only send the request while something is attached to answer it, otherwise the app could
-        // stop on a breakpoint nobody handles.
-        bool attached = is_traced();
-        for (int i = 0; i < 15 && attached; i++) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            attached = is_traced();
-        }
-        if (attached) {
-            log("requesting " + std::to_string(txm_arena_size / (1024 * 1024)) + " MiB of executable memory from the JIT script");
-            if (try_txm(txm_detail)) {
-                set_status(JitMode::Txm, txm_arena_size, "JIT ready (iOS 26 script).");
-                return;
-            }
-            log(txm_detail);
-        } else {
-            txm_detail = "No JIT script is attached.";
-            log("debugger already detached, no JIT script to ask");
-        }
+    if (os_major >= 26 && traced) {
+        // A JIT script stays attached, waiting for the request. Don't send it yet: the debugger pauses
+        // the whole app while it works, so it is sent when a game starts, with the UI saying so.
+        can_request = true;
+        set_status(JitMode::None, 0, "A JIT script is attached. JIT is set up when you start a game.");
+        return;
     }
 
     std::string legacy_detail;
@@ -353,13 +341,27 @@ void initialize() {
         set_status(JitMode::Legacy, legacy_arena_size, "JIT ready.");
         return;
     }
-    log(legacy_detail);
-
     set_status(JitMode::None, 0,
         os_major >= 26
-            ? txm_detail + " On iOS 26 with an A15 or newer chip, choose StikDebug's universal.js as Vita3K's JIT script (LiveContainer: long-press Vita3K > Settings > JIT Launch Script), keep Launch with JIT on, then reopen Vita3K."
-
+            ? "JIT was enabled without a JIT script, which is not enough on iOS 26 with an A15 or newer chip. In LiveContainer, long-press Vita3K > Settings > JIT Launch Script and choose StikDebug's universal.js, keep Launch with JIT on, then reopen Vita3K."
             : legacy_detail + " Relaunch Vita3K with JIT enabled.");
+}
+
+void request() {
+    log("requesting " + std::to_string(txm_arena_size / (1024 * 1024)) + " MiB of executable memory from the JIT script. "
+        "If Vita3K stays frozen after this line, the attached script does not answer Vita3K's request: use StikDebug's universal.js.");
+    std::string txm_detail;
+    if (try_txm(txm_detail)) {
+        set_status(JitMode::Txm, txm_arena_size, "JIT ready (iOS 26 script).");
+        return;
+    }
+    log(txm_detail);
+    std::string legacy_detail;
+    if (try_legacy(legacy_detail)) {
+        set_status(JitMode::Legacy, legacy_arena_size, "JIT ready.");
+        return;
+    }
+    set_status(JitMode::None, 0, txm_detail + " Choose StikDebug's universal.js as Vita3K's JIT script (LiveContainer: long-press Vita3K > Settings > JIT Launch Script), then reopen Vita3K.");
 }
 
 } // namespace
@@ -373,6 +375,23 @@ void jit_init_async() {
         preparing = true;
         std::thread([] {
             initialize();
+            preparing = false;
+        }).detach();
+    });
+}
+
+bool jit_can_request() {
+    return can_request && !jit_ready();
+}
+
+void jit_request_async() {
+    if (!can_request)
+        return;
+    std::call_once(request_flag, [] {
+        preparing = true;
+        std::thread([] {
+            request();
+            can_request = false;
             preparing = false;
         }).detach();
     });

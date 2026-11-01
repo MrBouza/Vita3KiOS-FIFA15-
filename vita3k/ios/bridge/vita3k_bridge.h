@@ -33,8 +33,12 @@ const char *v3k_version(void);
 bool v3k_is_jit_enabled(void);
 // Why JIT is or isn't available, for the UI (free with v3k_free_string)
 char *v3k_jit_status_text(void);
-// True while JIT memory is still being prepared at launch
+// True while JIT is being checked or set up
 bool v3k_jit_preparing(void);
+// True when a JIT script is attached and v3k_jit_request can set up JIT (iOS 26)
+bool v3k_jit_can_request(void);
+// Asks the JIT script for executable memory; the app pauses while the debugger works
+void v3k_jit_request(void);
 const char *v3k_storage_path(void);
 
 // Bit 0: preinstalled package, bit 1: main firmware, bit 2: font package

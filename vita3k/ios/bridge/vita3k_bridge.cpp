@@ -194,12 +194,20 @@ bool v3k_is_jit_enabled(void) {
 
 char *v3k_jit_status_text(void) {
     if (ios::jit_preparing())
-        return dup_string("Preparing JIT...");
+        return dup_string("Setting up JIT...");
     return dup_string(ios::jit_status().detail);
 }
 
 bool v3k_jit_preparing(void) {
     return ios::jit_preparing();
+}
+
+bool v3k_jit_can_request(void) {
+    return ios::jit_can_request();
+}
+
+void v3k_jit_request(void) {
+    ios::jit_request_async();
 }
 
 const char *v3k_storage_path(void) {

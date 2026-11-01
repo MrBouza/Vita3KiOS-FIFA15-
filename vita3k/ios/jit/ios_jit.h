@@ -50,8 +50,14 @@ struct JitStatus {
 // Where JIT setup reports its progress (the Vita3K log)
 void jit_set_logger(std::function<void(const std::string &)> logger);
 
-// Prepares the JIT arena on a background thread, so the UI stays responsive meanwhile
+// Checks how JIT can be set up, on a background thread. Never stops the app: on iOS 26 it only
+// notes whether a JIT script is attached, the request itself waits for jit_request_async().
 void jit_init_async();
+// True when a JIT script is attached and can be asked for executable memory
+bool jit_can_request();
+// Asks the attached JIT script for executable memory (iOS 26 TXM). The debugger pauses the whole
+// app while it prepares the memory, so the UI shows what is happening before calling this.
+void jit_request_async();
 bool jit_preparing();
 JitStatus jit_status();
 bool jit_ready();

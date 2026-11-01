@@ -73,6 +73,8 @@ final class LibraryModel: ObservableObject {
     @Published var jitEnabled = false
     @Published var jitStatus = ""
     @Published var jitPreparing = false
+    @Published var jitCanRequest = false
+    @Published var settingUpJIT = false
     @Published var settings = EmulatorSettings()
 
     @Published var installProgress: InstallProgress?
@@ -90,9 +92,10 @@ final class LibraryModel: ObservableObject {
     func reload() {
         jitEnabled = v3k_is_jit_enabled()
         jitPreparing = v3k_jit_preparing()
+        jitCanRequest = v3k_jit_can_request()
         jitStatus = takeString(v3k_jit_status_text()) ?? ""
-        if jitPreparing {
-            // JIT memory is prepared in the background at launch: check again shortly
+        if jitPreparing && !settingUpJIT {
+            // JIT is checked in the background at launch: look again shortly
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.reload() }
         }
         firmwareState = v3k_firmware_state()
@@ -113,6 +116,28 @@ final class LibraryModel: ObservableObject {
 
     func launch(_ app: GameApp) {
         v3k_request_launch(app.titleId)
+    }
+
+    /// Asks the attached JIT script for executable memory, then reports whether JIT is ready.
+    /// The debugger pauses the whole app while it works, so the overlay is shown first.
+    func setUpJIT(completion: @escaping (Bool) -> Void) {
+        settingUpJIT = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            v3k_jit_request()
+            self.waitForJIT(completion: completion)
+        }
+    }
+
+    private func waitForJIT(completion: @escaping (Bool) -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if v3k_jit_preparing() {
+                self.waitForJIT(completion: completion)
+                return
+            }
+            self.settingUpJIT = false
+            self.reload()
+            completion(self.jitEnabled)
+        }
     }
 
     func delete(_ app: GameApp) {
