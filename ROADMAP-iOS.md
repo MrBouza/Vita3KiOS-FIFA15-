@@ -29,12 +29,13 @@ Vita3KiOS is upstream [Vita3K](https://github.com/Vita3K/Vita3K) with an iOS lay
 - Build: CMake generates a normal Xcode project, `xcodebuild` builds it unsigned, and CI zips it into an IPA.
 - SwiftUI frontend: library grid with icons, search, JIT/firmware/font status, settings.
 - Importing: firmware `.PUP`, `.vpk`, `.zip`, `.pkg` (zRIF prompt or a `.zrif` file next to it), dumped game folders, and folders holding any of those. Use the import button, or drop files into `Import/` in the Files app.
-- JIT check before launching, with instructions for StikDebug and LiveContainer.
+- iOS JIT taken from Tsubomi by 125hz: on iOS 26 each dynarmic code cache is a StikDebug-prepared RX mapping with a writable alias, prepared as a pool at launch; classic debugger JIT on older iOS. Guest memory is reserved before the pool so it can't be fragmented.
+- Audio session and high-density full-screen game window (also from Tsubomi).
 - LiveContainer-friendly: only sandbox paths through `NSFileManager`/`NSBundle`, no app extensions, no app groups or keychain, no reliance on the bundle ID.
 
 **Next**
 1. **On-device bring-up:** boot a homebrew title and fix runtime issues (MoltenVK feature gaps, file paths).
-2. **JIT on iOS 26 / TXM devices:** dynarmic's code buffer switches RW/RX with `mprotect`, which works on iOS 17.4–18 under StikDebug but not on TXM devices. Add dual-mapped JIT memory and StikDebug `universal.js` support.
+2. **Confirm JIT on device** (iOS 26 TXM through LiveContainer + universal.js) and tune the pool size.
 3. **In-game controls:** touch overlay (port Android's `input_overlay`), MFi/DualSense controllers, iOS keyboard for the IME, pause menu.
 4. **Polish:** background/foreground pause, audio session, ProMotion pacing, AltStore/SideStore source.
 

@@ -1,101 +1,76 @@
 # Vita3KiOS
 
-An experimental PlayStation Vita emulator for iOS/iPadOS devices — a port of [Vita3K](https://github.com/Vita3K/Vita3K).
+An experimental PlayStation Vita emulator for iPhone and iPad, built on [Vita3K](https://github.com/Vita3K/Vita3K).
 
-This repository is a fork of upstream Vita3K. The iOS layer lives on top as separate commits so upstream changes can be merged in cleanly. See [ROADMAP-iOS.md](ROADMAP-iOS.md) for the plan and current status.
+Vita3KiOS runs the full, current Vita3K emulator core (CPU recompiler, GXM→Vulkan renderer via MoltenVK, kernel and module HLE) inside a native iOS app with a SwiftUI library. The iOS JIT support comes from [Tsubomi](https://github.com/125hz/Tsubomi) by 125hz.
 
-### Install
+> **Status: early.** The app builds, installs, imports content and shows your library. Running games depends on JIT working on your device, and on-screen touch controls aren't in yet. Use a controller for now. See [ROADMAP-iOS.md](ROADMAP-iOS.md).
 
-1. Download the latest `Vita3K-iOS-<commit>.ipa` from the [iOS workflow](../../actions/workflows/ios.yml) artifacts.
-2. Install it with AltStore, SideStore, TrollStore, or add it to LiveContainer.
-3. Enable JIT: launch from StikDebug, or use "Launch with JIT" in LiveContainer.
-4. In the app, tap **+** to import the PS Vita firmware (`PSVUPDAT.PUP`, `PSP2UPDAT.PUP`) and your games (`.vpk`, `.zip`, `.pkg` + zRIF, or a game folder).
+## Features
 
-Requires iOS 17.4 or later on an arm64 device.
+- Full Vita3K core, kept in sync with upstream
+- SwiftUI library with game icons, search, firmware/font/JIT status
+- Import firmware (`.PUP`), games as `.vpk`, `.zip`, `.pkg` (with zRIF) or dumped game folders, from the Files picker or the `Import` folder
+- iOS 26 JIT through StikDebug's `universal.js` (from Tsubomi), classic debugger JIT on iOS 17.4–18
+- Works inside LiveContainer
+- Settings for resolution, filtering, V-Sync, CPU options and audio
 
----
+## Requirements
 
-*Upstream Vita3K README follows.*
+- iPhone or iPad with an A12 chip or newer, on **iOS 17.4 or later**
+- A way to sideload an unsigned `.ipa`: AltStore, SideStore, LiveContainer or TrollStore
+- [StikDebug](https://github.com/StephenDev0/StikDebug) for JIT
+- Your own PS Vita firmware and game dumps
 
+## Install
 
-[![C/C++ CI](https://github.com/Vita3K/Vita3K/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Vita3K/Vita3K/actions/workflows/c-cpp.yml)
-[![Release](https://img.shields.io/github/v/release/Vita3K/Vita3K-builds?include_prereleases)](https://github.com/Vita3K/Vita3K/releases)
-[![Vita3K discord server](https://img.shields.io/discord/408916678911459329?color=5865F2&label=Vita3K%20&logo=discord&logoColor=white)](https://discord.gg/6aGwQzh)
+1. Download the latest `Vita3K-iOS-<commit>.ipa` from the [iOS workflow](../../actions/workflows/ios.yml) (open the newest successful run, then **Artifacts**).
+2. Install it with your sideloading tool. New builds install over old ones and keep your data (bundle ID `org.vita3k.ios`).
 
-## Introduction
+## Enabling JIT
 
-Vita3K is an experimental PlayStation Vita emulator for Windows, Linux, macOS and Android.
+Vita3K translates game code at runtime, so it needs JIT. Without it, games won't start, and the app tells you so.
 
-* [Website](https://vita3k.org/) (information for users)
-* [Wiki](https://github.com/Vita3K/Vita3K/wiki) (information for developers)
-* [Discord server](https://discord.gg/MaWhJVH) (recommended)
+**iOS 26 on an A15/M2 or newer chip (iPhone 13 and later)** needs StikDebug's `universal.js` script:
 
-## Compatibility
+- **LiveContainer:** long-press Vita3K → Settings → turn on **Launch with JIT** and set **JIT Launch Script** to `universal.js`. In LiveContainer's settings, choose StikDebug as the JIT enabler.
+- **Installed directly:** in StikDebug, assign `universal.js` to Vita3K and enable JIT for it.
 
-The emulator currently runs most homebrew programs and commercial games.
+When Vita3K opens, it prepares its JIT memory while StikDebug is attached (a "Setting up JIT" screen). The status pill turns green (**JIT ready**) when it's done.
 
-- [Homebrew compatibility page](https://vita3k.org/compatibility-homebrew.html)
-- [Commercial compatibility page](https://vita3k.org/compatibility.html)
+**iOS 17.4–18, or older chips:** enabling JIT in StikDebug (or LiveContainer's "Launch with JIT") is enough.
 
-## Gallery
+## Adding firmware and games
 
-|               **Persona 4 Golden** by Atlus                   |                     **A Rose in the Twilight** by Nippon Ichi Software                         |
-| :-----------------------------------------------------------: | :--------------------------------------------------------------------------------------------: |
-| ![Persona 4 Golden screenshot](./_readme/screenshots/P4G.png) | ![A Rose in the Twilight screenshot](./_readme/screenshots/A%20Rose%20in%20the%20Twilight.png) |
+1. Download the PS Vita firmware (`PSVUPDAT.PUP`) and font package (`PSP2UPDAT.PUP`) from PlayStation's site.
+2. In Vita3K, tap **+** → **Files** and pick them. Then add your games the same way, or with **+** → **Game folder** for a dumped folder.
+   - `.pkg` files need their zRIF license. Vita3K asks for it, or reads a `.zrif` text file with the same name next to the `.pkg`.
+3. Alternatively, copy files into **Files → On My iPhone → Vita3K → Import** and reopen the app.
 
-|                  **Alone with You** by Benjamin Rivers                     |                 **VA-11 HALL-A** by Sukeban Games                    |
-| :------------------------------------------------------------------------: | :------------------------------------------------------------------: |
-| ![Alone with You screenshot](./_readme/screenshots/Alone%20With%20You.png) | ![VA-11 HALL-A screenshot](./_readme/screenshots/VA-11%20HALL-A.png) |
-
-|              **Fruit Ninja** by Halfbrick Studios                  |                **Jetpack Joyride** by Halfbrick Studios                    |
-| :----------------------------------------------------------------: | :------------------------------------------------------------------------: |
-| ![Fruit Ninja Screenshot](./_readme/screenshots/Fruit%20Ninja.png) | ![Jetpack Joyride Screenshot](./_readme/screenshots/Jetpack%20Joyride.png) |
-
-## License
-
-Vita3K is licensed under the **GPLv2** license. This is largely dictated by external dependencies, most notably Unicorn.
-
-## Downloads
-
-You can download the latest builds from [here](https://github.com/Vita3K/Vita3K/releases/tag/continuous).
-
-* Windows
-  * Requirements:
-    * [Microsoft Visual C++ 2015-2022 Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-* Linux
-  * Arch based:
-    * [vita3k-bin](https://aur.archlinux.org/packages/vita3k-bin)<sup><small>AUR</small></sup>
-    * [vita3k-git](https://aur.archlinux.org/packages/vita3k-git)<sup><small>AUR</small></sup>
-  * Requirements:
-    * xdg-desktop-portal
-    * OpenGL or Vulkan runtime libraries
-* Android
-    * [Adreno drivers](https://github.com/K11MCH1/AdrenoToolsDrivers/releases/)
-* Others
-  * [Download Artifact](https://github.com/Vita3K/Vita3K/actions?query=event%3Apush+is%3Asuccess+branch%3Amaster)
-  * [Old builds](https://github.com/Vita3K/Vita3K-builds/releases)
+Data lives in the app's Documents folder (`vita/` holds the Vita file system, `vita3k.log` is the log). Send the log when reporting a problem.
 
 ## Building
 
-Please see [`building.md`](./building.md).
+Builds run on GitHub Actions (`.github/workflows/ios.yml`): CMake generates an Xcode project, `xcodebuild` builds it unsigned, and the app is packaged as an IPA. To build locally on a Mac with Xcode 26 and a bootstrapped [vcpkg](https://github.com/microsoft/vcpkg):
 
-## Running
-Check our [quickstart guide](https://vita3k.org/quickstart) to make sure your computer meets the minimum requirements to run Vita3K.  
-Don't forget to have your graphics driver up to date and to install the [Visual C++ 2015-2022 Redistributable](https://aka.ms/vs/17/release/VC_redist.x64.exe) if you are a Windows user.  
+```sh
+git clone --recursive https://github.com/oledz-i/Vita3KiOS
+cd Vita3KiOS
+VCPKG_ROOT=/path/to/vcpkg bash .ci/build-ios.sh artifacts
+```
 
-## Bugs and issues
-The project is in an early stage, so please be mindful when opening new issues. Expect crashes, glitches, low compatibility and poor performance.
+The iOS code lives in `vita3k/ios/` (app target, SwiftUI frontend, C bridge to the core, JIT), with the dynarmic JIT patch in `vita3k/ios/patches/` (applied automatically at configure time).
 
-## Thanks
-Thanks go out to people who offered advice or otherwise made this project possible, such as Davee, korruptor, Rinnegatamante, ScHlAuChi, Simon Kilroy, TheFlow, xerpi, xyz, Yifan Lu and many others.
+## Credits
 
-## Donations
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/vita3k)
-<br>
-Thank you to the supporters and to all those who support us on our [ko-fi](https://ko-fi.com/vita3K).
-* Among them, those who subscribed to the Nibble Tier and upper: **j0hnnybrav0, Mored4u, TacoOblivion, Undeadbob and uplush**
+- **[Vita3K](https://github.com/Vita3K/Vita3K)** and its contributors: the emulator this app is built on. Please support the upstream project.
+- **[Tsubomi](https://github.com/125hz/Tsubomi)** by **125hz**: the iOS 26 JIT implementation (`vita3k/ios/patches/0001-oaknut-ios-rwx-jit.patch` and the JIT region pool), guest memory pre-reservation, the iOS audio session setup and the high-density game window.
+- **[StikDebug](https://github.com/StephenDev0/StikDebug)**: the on-device JIT enabler and the `universal.js` JIT protocol.
+- **[LiveContainer](https://github.com/LiveContainer/LiveContainer)**: running apps without installing them, with JIT launch scripts.
+- **[dynarmic](https://github.com/merryhime/dynarmic)** and **oaknut** by merryhime, **[MoltenVK](https://github.com/KhronosGroup/MoltenVK)**, **[SDL](https://github.com/libsdl-org/SDL)**, and the other libraries in `external/`.
 
-## Note
-The purpose of this emulator is not to enable illegal activity. You can dump games from a Vita by using [NoNpDrm](https://github.com/TheOfficialFloW/NoNpDrm) or [FAGDec](https://github.com/CelesteBlue-dev/PSVita-RE-tools/tree/master/FAGDec/build). You can get homebrew programs from [VitaDB](https://www.rinnegatamante.eu/vitadb/#/).
+## Legal
 
-PlayStation, PlayStation Vita and PlayStation Network are all registered trademarks of Sony Interactive Entertainment Inc. This emulator is not related to or endorsed by Sony, or derived from confidential materials belonging to Sony.
+Vita3KiOS doesn't include any games, firmware or keys. Only use content you dumped from hardware you own. This project isn't affiliated with Sony.
+
+Licensed under the GNU General Public License v2 or later, like Vita3K. See [COPYING.txt](COPYING.txt).

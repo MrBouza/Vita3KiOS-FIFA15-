@@ -135,9 +135,9 @@ set(DYNARMIC_TESTS OFF CACHE BOOL "")
 set(DYNARMIC_NO_BUNDLED_FMT ON CACHE BOOL "")
 set(DYNARMIC_FRONTENDS "A32" CACHE STRING "")
 if(IOS)
-	# iOS JIT: let dynarmic write code through a separate writable alias of its executable memory
-	# (needed on iOS 26 TXM devices). Applied to the submodule checkout, once.
-	set(DYNARMIC_IOS_PATCH "${CMAKE_SOURCE_DIR}/vita3k/ios/patches/dynarmic-ios-jit.patch")
+	# iOS JIT (from Tsubomi by 125hz): dynarmic code caches are StikDebug-prepared RX mappings with
+	# a writable alias on iOS 26+. Applied to the submodule checkout, once.
+	set(DYNARMIC_IOS_PATCH "${CMAKE_SOURCE_DIR}/vita3k/ios/patches/0001-oaknut-ios-rwx-jit.patch")
 	execute_process(COMMAND git apply --reverse --check "${DYNARMIC_IOS_PATCH}"
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dynarmic"
 		RESULT_VARIABLE DYNARMIC_IOS_PATCH_PRESENT OUTPUT_QUIET ERROR_QUIET)

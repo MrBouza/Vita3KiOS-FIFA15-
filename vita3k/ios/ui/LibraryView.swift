@@ -72,7 +72,7 @@ struct LibraryView: View {
                     InstallOverlay(progress: progress)
                 }
 
-                if model.settingUpJIT {
+                if model.settingUpJIT || model.jitPreparing {
                     JITSetupOverlay()
                 }
             }
@@ -308,7 +308,7 @@ struct JITSetupOverlay: View {
             VStack(spacing: 14) {
                 ProgressView().controlSize(.large).tint(Theme.accent)
                 Text("Setting up JIT").font(.headline)
-                Text("Vita3K pauses for a few seconds while the JIT script prepares memory. The game starts right after.")
+                Text("StikDebug is preparing executable memory for the emulator. Keep Vita3K open, this can take a little while.")
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.7))

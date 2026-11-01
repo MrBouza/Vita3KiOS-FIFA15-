@@ -37,6 +37,9 @@ bool is_jit_enabled();
 // Library UI (SwiftUI, see ui/). Shows it and runs the main run loop until the user picks a game,
 // then hides it and returns that game's title ID.
 std::string run_library_until_launch();
+
+// Sets the AVAudioSession to Playback at 48 kHz and activates it. Returns a line for the log.
+std::string configure_audio_session();
 void set_pending_launch(const std::string &title_id);
 
 } // namespace ios

@@ -24,6 +24,7 @@
 //      SDL frontend (the same runner Android uses). When the game exits, the library comes back.
 
 #include "ios_session.h"
+#include "bridge/vita3k_bridge.h"
 #include "jit/ios_jit.h"
 
 #include <emuenv/app_launch_request.h>
@@ -55,10 +56,22 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Prepare JIT memory in the background while the library comes up. It must happen early, while
-    // the JIT enabler (and its iOS 26 script) is still attached.
-    ios::jit_set_logger([](const std::string &message) { LOG_INFO("{}", message); });
-    ios::jit_init_async();
+    ios::install_fatal_signal_logger();
+
+    // Activate the audio session before SDL opens the audio device, so the audio unit actually runs
+    // (otherwise games that wait on audio playback freeze). From Tsubomi.
+    LOG_INFO("{}", ios::configure_audio_session());
+
+    // Prepare the JIT region pool now, while StikDebug is still attached: it usually detaches within
+    // a minute of launch, and new executable regions can't be prepared after that (iOS 26).
+    // Same order as Tsubomi: guest memory is reserved first, inside prepare_jit_pool().
+    const bool jit_capable = ios::jit_capability_enabled();
+    LOG_INFO("JIT probe: capability {}, debugger attached {}", jit_capable ? "yes" : "no", ios::debugger_attached() ? "yes" : "no");
+    if (jit_capable) {
+        // Started right away, on a background thread, so the library can show a progress overlay
+        // instead of a frozen screen while StikDebug prepares the regions
+        v3k_jit_request();
+    }
 
     // Files dropped into Documents/Import through the Files app or a computer
     const auto import = ios::import_pending_files(documents / "Import");
@@ -74,7 +87,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        LOG_INFO("Launching {} (JIT {})", title_id, ios::jit_ready() ? "ready" : "NOT ready");
+        LOG_INFO("Launching {} (JIT {})", title_id, ios::jit_pool_ready() ? "ready" : "NOT ready");
 
         // The library can rotate freely; games are landscape only
         SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");

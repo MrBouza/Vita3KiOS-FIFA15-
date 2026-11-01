@@ -22,6 +22,7 @@
 
 #include <cpu/common.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 
@@ -75,4 +76,10 @@ bool get_log_mem(CPUState &state);
 
 // The CPU state running on this host thread, for signal handlers
 void set_current_cpu_state(CPUState *state);
+
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+// iOS 26+ JIT (from Tsubomi): prepares target_count code caches of cache_size bytes through the
+// attached StikDebug universal.js script. Returns how many are ready.
+std::size_t prewarm_ios_jit_code_cache_pool(std::size_t target_count, std::size_t cache_size);
+#endif
 CPUState *get_current_cpu_state();

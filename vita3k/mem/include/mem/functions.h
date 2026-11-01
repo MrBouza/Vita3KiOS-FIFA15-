@@ -47,6 +47,9 @@ constexpr MemPerm most_restrictive_perm(MemPerm a, MemPerm b) {
     return MemPerm::ReadWrite;
 }
 
+// Reserves the guest address space early, before other large mappings (such as the iOS JIT region
+// pool) can fragment it; the next init() adopts it. From Tsubomi by 125hz.
+bool prereserve_guest_memory();
 bool init(MemState &state, const bool use_page_table);
 void deinit_mem(MemState &state);
 Address alloc(MemState &state, uint32_t size, const char *name, Address start_addr = user_main_memory_start);

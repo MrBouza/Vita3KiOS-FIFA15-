@@ -32,12 +32,14 @@
 
 #include <fmt/format.h>
 
+#include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -188,26 +190,38 @@ const char *v3k_version(void) {
     return version.c_str();
 }
 
+namespace {
+std::atomic_bool jit_preparing{ false };
+}
+
 bool v3k_is_jit_enabled(void) {
-    return ios::jit_ready();
+    return ios::jit_pool_ready();
 }
 
 char *v3k_jit_status_text(void) {
-    if (ios::jit_preparing())
+    if (jit_preparing)
         return dup_string("Setting up JIT...");
-    return dup_string(ios::jit_status().detail);
+    return dup_string(ios::jit_status_text());
 }
 
 bool v3k_jit_preparing(void) {
-    return ios::jit_preparing();
+    return jit_preparing;
 }
 
 bool v3k_jit_can_request(void) {
-    return ios::jit_can_request();
+    return !ios::jit_pool_ready() && ios::jit_capability_enabled() && ios::debugger_attached();
 }
 
 void v3k_jit_request(void) {
-    ios::jit_request_async();
+    if (jit_preparing.exchange(true))
+        return;
+    std::thread([] {
+        if (ios::prepare_jit_pool())
+            LOG_INFO("JIT region pool prepared");
+        else
+            LOG_WARN("JIT region pool preparation failed: {}", ios::jit_status_text());
+        jit_preparing = false;
+    }).detach();
 }
 
 const char *v3k_storage_path(void) {

@@ -19,6 +19,7 @@
 
 #include "ios_platform.h"
 
+#import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
@@ -93,6 +94,26 @@ std::string run_library_until_launch() {
             v3k_ui_hide();
             return title_id;
         }
+    }
+}
+
+// From Tsubomi (vita3k_ios_configure_audio_session)
+std::string configure_audio_session() {
+    @autoreleasepool {
+        NSError *error = nil;
+        AVAudioSession *session = AVAudioSession.sharedInstance;
+        std::string result;
+        // Playback so audio keeps running with the mute switch on; MixWithOthers keeps us polite
+        if (![session setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeDefault
+                          options:AVAudioSessionCategoryOptionMixWithOthers error:&error]) {
+            result += std::string("setCategory failed: ") + (error.localizedDescription.UTF8String ?: "unknown") + ". ";
+            error = nil;
+        }
+        [session setPreferredSampleRate:48000 error:nil];
+        [session setPreferredIOBufferDuration:1024.0 / 48000.0 error:nil];
+        if (![session setActive:YES error:&error])
+            return result + "Audio session activation failed: " + (error.localizedDescription.UTF8String ?: "unknown");
+        return result + "Audio session active (Playback), " + std::to_string(static_cast<int>(session.sampleRate)) + " Hz";
     }
 }
 

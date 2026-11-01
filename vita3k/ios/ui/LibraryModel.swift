@@ -95,7 +95,7 @@ final class LibraryModel: ObservableObject {
         jitCanRequest = v3k_jit_can_request()
         jitStatus = takeString(v3k_jit_status_text()) ?? ""
         if jitPreparing && !settingUpJIT {
-            // JIT is checked in the background at launch: look again shortly
+            // JIT is being set up in the background: look again shortly
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.reload() }
         }
         firmwareState = v3k_firmware_state()

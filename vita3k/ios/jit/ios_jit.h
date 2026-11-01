@@ -17,52 +17,29 @@
 
 #pragma once
 
-// iOS JIT memory.
+// iOS JIT, ported from Tsubomi by 125hz (https://github.com/125hz/Tsubomi, GPL-2.0).
 //
-// dynarmic needs memory it can write machine code into and then execute. On iOS that requires a
-// debugger to be attached (StikDebug, or LiveContainer's "Launch with JIT"), and on iOS 26 devices
-// with TXM (A15+/M2+) the debugger must also prepare every executable region up front, through
-// StikDebug's universal.js breakpoint protocol (brk #0xf00d).
-//
-// So at launch one arena is prepared, a writable alias of it is created, and every dynarmic code
-// cache is carved out of it (through oaknut_ios_jit_alloc, see patches/dynarmic-ios-jit.patch).
-//
-// Keep this header free of Vita3K includes: the implementation uses Mach headers.
+// On iOS 26+ every dynarmic code cache is an RX mapping that StikDebug's universal.js prepares
+// (brk #0xf00d, see patches/0001-oaknut-ios-rwx-jit.patch), plus a writable alias. Vita3K creates a
+// cache per guest thread, so a pool of them is prepared up front while StikDebug is attached.
+// On older iOS the classic debugger RWX mapping is used and no preparation is needed.
 
-#include <cstddef>
-#include <functional>
 #include <string>
 
 namespace ios {
 
-enum class JitMode {
-    None, // no executable memory: games cannot run
-    Txm, // iOS 26 TXM path: arena prepared by the debugger script
-    Legacy, // debugger attached, classic writable/executable dual mapping
-};
+// Logs fatal signals (with PC and image) and turns an unanswered JIT breakpoint into a failed
+// allocation instead of a crash
+void install_fatal_signal_logger();
 
-struct JitStatus {
-    JitMode mode = JitMode::None;
-    std::size_t arena_size = 0;
-    std::string detail; // human-readable explanation, shown in the UI and the log
-};
+bool debugger_attached(); // P_TRACED: a debugger is attached right now
+bool jit_capability_enabled(); // CS_DEBUGGED or attached
+bool jit_available(); // pool prepared, or a debugger is attached to prepare one
+bool jit_pool_ready();
 
-// Where JIT setup reports its progress (the Vita3K log)
-void jit_set_logger(std::function<void(const std::string &)> logger);
+// Reserves guest memory, then prepares the JIT region pool. Blocks while StikDebug works.
+bool prepare_jit_pool();
 
-// Checks how JIT can be set up, on a background thread. Never stops the app: on iOS 26 it only
-// notes whether a JIT script is attached, the request itself waits for jit_request_async().
-void jit_init_async();
-// True when a JIT script is attached and can be asked for executable memory
-bool jit_can_request();
-// Asks the attached JIT script for executable memory (iOS 26 TXM). The debugger pauses the whole
-// app while it prepares the memory, so the UI shows what is happening before calling this.
-void jit_request_async();
-bool jit_preparing();
-JitStatus jit_status();
-bool jit_ready();
-
-// Size of each dynarmic code cache carved from the arena (see cpu/src/dynarmic_cpu.cpp)
-constexpr std::size_t jit_code_cache_size = 2 * 1024 * 1024;
+std::string jit_status_text();
 
 } // namespace ios

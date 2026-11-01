@@ -15,9 +15,6 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
 #include "cpu/common.h"
 #include <cpu/impl/dynarmic_cpu.h>
 #include <cpu/state.h>
@@ -29,10 +26,56 @@
 #include <dynarmic/interface/A32/coprocessor.h>
 #include <dynarmic/interface/exclusive_monitor.h>
 
+// iOS JIT region pool, from Tsubomi by 125hz (https://github.com/125hz/Tsubomi).
+// oaknut is dynarmic's arm64 assembler; its pool only exists on arm64 devices.
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+#include <oaknut/code_block.hpp>
+#include <spdlog/spdlog.h>
+#endif
+
 #include <bit>
 #include <memory>
 #include <optional>
+#include <mutex>
 #include <string>
+
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+namespace {
+
+void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t size, std::size_t available) {
+    switch (event) {
+    case oaknut::JitRegionPoolEvent::Take:
+        LOG_INFO("iOS JIT region pool take: size={} bytes available={}", size, available);
+        break;
+    case oaknut::JitRegionPoolEvent::Return:
+        LOG_INFO("iOS JIT region pool return: size={} bytes available={}", size, available);
+        break;
+    case oaknut::JitRegionPoolEvent::Miss:
+        LOG_INFO("iOS JIT region pool miss: size={} bytes available={}", size, available);
+        break;
+    case oaknut::JitRegionPoolEvent::Prewarm:
+        LOG_INFO("iOS JIT region pool prewarm: size={} bytes available={}", size, available);
+        break;
+    case oaknut::JitRegionPoolEvent::SessionLost:
+        LOG_CRITICAL("StikDebug JIT session lost - cannot prepare a new JIT region; reopen StikDebug and re-enable JIT");
+        if (auto logger = spdlog::default_logger())
+            logger->flush();
+        break;
+    }
+}
+
+} // namespace
+
+std::size_t prewarm_ios_jit_code_cache_pool(std::size_t target_count, std::size_t cache_size) {
+    oaknut::set_jit_region_pool_log_callback(&log_ios_jit_region_pool_event);
+    LOG_INFO("iOS JIT region pool prewarm starting: target={} size={} bytes ({} MiB each)",
+        target_count, cache_size, cache_size / (1024 * 1024));
+    const std::size_t available = oaknut::prewarm_jit_region_pool(cache_size, target_count);
+    LOG_INFO("iOS JIT region pool prewarm complete: target={} available={} size={} bytes",
+        target_count, available, cache_size);
+    return available;
+}
+#endif
 
 class ArmDynarmicCP15 : public Dynarmic::A32::Coprocessor {
 public:
@@ -298,12 +341,28 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     config.processor_id = core_id;
     config.optimizations = cpu_opt ? Dynarmic::all_safe_optimizations : Dynarmic::no_optimizations;
     config.enable_cycle_counting = false;
-#if defined(__APPLE__) && TARGET_OS_IPHONE
-    // Code caches come from the fixed iOS JIT arena (vita3k/ios/jit), shared by every guest thread
-    config.code_cache_size = 2 * 1024 * 1024;
+#if defined(VITA3K_PLATFORM_IOS)
+    // From Tsubomi: Vita3K owns one Dynarmic JIT per guest thread. On iOS 26+ each cache also has a
+    // same-sized writable vm_remap alias, so the 128 MiB default scales poorly. 16 MiB stays above
+    // Dynarmic's approximate 8 MiB minimum; the backend clears the cache when it fills up.
+    constexpr std::size_t IOS_CODE_CACHE_SIZE = 16 * 1024 * 1024;
+    config.code_cache_size = IOS_CODE_CACHE_SIZE;
 #endif
 
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+    // StikDebug services oaknut's BRK #0xf00d while the JIT constructor maps its cache. Serialize this
+    // so simultaneous guest-thread creation cannot issue overlapping debugger requests.
+    static std::mutex jit_creation_mutex;
+    static uint64_t jit_creation_count = 0;
+    const std::lock_guard lock(jit_creation_mutex);
+    const uint64_t allocation_id = ++jit_creation_count;
+    LOG_INFO("iOS Dynarmic JIT cache #{} allocating: core={} size={} MiB", allocation_id, core_id, config.code_cache_size / (1024 * 1024));
+    auto jit = std::make_unique<Dynarmic::A32::Jit>(config);
+    LOG_INFO("iOS Dynarmic JIT cache #{} ready", allocation_id);
+    return jit;
+#else
     return std::make_unique<Dynarmic::A32::Jit>(config);
+#endif
 }
 
 DynarmicCPU::DynarmicCPU(CPUState *state, std::size_t processor_id, bool cpu_opt)

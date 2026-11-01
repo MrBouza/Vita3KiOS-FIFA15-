@@ -22,6 +22,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
 	# iOS port (Vita3KiOS). 17.4 is the oldest iOS that StikDebug can enable JIT on.
 	set(IOS 1)
+	set(VITA3K_PLATFORM_IOS 1)
+	add_compile_definitions(VITA3K_PLATFORM_IOS=1)
 	set(CMAKE_OSX_DEPLOYMENT_TARGET 17.4)
 else()
 	set(CMAKE_OSX_DEPLOYMENT_TARGET 13.3)

@@ -15,447 +15,200 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+// Ported from Tsubomi by 125hz (ios/src/UpstreamMain.cpp, https://github.com/125hz/Tsubomi, GPL-2.0)
+
 #include "ios_jit.h"
 
-#include <libkern/OSCacheControl.h>
-#include <mach/mach.h>
-#include <sys/mman.h>
+#include <cpu/functions.h>
+#include <mem/functions.h>
+#include <util/log.h>
+
+#include <spdlog/spdlog.h>
+
+#include <dlfcn.h>
+#include <signal.h>
 #include <sys/sysctl.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
-#include <chrono>
-#include <csetjmp>
-#include <csignal>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
-#include <iterator>
-#include <map>
-#include <mutex>
-#include <thread>
 
+// csops() is a private syscall but is the standard way to read the code-signing status flags.
+// CS_DEBUGGED stays set for the process lifetime once a debugger has attached and enabled JIT,
+// whereas P_TRACED drops the moment StikDebug detaches.
 extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
-
-// ---- StikDebug universal.js protocol: brk #0xf00d, command in x16, arguments in x0/x1 ----
-// x16 = 1: prepare region. x0 = address (NULL: let the debugger allocate it), x1 = length.
-//          Returns the executable address in x0.
-// x16 = 0: detach.
-
-extern "C" __attribute__((naked, noinline)) void *v3k_jit26_prepare_region(void *address, size_t length) {
-    __asm__(
-        "mov x16, #1\n"
-        "brk #0xf00d\n"
-        "ret\n");
-}
-
-extern "C" __attribute__((naked, noinline)) void v3k_jit26_detach() {
-    __asm__(
-        "mov x16, #0\n"
-        "brk #0xf00d\n"
-        "ret\n");
-}
+#ifndef CS_OPS_STATUS
+#define CS_OPS_STATUS 0
+#endif
+#ifndef CS_DEBUGGED
+#define CS_DEBUGGED 0x10000000u
+#endif
 
 namespace ios {
 
 namespace {
 
-constexpr std::size_t page_size = 16 * 1024;
-// Executable memory the debugger prepares. It writes one byte per page over the debug connection
-// while the app is stopped, so this stays modest: 64 MiB = 4096 pages, 32 code caches of 2 MiB.
-constexpr std::size_t txm_arena_size = 64 * 1024 * 1024;
-// Without TXM the arena only reserves address space, so it can be larger
-constexpr std::size_t legacy_arena_size = 512 * 1024 * 1024;
-constexpr uint32_t brk_f00d = 0xD43E01A0; // brk #0xf00d
+std::atomic_bool g_jit_pool_ready{ false };
+std::atomic_bool g_unhandled_universal_jit_breakpoint{ false };
 
-JitStatus status;
-std::mutex status_mutex;
-std::atomic<bool> preparing{ false };
-std::atomic<bool> can_request{ false };
-std::once_flag request_flag;
-std::once_flag init_flag;
-std::function<void(const std::string &)> log_fn;
-
-void log(const std::string &message) {
-    if (log_fn)
-        log_fn("JIT: " + message);
-}
-
-void set_status(JitMode mode, std::size_t arena_size, std::string detail) {
-    log(detail);
-    std::lock_guard lock(status_mutex);
-    status.mode = mode;
-    status.arena_size = arena_size;
-    status.detail = std::move(detail);
-}
-
-// ---- Arena: one executable region + writable alias, handed out first-fit ----
-struct Arena {
-    uint8_t *exec = nullptr;
-    uint8_t *write = nullptr;
-    std::size_t size = 0;
-    std::map<std::size_t, std::size_t> free_ranges; // offset -> length
-    std::mutex mutex;
-} arena;
-
-std::size_t round_up(std::size_t value) {
-    return (value + page_size - 1) & ~(page_size - 1);
-}
-
-bool is_debugged() {
-    constexpr unsigned int CS_OPS_STATUS = 0;
-    constexpr uint32_t CS_DEBUGGED = 0x10000000;
-    uint32_t flags = 0;
-    if (csops(getpid(), CS_OPS_STATUS, &flags, sizeof(flags)) != 0)
-        return false;
-    return (flags & CS_DEBUGGED) != 0;
-}
-
-// True while a debugger is attached right now (CS_DEBUGGED stays set after it detaches)
-bool is_traced() {
-    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
-    struct kinfo_proc info {};
-    size_t size = sizeof(info);
-    if (sysctl(mib, 4, &info, &size, nullptr, 0) != 0)
-        return false;
-    return (info.kp_proc.p_flag & P_TRACED) != 0;
-}
+constexpr std::size_t IOS_JIT_CACHE_SIZE = 16 * 1024 * 1024;
+// Tsubomi: Gravity Rush runs ~24 concurrently-live guest threads; keep headroom for thread churn
+constexpr std::size_t IOS_JIT_POOL_TARGET = 32;
 
 int os_major_version() {
-    char version[32] = {};
+    char version[32]{};
     size_t size = sizeof(version);
     if (sysctlbyname("kern.osproductversion", version, &size, nullptr, 0) != 0)
         return 0;
     return std::atoi(version);
 }
 
-// ---- Signal guards ----
-// A brk that no debugger services raises SIGTRAP: skip it and report failure instead of dying.
-// A jump into memory that is not executable raises SIGBUS/SIGSEGV: catch it during the self-test.
-volatile sig_atomic_t trap_skipped = 0;
-volatile sig_atomic_t self_testing = 0;
-sigjmp_buf self_test_jump;
-
-void trap_handler(int, siginfo_t *, void *context) {
-    auto *uc = static_cast<ucontext_t *>(context);
-    auto &state = uc->uc_mcontext->__ss;
-    if (*reinterpret_cast<const uint32_t *>(state.__pc) == brk_f00d) {
-        state.__x[0] = 0;
-        state.__pc += 4;
-        trap_skipped = 1;
-        return;
+// Several device deaths leave no trace in the log because they are not SEGV/BUS data faults
+// (mem.cpp already logs those). Log the signal, PC and owning image, then re-raise with the
+// default action so iOS still writes its crash report.
+void fatal_signal_handler(int sig, siginfo_t *info, void *uct) {
+    uintptr_t pc = 0;
+#if defined(__aarch64__)
+    if (uct) {
+        auto *context = static_cast<ucontext_t *>(uct);
+        pc = context->uc_mcontext->__ss.__pc;
+        // oaknut asks StikDebug to prepare an iOS 26 executable mapping with BRK #0xf00d. If nothing
+        // answers it, it arrives as SIGTRAP: return nullptr from the helper so the allocator throws
+        // and the launch fails with an explanation instead of killing the app.
+        constexpr std::uint32_t universal_jit_breakpoint = 0xD43E01A0;
+        if (sig == SIGTRAP && pc != 0 && *reinterpret_cast<const std::uint32_t *>(pc) == universal_jit_breakpoint) {
+            context->uc_mcontext->__ss.__x[0] = 0;
+            context->uc_mcontext->__ss.__pc = pc + sizeof(std::uint32_t);
+            g_unhandled_universal_jit_breakpoint.store(true, std::memory_order_relaxed);
+            static constexpr char message[] = "Vita3K: no JIT script answered the universal JIT request.\n";
+            write(STDERR_FILENO, message, sizeof(message) - 1);
+            return;
+        }
     }
-    signal(SIGTRAP, SIG_DFL);
-    raise(SIGTRAP);
-}
+#endif
+    Dl_info dl_info{};
+    const char *image = "?";
+    uintptr_t image_base = 0;
+    if (pc && dladdr(reinterpret_cast<void *>(pc), &dl_info) && dl_info.dli_fname) {
+        image = dl_info.dli_fname;
+        image_base = reinterpret_cast<uintptr_t>(dl_info.dli_fbase);
+    }
+    // Not async-signal-safe, but the process is dying anyway and this is the only way into the log
+    LOG_CRITICAL("FATAL SIGNAL {}: PC=0x{:X} (image '{}' +0x{:X}) fault_addr=0x{:X}",
+        sig, pc, image, image_base ? pc - image_base : 0,
+        info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0);
+    if (auto logger = spdlog::default_logger())
+        logger->flush();
 
-void fault_handler(int sig, siginfo_t *, void *) {
-    if (self_testing)
-        siglongjmp(self_test_jump, 1);
     signal(sig, SIG_DFL);
     raise(sig);
 }
 
-struct ScopedSignal {
-    int sig;
-    struct sigaction old {};
-    ScopedSignal(int sig, void (*handler)(int, siginfo_t *, void *))
-        : sig(sig) {
-        struct sigaction action {};
-        action.sa_sigaction = handler;
-        action.sa_flags = SA_SIGINFO;
-        sigemptyset(&action.sa_mask);
-        sigaction(sig, &action, &old);
-    }
-    ~ScopedSignal() {
-        sigaction(sig, &old, nullptr);
-    }
-};
-
-// Writes `mov w0, #42; ret` through the writable view and runs it from the executable view
-bool self_test(uint8_t *exec, uint8_t *write) {
-    auto *code = reinterpret_cast<uint32_t *>(write);
-    code[0] = 0x52800540; // mov w0, #42
-    code[1] = 0xD65F03C0; // ret
-    sys_icache_invalidate(exec, 8);
-
-    ScopedSignal bus(SIGBUS, fault_handler);
-    ScopedSignal segv(SIGSEGV, fault_handler);
-    int result = -1;
-    self_testing = 1;
-    if (sigsetjmp(self_test_jump, 1) == 0)
-        result = reinterpret_cast<int (*)()>(exec)();
-    self_testing = 0;
-
-    code[0] = 0;
-    code[1] = 0;
-    sys_icache_invalidate(exec, 8);
-    return result == 42;
-}
-
-bool region_is_executable(uint8_t *address, std::size_t size) {
-    vm_address_t region = reinterpret_cast<vm_address_t>(address);
-    vm_size_t region_size = 0;
-    vm_region_basic_info_data_64_t info{};
-    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
-    mach_port_t object = MACH_PORT_NULL;
-    if (vm_region_64(mach_task_self(), &region, &region_size, VM_REGION_BASIC_INFO_64,
-            reinterpret_cast<vm_region_info_t>(&info), &count, &object)
-        != KERN_SUCCESS)
-        return false;
-    const auto begin = reinterpret_cast<uintptr_t>(address);
-    return region <= begin && region + region_size >= begin + size && (info.protection & VM_PROT_EXECUTE);
-}
-
-// Maps a read/write alias of [exec, exec + size)
-uint8_t *make_writable_alias(uint8_t *exec, std::size_t size, std::string &error) {
-    vm_address_t alias = 0;
-    vm_prot_t cur = VM_PROT_NONE, max = VM_PROT_NONE;
-    kern_return_t kr = vm_remap(mach_task_self(), &alias, size, 0, VM_FLAGS_ANYWHERE, mach_task_self(),
-        reinterpret_cast<vm_address_t>(exec), false, &cur, &max, VM_INHERIT_NONE);
-    if (kr != KERN_SUCCESS) {
-        error = "vm_remap failed (" + std::to_string(kr) + ")";
-        return nullptr;
-    }
-    kr = vm_protect(mach_task_self(), alias, size, false, VM_PROT_READ | VM_PROT_WRITE);
-    if (kr != KERN_SUCCESS) {
-        vm_deallocate(mach_task_self(), alias, size);
-        error = "vm_protect RW failed (" + std::to_string(kr) + ")";
-        return nullptr;
-    }
-    return reinterpret_cast<uint8_t *>(alias);
-}
-
-void adopt_arena(uint8_t *exec, uint8_t *write, std::size_t size) {
-    std::lock_guard lock(arena.mutex);
-    arena.exec = exec;
-    arena.write = write;
-    arena.size = size;
-    arena.free_ranges = { { 0, size } };
-}
-
-// iOS 26 TXM: ask the debugger script for an executable region
-bool try_txm(std::string &detail) {
-    uint8_t *exec = nullptr;
-    {
-        ScopedSignal trap(SIGTRAP, trap_handler);
-        for (int attempt = 0; attempt < 3 && !exec; attempt++) {
-            trap_skipped = 0;
-            auto *result = static_cast<uint8_t *>(v3k_jit26_prepare_region(nullptr, txm_arena_size));
-            if (trap_skipped) {
-                detail = "No JIT script answered. Select universal.js as the JIT script for Vita3K.";
-                return false;
-            }
-            // An unserviced or failed request can leave junk in x0, so validate the region itself
-            if (result && (reinterpret_cast<uintptr_t>(result) % page_size) == 0 && region_is_executable(result, txm_arena_size))
-                exec = result;
-            else
-                std::this_thread::sleep_for(std::chrono::milliseconds(150));
-        }
-    }
-    if (!exec) {
-        detail = "The JIT script did not return executable memory.";
-        return false;
-    }
-
-    log("executable memory received, mapping the writable view");
-    std::string error;
-    uint8_t *write = make_writable_alias(exec, txm_arena_size, error);
-
-    {
-        // All regions are prepared: let the debugger go (the memory stays executable)
-        log("detaching the JIT script");
-        ScopedSignal trap(SIGTRAP, trap_handler);
-        v3k_jit26_detach();
-    }
-    log("running the JIT self-test");
-
-    if (!write) {
-        detail = "Could not create the writable JIT view: " + error;
-        return false;
-    }
-    if (!self_test(exec, write)) {
-        detail = "The prepared JIT memory failed its self-test.";
-        return false;
-    }
-    adopt_arena(exec, write, txm_arena_size);
-    return true;
-}
-
-// Classic path (iOS 17.4-18, or devices without TXM): RW memory plus an executable alias
-bool try_legacy(std::string &detail) {
-    log("trying the classic dual mapping");
-    void *rw = mmap(nullptr, legacy_arena_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (rw == MAP_FAILED) {
-        detail = "Could not reserve JIT memory.";
-        return false;
-    }
-    vm_address_t alias = 0;
-    vm_prot_t cur = VM_PROT_NONE, max = VM_PROT_NONE;
-    kern_return_t kr = vm_remap(mach_task_self(), &alias, legacy_arena_size, 0, VM_FLAGS_ANYWHERE, mach_task_self(),
-        reinterpret_cast<vm_address_t>(rw), false, &cur, &max, VM_INHERIT_NONE);
-    if (kr != KERN_SUCCESS || mprotect(reinterpret_cast<void *>(alias), legacy_arena_size, PROT_READ | PROT_EXEC) != 0) {
-        if (kr == KERN_SUCCESS)
-            vm_deallocate(mach_task_self(), alias, legacy_arena_size);
-        munmap(rw, legacy_arena_size);
-        detail = "Could not map executable JIT memory.";
-        return false;
-    }
-    auto *exec = reinterpret_cast<uint8_t *>(alias);
-    auto *write = static_cast<uint8_t *>(rw);
-    if (!self_test(exec, write)) {
-        vm_deallocate(mach_task_self(), alias, legacy_arena_size);
-        munmap(rw, legacy_arena_size);
-        detail = "Executable memory is blocked.";
-        return false;
-    }
-    adopt_arena(exec, write, legacy_arena_size);
-    return true;
-}
-
-void initialize() {
-    log("checking for a debugger");
-    for (int i = 0; i < 30 && !is_debugged(); i++)
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    if (!is_debugged()) {
-        set_status(JitMode::None, 0, "JIT is not enabled. Launch Vita3K from StikDebug, or with \"Launch with JIT\" in LiveContainer.");
-        return;
-    }
-
-    const int os_major = os_major_version();
-    const bool traced = is_traced();
-    log("debugger flag set, iOS " + std::to_string(os_major) + ", debugger attached now: " + (traced ? "yes" : "no"));
-
-    if (os_major >= 26 && traced) {
-        // A JIT script stays attached, waiting for the request. Don't send it yet: the debugger pauses
-        // the whole app while it works, so it is sent when a game starts, with the UI saying so.
-        can_request = true;
-        set_status(JitMode::None, 0, "A JIT script is attached. JIT is set up when you start a game.");
-        return;
-    }
-
-    std::string legacy_detail;
-    if (try_legacy(legacy_detail)) {
-        set_status(JitMode::Legacy, legacy_arena_size, "JIT ready.");
-        return;
-    }
-    set_status(JitMode::None, 0,
-        os_major >= 26
-            ? "JIT was enabled without a JIT script, which is not enough on iOS 26 with an A15 or newer chip. In LiveContainer, long-press Vita3K > Settings > JIT Launch Script and choose StikDebug's universal.js, keep Launch with JIT on, then reopen Vita3K."
-            : legacy_detail + " Relaunch Vita3K with JIT enabled.");
-}
-
-void request() {
-    log("requesting " + std::to_string(txm_arena_size / (1024 * 1024)) + " MiB of executable memory from the JIT script. "
-        "If Vita3K stays frozen after this line, the attached script does not answer Vita3K's request: use StikDebug's universal.js.");
-    std::string txm_detail;
-    if (try_txm(txm_detail)) {
-        set_status(JitMode::Txm, txm_arena_size, "JIT ready (iOS 26 script).");
-        return;
-    }
-    log(txm_detail);
-    std::string legacy_detail;
-    if (try_legacy(legacy_detail)) {
-        set_status(JitMode::Legacy, legacy_arena_size, "JIT ready.");
-        return;
-    }
-    set_status(JitMode::None, 0, txm_detail + " Choose StikDebug's universal.js as Vita3K's JIT script (LiveContainer: long-press Vita3K > Settings > JIT Launch Script), then reopen Vita3K.");
-}
-
 } // namespace
 
-void jit_set_logger(std::function<void(const std::string &)> logger) {
-    log_fn = std::move(logger);
+void install_fatal_signal_logger() {
+    // Run the handler on its own stack so a stack overflow can still be reported
+    static std::array<char, SIGSTKSZ> alt_stack_storage;
+    stack_t alt_stack{};
+    alt_stack.ss_sp = alt_stack_storage.data();
+    alt_stack.ss_size = alt_stack_storage.size();
+    sigaltstack(&alt_stack, nullptr);
+
+    struct sigaction sa {};
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_sigaction = fatal_signal_handler;
+    // SIGSEGV/SIGBUS belong to mem.cpp's guest-fault handler
+    for (const int sig : { SIGABRT, SIGILL, SIGTRAP, SIGFPE })
+        sigaction(sig, &sa, nullptr);
 }
 
-void jit_init_async() {
-    std::call_once(init_flag, [] {
-        preparing = true;
-        std::thread([] {
-            initialize();
-            preparing = false;
-        }).detach();
-    });
+bool debugger_attached() {
+    struct kinfo_proc info {};
+    std::size_t size = sizeof(info);
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
+    return sysctl(mib, 4, &info, &size, nullptr, 0) == 0 && (info.kp_proc.p_flag & P_TRACED) != 0;
 }
 
-bool jit_can_request() {
-    return can_request && !jit_ready();
+bool jit_capability_enabled() {
+    uint32_t cs_flags = 0;
+    return (csops(getpid(), CS_OPS_STATUS, &cs_flags, sizeof(cs_flags)) == 0 && (cs_flags & CS_DEBUGGED) != 0)
+        || debugger_attached();
 }
 
-void jit_request_async() {
-    if (!can_request)
-        return;
-    std::call_once(request_flag, [] {
-        preparing = true;
-        std::thread([] {
-            request();
-            can_request = false;
-            preparing = false;
-        }).detach();
-    });
+bool jit_pool_ready() {
+    return g_jit_pool_ready.load(std::memory_order_relaxed);
 }
 
-bool jit_preparing() {
-    return preparing;
+// iOS 26 needs the debugger attached while the RX/RW region pool is prepared. CS_DEBUGGED survives a
+// detach but is not enough to answer oaknut's request. Once the pool is complete, detaching is safe.
+// Before iOS 26 the debugger flag alone is enough.
+bool jit_available() {
+    if (os_major_version() < 26)
+        return jit_capability_enabled();
+    return jit_pool_ready() || (jit_capability_enabled() && debugger_attached());
 }
 
-JitStatus jit_status() {
-    std::lock_guard lock(status_mutex);
-    return status;
+bool prepare_jit_pool() {
+    if (jit_pool_ready())
+        return true;
+
+    // Reserve the guest address space first: the JIT mappings fragment it otherwise and memory
+    // init later fails with ENOMEM
+    if (!prereserve_guest_memory())
+        LOG_CRITICAL("Could not prereserve guest memory");
+
+    if (os_major_version() < 26) {
+        // Classic debugger JIT: oaknut maps RWX itself, nothing to prepare
+        g_jit_pool_ready = jit_capability_enabled();
+        return jit_pool_ready();
+    }
+
+#if defined(__aarch64__)
+    if (!debugger_attached()) {
+        LOG_WARN("JIT pool not prepared: no debugger attached");
+        return false;
+    }
+
+    g_unhandled_universal_jit_breakpoint.store(false, std::memory_order_relaxed);
+    try {
+        const std::size_t warmed = prewarm_ios_jit_code_cache_pool(IOS_JIT_POOL_TARGET, IOS_JIT_CACHE_SIZE);
+        if (warmed < IOS_JIT_POOL_TARGET) {
+            LOG_CRITICAL("iOS JIT region pool is under target: target={} available={}", IOS_JIT_POOL_TARGET, warmed);
+            if (auto logger = spdlog::default_logger())
+                logger->flush();
+            return false;
+        }
+    } catch (const std::exception &error) {
+        LOG_ERROR("iOS JIT region pool preparation failed: {}{}", error.what(),
+            g_unhandled_universal_jit_breakpoint.load() ? " (no JIT script answered: use StikDebug's universal.js)" : "");
+        return false;
+    } catch (...) {
+        LOG_ERROR("iOS JIT region pool preparation failed with an unknown exception");
+        return false;
+    }
+
+    g_jit_pool_ready = true;
+    return true;
+#else
+    g_jit_pool_ready = true;
+    return true;
+#endif
 }
 
-bool jit_ready() {
-    std::lock_guard lock(status_mutex);
-    return status.mode != JitMode::None;
+std::string jit_status_text() {
+    if (jit_pool_ready())
+        return "JIT ready.";
+    if (!jit_capability_enabled())
+        return "JIT is not enabled. Launch Vita3K from StikDebug, or with \"Launch with JIT\" in LiveContainer.";
+    if (g_unhandled_universal_jit_breakpoint.load())
+        return "No JIT script answered. On iOS 26, set StikDebug's universal.js as Vita3K's JIT script, then reopen Vita3K.";
+    if (!debugger_attached())
+        return "StikDebug detached before JIT was prepared. Re-enable JIT and reopen Vita3K.";
+    return "JIT is attached but not prepared yet.";
 }
 
 } // namespace ios
-
-// ---- Allocator used by oaknut::CodeBlock (patches/dynarmic-ios-jit.patch) ----
-
-extern "C" void *oaknut_ios_jit_alloc(std::size_t size, void **writable) {
-    using namespace ios;
-    *writable = nullptr;
-    const std::size_t length = round_up(size);
-    std::lock_guard lock(arena.mutex);
-    for (auto it = arena.free_ranges.begin(); it != arena.free_ranges.end(); ++it) {
-        if (it->second < length)
-            continue;
-        const std::size_t offset = it->first;
-        const std::size_t remaining = it->second - length;
-        arena.free_ranges.erase(it);
-        if (remaining)
-            arena.free_ranges.emplace(offset + length, remaining);
-        *writable = arena.write + offset;
-        return arena.exec + offset;
-    }
-    std::fprintf(stderr, "Vita3K: JIT arena exhausted or unavailable (requested %zu bytes)\n", size);
-    return nullptr;
-}
-
-extern "C" void oaknut_ios_jit_free(void *executable, std::size_t size) {
-    using namespace ios;
-    if (!executable)
-        return;
-    std::lock_guard lock(arena.mutex);
-    const std::size_t offset = static_cast<uint8_t *>(executable) - arena.exec;
-    std::size_t length = round_up(size);
-    std::size_t start = offset;
-    // Merge with the neighbouring free ranges
-    auto next = arena.free_ranges.lower_bound(offset);
-    if (next != arena.free_ranges.end() && next->first == offset + length) {
-        length += next->second;
-        next = arena.free_ranges.erase(next);
-    }
-    if (next != arena.free_ranges.begin()) {
-        auto prev = std::prev(next);
-        if (prev->first + prev->second == start) {
-            start = prev->first;
-            length += prev->second;
-            arena.free_ranges.erase(prev);
-        }
-    }
-    arena.free_ranges.emplace(start, length);
-}

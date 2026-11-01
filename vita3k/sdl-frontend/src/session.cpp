@@ -262,7 +262,11 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
             hooks.on_launch(launch_request.app_path);
 
         SDL_WindowFlags window_flags = 0;
-#ifndef __ANDROID__
+#if defined(VITA3K_PLATFORM_IOS)
+        // From Tsubomi: without HIGH_PIXEL_DENSITY SDL's Metal layer stays at contentsScale 1 and the
+        // game renders at point resolution (heavily pixelated)
+        window_flags |= SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#elif !defined(__ANDROID__)
         window_flags |= SDL_WINDOW_RESIZABLE;
 #endif
         if (emuenv.backend_renderer == renderer::Backend::OpenGL) {
