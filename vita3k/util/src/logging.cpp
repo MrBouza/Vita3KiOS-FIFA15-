@@ -15,6 +15,9 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 #include <util/log.h>
 
 #ifdef _WIN32
@@ -132,8 +135,8 @@ ExitCode init(const Root &root_paths, bool use_stdout) {
     SetConsoleTitle("Vita3K PSVita Emulator");
 #endif
 
-#ifdef __ANDROID__
-    // needed, otherwise the log file contains nothing
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+    // needed, otherwise the log file contains nothing (Android) or loses its end on a crash (iOS)
     spdlog::flush_on(spdlog::level::trace);
 #endif
 
@@ -175,11 +178,16 @@ void rebuild_default_logger() {
     for (const auto &sink : sinks)
         duplicate_filter->add_sink(sink);
 
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    // iOS: log synchronously, so the lines leading up to a crash reach the file
+    auto logger = std::make_shared<spdlog::logger>("vita3k logger", duplicate_filter);
+#else
     auto logger = std::make_shared<spdlog::async_logger>(
         "vita3k logger",
         duplicate_filter,
         spdlog::thread_pool(),
         spdlog::async_overflow_policy::overrun_oldest);
+#endif
     spdlog::set_default_logger(std::move(logger));
     spdlog::set_pattern(LOG_PATTERN);
 }
