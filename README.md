@@ -4,6 +4,15 @@ An experimental PlayStation Vita emulator for iOS/iPadOS devices — a port of [
 
 This repository is a fork of upstream Vita3K. The iOS layer lives on top as separate commits so upstream changes can be merged in cleanly. See [ROADMAP-iOS.md](ROADMAP-iOS.md) for the plan and current status.
 
+### Install
+
+1. Download the latest `Vita3K-iOS-<commit>.ipa` from the [iOS workflow](../../actions/workflows/ios.yml) artifacts.
+2. Install it with AltStore, SideStore, TrollStore, or add it to LiveContainer.
+3. Enable JIT: launch from StikDebug, or use "Launch with JIT" in LiveContainer.
+4. In the app, tap **+** to import the PS Vita firmware (`PSVUPDAT.PUP`, `PSP2UPDAT.PUP`) and your games (`.vpk`, `.zip`, `.pkg` + zRIF, or a game folder).
+
+Requires iOS 17.4 or later on an arm64 device.
+
 ---
 
 *Upstream Vita3K README follows.*
