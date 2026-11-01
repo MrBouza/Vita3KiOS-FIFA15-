@@ -47,6 +47,14 @@ extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersiz
 #define CS_DEBUGGED 0x10000000u
 #endif
 
+// StikDebug universal.js "detach" call (x16 = 0). Ends the debug session once every executable
+// region is prepared; the prepared regions stay executable. See StikJIT's INTEGRATION.md.
+extern "C" __attribute__((noinline, optnone, naked)) void v3k_universal_jit_detach() {
+    __asm__("mov x16, #0\n"
+            "brk #0xf00d\n"
+            "ret");
+}
+
 namespace ios {
 
 namespace {
@@ -143,6 +151,12 @@ bool jit_pool_ready() {
     return g_jit_pool_ready.load(std::memory_order_relaxed);
 }
 
+bool jit_can_prepare() {
+    if (jit_pool_ready() || !jit_capability_enabled())
+        return false;
+    return os_major_version() < 26 || debugger_attached();
+}
+
 // iOS 26 needs the debugger attached while the RX/RW region pool is prepared. CS_DEBUGGED survives a
 // detach but is not enough to answer oaknut's request. Once the pool is complete, detaching is safe.
 // Before iOS 26 the debugger flag alone is enough.
@@ -192,11 +206,31 @@ bool prepare_jit_pool() {
     }
 
     g_jit_pool_ready = true;
+
+    // Let the debugger go. Vita3K handles guest memory faults itself, and with a debugger attached each
+    // fault takes a round trip through StikDebug: slow, and the game dies if StikDebug is suspended.
+    LOG_INFO("JIT region pool ready, detaching the JIT script");
+    v3k_universal_jit_detach();
+    for (int i = 0; i < 20 && debugger_attached(); i++)
+        usleep(50 * 1000);
+    LOG_INFO("Debugger attached after detach request: {}", debugger_attached() ? "yes" : "no");
     return true;
 #else
     g_jit_pool_ready = true;
     return true;
 #endif
+}
+
+int jit_pool_progress() {
+#if defined(__aarch64__)
+    return static_cast<int>(ios_jit_code_cache_pool_progress());
+#else
+    return 0;
+#endif
+}
+
+int jit_pool_target() {
+    return static_cast<int>(IOS_JIT_POOL_TARGET);
 }
 
 std::string jit_status_text() {

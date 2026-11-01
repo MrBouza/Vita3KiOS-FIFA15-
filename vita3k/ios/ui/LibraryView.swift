@@ -40,7 +40,7 @@ struct LibraryView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        StatusBar(jitEnabled: model.jitEnabled, jitPreparing: model.jitPreparing, jitCanRequest: model.jitCanRequest, hasFirmware: model.hasFirmware, hasFonts: model.hasFonts)
+                        StatusBar(jitEnabled: model.jitEnabled, jitPreparing: model.jitPreparing, jitCanRequest: model.jitCanRequest, jitProgress: model.jitProgress, jitTarget: model.jitTarget, hasFirmware: model.hasFirmware, hasFonts: model.hasFonts)
 
                         if !model.hasFirmware {
                             FirmwareCallout { openImporter([.item]) }
@@ -72,8 +72,8 @@ struct LibraryView: View {
                     InstallOverlay(progress: progress)
                 }
 
-                if model.settingUpJIT || model.jitPreparing {
-                    JITSetupOverlay()
+                if model.settingUpJIT {
+                    JITSetupOverlay(progress: model.jitProgress, target: model.jitTarget)
                 }
             }
             .navigationTitle("Vita3K")
@@ -105,10 +105,10 @@ struct LibraryView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView().environmentObject(model)
             }
-            .alert(model.jitPreparing ? "Still checking JIT" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
+            .alert(model.jitPreparing ? "JIT is almost ready" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
                 Button("OK", role: .cancel) { pendingLaunch = nil }
             } message: {
-                Text(model.jitPreparing ? "Give it a second, then try again." : "\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
+                Text(model.jitPreparing ? "Vita3K is still preparing JIT (\(model.jitProgress)/\(model.jitTarget)). Try again in a moment." : "\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
             }
             .alert("Delete \(pendingDelete?.title ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
                 Button("Delete", role: .destructive) {
@@ -208,13 +208,19 @@ struct StatusBar: View {
     let jitEnabled: Bool
     let jitPreparing: Bool
     let jitCanRequest: Bool
+    let jitProgress: Int
+    let jitTarget: Int
     let hasFirmware: Bool
     let hasFonts: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             if jitPreparing {
-                Label("Checking JIT", systemImage: "hourglass")
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini).tint(Theme.accent)
+                    Text(jitTarget > 0 ? "JIT \(jitProgress)/\(jitTarget)" : "Preparing JIT")
+                        .monospacedDigit()
+                }
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -302,12 +308,15 @@ struct EmptyLibrary: View {
 }
 
 struct JITSetupOverlay: View {
+    var progress = 0
+    var target = 0
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.7).ignoresSafeArea()
             VStack(spacing: 14) {
                 ProgressView().controlSize(.large).tint(Theme.accent)
-                Text("Setting up JIT").font(.headline)
+                Text(target > 0 ? "Setting up JIT \(progress)/\(target)" : "Setting up JIT").font(.headline).monospacedDigit()
                 Text("StikDebug is preparing executable memory for the emulator. Keep Vita3K open, this can take a little while.")
                     .font(.footnote)
                     .multilineTextAlignment(.center)

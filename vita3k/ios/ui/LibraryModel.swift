@@ -74,6 +74,8 @@ final class LibraryModel: ObservableObject {
     @Published var jitStatus = ""
     @Published var jitPreparing = false
     @Published var jitCanRequest = false
+    @Published var jitProgress = 0
+    @Published var jitTarget = 0
     @Published var settingUpJIT = false
     @Published var settings = EmulatorSettings()
 
@@ -93,10 +95,12 @@ final class LibraryModel: ObservableObject {
         jitEnabled = v3k_is_jit_enabled()
         jitPreparing = v3k_jit_preparing()
         jitCanRequest = v3k_jit_can_request()
+        jitProgress = Int(v3k_jit_progress())
+        jitTarget = Int(v3k_jit_target())
         jitStatus = takeString(v3k_jit_status_text()) ?? ""
         if jitPreparing && !settingUpJIT {
             // JIT is being set up in the background: look again shortly
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.reload() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.reload() }
         }
         firmwareState = v3k_firmware_state()
         if let json = takeString(v3k_apps_json()), let data = json.data(using: .utf8),

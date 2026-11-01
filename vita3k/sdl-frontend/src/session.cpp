@@ -15,6 +15,9 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#if defined(VITA3K_PLATFORM_IOS)
+#include <os/proc.h>
+#endif
 #include "frame_host.h"
 
 #include <sdl-frontend/session.h>
@@ -364,6 +367,13 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
                 case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
                     running = false;
                     break;
+
+#if defined(VITA3K_PLATFORM_IOS)
+                case SDL_EVENT_LOW_MEMORY:
+                    // iOS kills the app without a crash signal when memory runs out: leave a trace
+                    LOG_WARN("iOS memory warning: {} MiB left before the system limit", os_proc_available_memory() / (1024 * 1024));
+                    break;
+#endif
 
                 case SDL_EVENT_KEY_DOWN:
                     if (handle_ime_keydown(emuenv, hooks, event.key))

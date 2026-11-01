@@ -36,11 +36,14 @@
 #include <bit>
 #include <memory>
 #include <optional>
+#include <atomic>
 #include <mutex>
 #include <string>
 
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
 namespace {
+
+std::atomic<std::size_t> ios_jit_regions_prepared{ 0 };
 
 void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t size, std::size_t available) {
     switch (event) {
@@ -54,6 +57,7 @@ void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t
         LOG_INFO("iOS JIT region pool miss: size={} bytes available={}", size, available);
         break;
     case oaknut::JitRegionPoolEvent::Prewarm:
+        ios_jit_regions_prepared = available;
         LOG_INFO("iOS JIT region pool prewarm: size={} bytes available={}", size, available);
         break;
     case oaknut::JitRegionPoolEvent::SessionLost:
@@ -74,6 +78,10 @@ std::size_t prewarm_ios_jit_code_cache_pool(std::size_t target_count, std::size_
     LOG_INFO("iOS JIT region pool prewarm complete: target={} available={} size={} bytes",
         target_count, available, cache_size);
     return available;
+}
+
+std::size_t ios_jit_code_cache_pool_progress() {
+    return ios_jit_regions_prepared;
 }
 #endif
 

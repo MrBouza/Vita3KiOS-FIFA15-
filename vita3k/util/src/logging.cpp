@@ -35,6 +35,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #endif
 
+#include <chrono>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
@@ -135,9 +136,14 @@ ExitCode init(const Root &root_paths, bool use_stdout) {
     SetConsoleTitle("Vita3K PSVita Emulator");
 #endif
 
-#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
-    // needed, otherwise the log file contains nothing (Android) or loses its end on a crash (iOS)
+#ifdef __ANDROID__
+    // needed, otherwise the log file contains nothing
     spdlog::flush_on(spdlog::level::trace);
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
+    // iOS: write warnings and errors at once, everything else at least every second. The fatal signal
+    // handler flushes too, so the lines before a crash reach the file.
+    spdlog::flush_on(spdlog::level::warn);
+    spdlog::flush_every(std::chrono::seconds(1));
 #endif
 
     std::call_once(s_terminate_handler_once, []() {

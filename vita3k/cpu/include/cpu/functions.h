@@ -81,5 +81,7 @@ void set_current_cpu_state(CPUState *state);
 // iOS 26+ JIT (from Tsubomi): prepares target_count code caches of cache_size bytes through the
 // attached StikDebug universal.js script. Returns how many are ready.
 std::size_t prewarm_ios_jit_code_cache_pool(std::size_t target_count, std::size_t cache_size);
+// How many regions the running prewarm has prepared so far
+std::size_t ios_jit_code_cache_pool_progress();
 #endif
 CPUState *get_current_cpu_state();

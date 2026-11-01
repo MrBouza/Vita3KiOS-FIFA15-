@@ -97,6 +97,14 @@ bool initialize(const fs::path &storage_path) {
 
         fs::create_directories(cfg.get_vita_fs_path());
 
+        // Trace logging (the desktop default) writes every file access and costs a lot of speed on a
+        // phone: use info unless a quieter level was chosen
+        if (cfg.log_level < static_cast<int>(spdlog::level::info)) {
+            cfg.log_level = static_cast<int>(spdlog::level::info);
+            logging::set_level(spdlog::level::info);
+            LOG_INFO("log-level: info (iOS default)");
+        }
+
         if (!app::init(*emuenv, cfg, root_paths)) {
             LOG_ERROR("Failed to initialise emulated environment.");
             return false;

@@ -36,10 +36,15 @@ bool debugger_attached(); // P_TRACED: a debugger is attached right now
 bool jit_capability_enabled(); // CS_DEBUGGED or attached
 bool jit_available(); // pool prepared, or a debugger is attached to prepare one
 bool jit_pool_ready();
+bool jit_can_prepare(); // JIT is enabled and the pool can be prepared now
 
 // Reserves guest memory, then prepares the JIT region pool. Blocks while StikDebug works.
 bool prepare_jit_pool();
 
 std::string jit_status_text();
+
+// Regions prepared so far / regions wanted, for the UI
+int jit_pool_progress();
+int jit_pool_target();
 
 } // namespace ios

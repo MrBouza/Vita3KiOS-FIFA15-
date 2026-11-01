@@ -200,7 +200,7 @@ bool v3k_is_jit_enabled(void) {
 
 char *v3k_jit_status_text(void) {
     if (jit_preparing)
-        return dup_string("Setting up JIT...");
+        return dup_string(fmt::format("Preparing JIT ({}/{})...", ios::jit_pool_progress(), ios::jit_pool_target()));
     return dup_string(ios::jit_status_text());
 }
 
@@ -208,8 +208,16 @@ bool v3k_jit_preparing(void) {
     return jit_preparing;
 }
 
+int v3k_jit_progress(void) {
+    return ios::jit_pool_progress();
+}
+
+int v3k_jit_target(void) {
+    return ios::jit_pool_target();
+}
+
 bool v3k_jit_can_request(void) {
-    return !ios::jit_pool_ready() && ios::jit_capability_enabled() && ios::debugger_attached();
+    return ios::jit_can_prepare();
 }
 
 void v3k_jit_request(void) {

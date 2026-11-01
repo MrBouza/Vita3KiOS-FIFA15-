@@ -37,6 +37,9 @@ char *v3k_jit_status_text(void);
 bool v3k_jit_preparing(void);
 // True when a JIT script is attached and v3k_jit_request can set up JIT (iOS 26)
 bool v3k_jit_can_request(void);
+// JIT regions prepared so far, and how many are wanted
+int v3k_jit_progress(void);
+int v3k_jit_target(void);
 // Asks the JIT script for executable memory; the app pauses while the debugger works
 void v3k_jit_request(void);
 const char *v3k_storage_path(void);

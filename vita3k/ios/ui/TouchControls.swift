@@ -228,21 +228,46 @@ final class ControlsOverlayView: UIView {
     }
 }
 
+/// Root of the controls window: landscape like the game, and transparent to touches it doesn't use
+final class ControlsViewController: UIViewController {
+    override func loadView() {
+        view = ControlsOverlayView(frame: UIScreen.main.bounds)
+    }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+}
+
+/// A window above the game's: touches that miss every control fall through to the game window
+final class PassthroughWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        return (hit === self || hit === rootViewController?.view) ? nil : hit
+    }
+}
+
 @MainActor
 enum ControlsHost {
-    static var overlay: ControlsOverlayView?
+    static var window: UIWindow?
 
-    static func attach(to window: UIWindow) {
+    static func attach(over gameWindow: UIWindow) {
         detach()
-        let view = ControlsOverlayView(frame: window.bounds)
-        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        window.addSubview(view)
-        overlay = view
+        let overlay: PassthroughWindow
+        if let scene = gameWindow.windowScene {
+            overlay = PassthroughWindow(windowScene: scene)
+        } else {
+            overlay = PassthroughWindow(frame: gameWindow.bounds)
+        }
+        overlay.windowLevel = gameWindow.windowLevel + 1
+        overlay.backgroundColor = .clear
+        overlay.rootViewController = ControlsViewController()
+        overlay.isHidden = false // shown but not key: the game window keeps keyboard/gamepad focus
+        window = overlay
     }
 
     static func detach() {
-        overlay?.removeFromSuperview()
-        overlay = nil
+        window?.isHidden = true
+        window = nil
     }
 }
 
@@ -251,7 +276,7 @@ enum ControlsHost {
 public func v3kControlsAttach(_ uiWindow: UnsafeMutableRawPointer?) {
     guard let uiWindow else { return }
     let window = Unmanaged<UIWindow>.fromOpaque(uiWindow).takeUnretainedValue()
-    MainActor.assumeIsolated { ControlsHost.attach(to: window) }
+    MainActor.assumeIsolated { ControlsHost.attach(over: window) }
 }
 
 @_cdecl("v3k_controls_detach")

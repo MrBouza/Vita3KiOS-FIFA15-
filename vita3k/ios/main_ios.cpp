@@ -33,6 +33,7 @@
 #include <util/log.h>
 
 #include <SDL3/SDL.h>
+#include <os/proc.h>
 #include <SDL3/SDL_main.h>
 
 #include <string>
@@ -72,11 +73,9 @@ int main(int argc, char *argv[]) {
     // Same order as Tsubomi: guest memory is reserved first, inside prepare_jit_pool().
     const bool jit_capable = ios::jit_capability_enabled();
     LOG_INFO("JIT probe: capability {}, debugger attached {}", jit_capable ? "yes" : "no", ios::debugger_attached() ? "yes" : "no");
-    if (jit_capable) {
-        // Started right away, on a background thread, so the library can show a progress overlay
-        // instead of a frozen screen while StikDebug prepares the regions
-        v3k_jit_request();
-    }
+    // The library starts JIT preparation right after its first frame (LibraryHost.swift), so the app
+    // appears immediately; StikDebug briefly pauses the app for each region it prepares.
+    (void)jit_capable;
 
     // Files dropped into Documents/Import through the Files app or a computer
     const auto import = ios::import_pending_files(documents / "Import");
@@ -92,7 +91,8 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        LOG_INFO("Launching {} (JIT {})", title_id, ios::jit_pool_ready() ? "ready" : "NOT ready");
+        LOG_INFO("Launching {} (JIT {}, {} MiB of memory available)", title_id, ios::jit_pool_ready() ? "ready" : "NOT ready",
+            os_proc_available_memory() / (1024 * 1024));
 
         // The library can rotate freely; games are landscape only
         SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");

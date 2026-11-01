@@ -27,9 +27,26 @@ enum LibraryHost {
             window = newWindow
         }
         model.reload()
+        let firstShow = !hasShown
+        hasShown = true
+        window?.alpha = 0
         window?.isHidden = false
         window?.makeKeyAndVisible()
+        UIView.animate(withDuration: firstShow ? 0.35 : 0.2, delay: 0, options: [.curveEaseOut]) {
+            window?.alpha = 1
+        }
+        if firstShow {
+            // Start preparing JIT once the library is on screen, so opening the app feels instant
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if v3k_jit_can_request() {
+                    v3k_jit_request()
+                    model.reload()
+                }
+            }
+        }
     }
+
+    private static var hasShown = false
 
     static func hide() {
         window?.isHidden = true
