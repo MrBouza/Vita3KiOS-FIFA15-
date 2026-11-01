@@ -30,4 +30,8 @@ std::string get_bundle_resources_path();
 std::string get_os_version();
 std::string get_device_model();
 
+// True when a debugger has attached to the process (CS_DEBUGGED), which is how StikDebug
+// enables JIT for sideloaded apps. dynarmic cannot run guest code without it.
+bool is_jit_enabled();
+
 } // namespace ios

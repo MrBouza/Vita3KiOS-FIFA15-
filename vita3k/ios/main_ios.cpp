@@ -137,6 +137,29 @@ int main(int argc, char *argv[]) {
             return 0;
     }
 
+    if (!ios::is_jit_enabled()) {
+        LOG_WARN("JIT is not enabled (no debugger attached)");
+        const SDL_MessageBoxButtonData buttons[] = {
+            { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Quit" },
+            { 0, 1, "Launch anyway" },
+        };
+        const SDL_MessageBoxData data{
+            .flags = SDL_MESSAGEBOX_WARNING,
+            .window = nullptr,
+            .title = "JIT is not enabled",
+            .message = "Vita3K needs JIT to run games. Open StikDebug, tap Enable JIT and choose Vita3K, "
+                       "then pick the game again.\n\nLaunching without JIT will most likely crash.",
+            .numbuttons = 2,
+            .buttons = buttons,
+            .colorScheme = nullptr,
+        };
+        int choice = 0;
+        if (!SDL_ShowMessageBox(&data, &choice) || choice != 1)
+            return 0;
+    } else {
+        LOG_INFO("JIT is enabled");
+    }
+
     auto *emuenv = ios::get_emuenv();
     auto *session_controller = ios::get_app_session_controller();
 

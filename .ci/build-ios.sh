@@ -1,52 +1,53 @@
 #!/usr/bin/env bash
-# Vita3KiOS: configures, builds and packages the iOS app as an unsigned (fake-signed) IPA.
+# Vita3KiOS: builds an unsigned IPA with a plain Xcode project.
+#   1. CMake generates Vita3K.xcodeproj
+#   2. xcodebuild builds it (no signing)
+#   3. the .app is zipped into Payload/ as an .ipa
+# Sign/install it with AltStore, SideStore, LiveContainer, TrollStore, etc.
 #
 # Usage: .ci/build-ios.sh <output-dir>
-# Needs: Xcode, cmake, ninja, ccache, ldid, and VCPKG_ROOT pointing at a bootstrapped vcpkg.
 set -euo pipefail
 
 output_dir="${1:-artifacts}"
-build_type="${BUILD_CONFIG:-Release}"
+config="${BUILD_CONFIG:-Release}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 build_dir="${repo_root}/build/ios"
 
 : "${VCPKG_ROOT:?VCPKG_ROOT must point at a bootstrapped vcpkg checkout}"
 
-cmake -S "$repo_root" -B "$build_dir" -G Ninja \
+cmake -S "$repo_root" -B "$build_dir" -G Xcode \
     -DCMAKE_SYSTEM_NAME=iOS \
-    -DCMAKE_OSX_SYSROOT=iphoneos \
     -DCMAKE_OSX_ARCHITECTURES=arm64 \
     -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-    -DCMAKE_BUILD_TYPE="$build_type" \
     -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
     -DVCPKG_TARGET_TRIPLET=arm64-ios \
-    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache \
-    -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
     -DUSE_LTO=NEVER \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
-# -k 0 keeps going after the first failure, so one CI run reports every broken file at once
-cmake --build "$build_dir" --target vita3k -- -k 0
+xcodebuild \
+    -project "$build_dir/Vita3K.xcodeproj" \
+    -target vita3k \
+    -configuration "$config" \
+    -sdk iphoneos \
+    -parallelizeTargets \
+    -jobs "$(sysctl -n hw.ncpu)" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGN_IDENTITY="" \
+    build
 
-app_path="$(find "$build_dir" -maxdepth 3 -name 'Vita3K.app' -type d | head -n 1)"
+app_path="$(find "$build_dir" -name 'Vita3K.app' -type d -path "*${config}-iphoneos*" | head -n 1)"
 if [[ -z "$app_path" ]]; then
     echo "Vita3K.app not found under $build_dir" >&2
     exit 1
 fi
-echo "Built app bundle: $app_path"
-
-# Fake-sign so the entitlements (get-task-allow for StikDebug, memory limits) are embedded.
-# AltStore/SideStore re-sign with the user's own certificate when installing.
-ldid -S"${repo_root}/vita3k/ios/Vita3K.entitlements" "$app_path/Vita3K"
+echo "Built: $app_path"
 
 mkdir -p "$output_dir"
 staging="$(mktemp -d)"
 mkdir -p "$staging/Payload"
 cp -R "$app_path" "$staging/Payload/"
-short_sha="$(git -C "$repo_root" rev-parse --short HEAD)"
-ipa_name="Vita3K-iOS-${short_sha}.ipa"
+ipa_name="Vita3K-iOS-$(git -C "$repo_root" rev-parse --short HEAD).ipa"
 (cd "$staging" && zip -qry "$ipa_name" Payload)
 mv "$staging/$ipa_name" "$output_dir/"
 rm -rf "$staging"

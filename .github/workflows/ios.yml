@@ -19,73 +19,30 @@ env:
   VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/../vcpkg-binary-cache
 
 jobs:
-  ios-build:
-    name: iOS (arm64 IPA)
+  ipa:
+    name: Build IPA
     runs-on: macos-latest
     timeout-minutes: 150
 
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           submodules: recursive
-
-      - name: Show Xcode version
-        run: xcodebuild -version
-
-      - name: Install build tools
-        run: |
-          brew install ccache ninja ldid
-          echo "$(brew --prefix ccache)/libexec" >> "$GITHUB_PATH"
-          ccache --set-config=compiler_check=content
-          ccache --set-config=max_size=2G
-          ccache --zero-stats
 
       - name: Set up vcpkg
         run: |
-          # Full clone: vcpkg.json pins a builtin-baseline commit
           git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
-      - name: Restore vcpkg binary cache
-        uses: actions/cache/restore@v6
+      - name: Cache vcpkg packages
+        uses: actions/cache@v6
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-ios-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
-          restore-keys: |
-            vcpkg-ios-${{ hashFiles('vcpkg.json') }}-
-            vcpkg-ios-
+          key: vcpkg-ios-${{ hashFiles('vcpkg.json') }}
 
-      - name: Restore ccache
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/Library/Caches/ccache
-          key: ccache-ios-${{ env.BUILD_CONFIG }}-${{ github.sha }}-${{ github.run_attempt }}
-          restore-keys: |
-            ccache-ios-${{ env.BUILD_CONFIG }}-
-
-      - name: Build and package IPA
+      - name: Build IPA
         run: bash ./.ci/build-ios.sh artifacts
-
-      - name: ccache statistics
-        if: always()
-        run: ccache -s
-
-      # Saved even when the build fails, so the next attempt only recompiles what changed
-      - name: Save ccache
-        if: always()
-        uses: actions/cache/save@v6
-        with:
-          path: ~/Library/Caches/ccache
-          key: ccache-ios-${{ env.BUILD_CONFIG }}-${{ github.sha }}-${{ github.run_attempt }}
-
-      - name: Save vcpkg binary cache
-        if: always()
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-ios-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7

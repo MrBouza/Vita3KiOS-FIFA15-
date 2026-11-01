@@ -22,7 +22,12 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
+#include <cstdint>
 #include <sys/sysctl.h>
+#include <unistd.h>
+
+// Not in the public SDK headers, but a stable syscall wrapper used by every iOS JIT app
+extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
 
 namespace ios {
 
@@ -53,6 +58,15 @@ std::string get_device_model() {
     if (sysctlbyname("hw.machine", machine, &size, nullptr, 0) == 0 && machine[0])
         return machine;
     return "Unknown Apple device";
+}
+
+bool is_jit_enabled() {
+    constexpr unsigned int CS_OPS_STATUS = 0;
+    constexpr uint32_t CS_DEBUGGED = 0x10000000;
+    uint32_t flags = 0;
+    if (csops(getpid(), CS_OPS_STATUS, &flags, sizeof(flags)) != 0)
+        return false;
+    return (flags & CS_DEBUGGED) != 0;
 }
 
 } // namespace ios
