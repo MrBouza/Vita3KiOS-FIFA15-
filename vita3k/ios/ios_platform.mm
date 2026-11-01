@@ -23,8 +23,13 @@
 #import <UIKit/UIKit.h>
 
 #include <cstdint>
+#include <mutex>
 #include <sys/sysctl.h>
 #include <unistd.h>
+
+// Implemented in Swift (ui/LibraryHost.swift)
+extern "C" void v3k_ui_show(void);
+extern "C" void v3k_ui_hide(void);
 
 // Not in the public SDK headers, but a stable syscall wrapper used by every iOS JIT app
 extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
@@ -58,6 +63,37 @@ std::string get_device_model() {
     if (sysctlbyname("hw.machine", machine, &size, nullptr, 0) == 0 && machine[0])
         return machine;
     return "Unknown Apple device";
+}
+
+namespace {
+std::mutex pending_launch_mutex;
+std::string pending_launch;
+} // namespace
+
+void set_pending_launch(const std::string &title_id) {
+    std::lock_guard lock(pending_launch_mutex);
+    pending_launch = title_id;
+}
+
+std::string run_library_until_launch() {
+    {
+        std::lock_guard lock(pending_launch_mutex);
+        pending_launch.clear();
+    }
+    v3k_ui_show();
+    for (;;) {
+        @autoreleasepool {
+            // Same pattern SDL uses to pump UIKit events: run the main loop in short slices
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, true);
+        }
+        std::lock_guard lock(pending_launch_mutex);
+        if (!pending_launch.empty()) {
+            std::string title_id = pending_launch;
+            pending_launch.clear();
+            v3k_ui_hide();
+            return title_id;
+        }
+    }
 }
 
 bool is_jit_enabled() {
