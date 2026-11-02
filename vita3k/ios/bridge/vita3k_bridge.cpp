@@ -576,6 +576,16 @@ std::string timestamp() {
     return buffer;
 }
 
+// The settings a game would run with: the global ones plus its custom config file, if any.
+// Config can't be copied, so this borrows the global current_config and puts it back.
+Config::CurrentConfig effective_config(EmuEnvState &emuenv, const std::string &app_path) {
+    const Config::CurrentConfig saved = emuenv.cfg.current_config;
+    config::set_current_config(emuenv.cfg, emuenv.config_path, app_path);
+    Config::CurrentConfig result = emuenv.cfg.current_config;
+    emuenv.cfg.current_config = saved;
+    return result;
+}
+
 std::string safe_file_name(const std::string &name) {
     std::string out;
     for (const char c : name)
@@ -618,9 +628,7 @@ char *v3k_game_settings_json(const char *title_id) {
     const auto app = app_for(title_id);
     if (!emuenv || !app)
         return dup_string("{}");
-    Config copy = emuenv->cfg;
-    config::set_current_config(copy, emuenv->config_path, app->path);
-    const Config::CurrentConfig &cc = copy.current_config;
+    const Config::CurrentConfig cc = effective_config(*emuenv, app->path);
     const bool custom = config::has_custom_config(emuenv->config_path, app->path);
     const auto b = [](bool v) { return v ? "true" : "false"; };
     return dup_string(fmt::format(
@@ -637,9 +645,7 @@ bool v3k_set_game_setting(const char *title_id, const char *key, const char *val
     const auto app = app_for(title_id);
     if (!emuenv || !app || !key || !value)
         return false;
-    Config copy = emuenv->cfg;
-    config::set_current_config(copy, emuenv->config_path, app->path);
-    Config::CurrentConfig &cc = copy.current_config;
+    Config::CurrentConfig cc = effective_config(*emuenv, app->path);
 
     const std::string k = key;
     const std::string v = value;
