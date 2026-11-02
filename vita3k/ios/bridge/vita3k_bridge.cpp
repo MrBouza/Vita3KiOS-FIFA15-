@@ -22,6 +22,7 @@
 #include "archive.h"
 
 #include <app/functions.h>
+#include <io/state.h>
 #include <config/functions.h>
 #include <config/state.h>
 #include <config/version.h>
