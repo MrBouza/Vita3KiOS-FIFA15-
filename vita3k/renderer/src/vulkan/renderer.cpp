@@ -743,9 +743,16 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         }
         support_memory_mapping &= support_standard_layout;
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
         // we need to make a copy of the vertex buffer for moltenvk, so disable memory mapping
         support_memory_mapping = false;
+#elif defined(__APPLE__)
+        // iOS: keep memory mapping. Without it, data that games write with the GPU (vertex colours, UVs,
+        // lighting) never reaches the draws that read it, which shows up as random colour tints and
+        // stretched textures (Gravity Rush, Danganronpa, Persona...). Vertex streams Metal cannot read in
+        // place (stride or offset not a multiple of 4) are copied in bind_vertex_streams instead.
+        LOG_INFO("Memory mapping support: buffer device address {}, standard layout {}",
+            support_buffer_device_address, support_standard_layout);
 #endif
 
 #ifdef __ANDROID__

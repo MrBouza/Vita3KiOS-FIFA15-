@@ -59,6 +59,13 @@ VKContext::VKContext(VKState &state, MemState &mem)
 
         // also initialize the gpu wait thread
         gpu_request_wait_thread = std::thread(&VKContext::wait_thread_function, this, std::ref(mem));
+
+#ifdef __APPLE__
+        // Metal cannot read vertex/index data with a stride or offset that is not a multiple of 4:
+        // those streams are copied into these ring buffers instead of being read from the mapping
+        vertex_stream_ring_buffer.create();
+        index_stream_ring_buffer.create();
+#endif
     } else {
         // these are not needed when using memory mapping
         vertex_stream_ring_buffer.create();

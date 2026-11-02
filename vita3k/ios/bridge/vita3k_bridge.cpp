@@ -400,10 +400,11 @@ char *v3k_settings_json(void) {
     const std::string json = fmt::format(
         R"({{"resolutionMultiplier":{},"anisotropicFiltering":{},"audioVolume":{},"screenFilter":{},)"
         R"("vSync":{},"cpuOpt":{},"ngsEnable":{},"highAccuracy":{},"stretchDisplay":{},)"
-        R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{}}})",
+        R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{}}})",
         cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, quoted(cfg.screen_filter),
         b(cfg.v_sync), b(cfg.cpu_opt), b(cfg.ngs_enable), b(cfg.high_accuracy), b(cfg.stretch_the_display_area),
-        b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode));
+        b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode),
+        b(cfg.memory_mapping != "disabled"));
     return dup_string(json);
 }
 
@@ -461,6 +462,8 @@ bool v3k_set_setting_bool(const char *key, bool value) {
         cfg.turbo_mode = value;
     } else if (k == "pstv-mode") {
         cfg.pstv_mode = value;
+    } else if (k == "memory-mapping") {
+        cfg.memory_mapping = cfg.current_config.memory_mapping = value ? "double-buffer" : "disabled";
     } else {
         return false;
     }

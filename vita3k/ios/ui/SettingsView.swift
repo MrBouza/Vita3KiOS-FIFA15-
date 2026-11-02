@@ -240,6 +240,13 @@ struct EmulationSections: View {
             Toggle("V-Sync", isOn: binding(\.vSync) { model.setBool("v-sync", $0) })
             Toggle("Texture cache", isOn: binding(\.textureCache) { model.setBool("texture-cache", $0) })
             Toggle("High accuracy", isOn: binding(\.highAccuracy) { model.setBool("high-accuracy", $0) })
+            Toggle(isOn: binding(\.memoryMapping) { model.setBool("memory-mapping", $0) }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("GPU memory mapping")
+                    Text("Fixes wrong colours and stretched textures. Turn off only if a game breaks.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Toggle("Stretch to screen", isOn: binding(\.stretchDisplay) { model.setBool("stretch-display", $0) })
         }
 

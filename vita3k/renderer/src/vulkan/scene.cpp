@@ -291,7 +291,14 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
 
     for (int i = 0; i < max_stream_idx; i++) {
         if (state.vertex_streams[i].data) {
-            if (context.state.features.enable_memory_mapping) {
+            bool read_from_mapping = context.state.features.enable_memory_mapping;
+#ifdef __APPLE__
+            // Vulkan allows any stride and offset, but Metal only allows multiples of 4: copy those streams
+            const bool restride = vertex_program.streams[i].stride % 4 != 0;
+            if (restride || (state.vertex_streams[i].data.address() & 3) != 0)
+                read_from_mapping = false;
+#endif
+            if (read_from_mapping) {
                 auto [buffer, offset] = context.state.get_matching_mapping(state.vertex_streams[i].data.cast<void>());
 
                 context.vertex_stream_offsets[i] = offset;
@@ -300,8 +307,6 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
                 const uint8_t *stream = state.vertex_streams[i].data.get(mem);
                 uint32_t stream_size = state.vertex_streams[i].size;
 #ifdef __APPLE__
-                // Vulkan allows any stride, but Metal only allows multiples of 4.
-                const bool restride = vertex_program.streams[i].stride % 4 != 0;
                 if (restride) {
                     restride_stream(stream, stream_size, vertex_program.streams[i].stride);
                 }
@@ -573,7 +578,14 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
             }
             max_index = trapped_buffer->extra;
         }
-        context.render_cmd.bindIndexBuffer(buffer, offset, index_type);
+#ifdef __APPLE__
+        if ((offset & 3) != 0) {
+            // Metal needs a 4-byte aligned index buffer offset: copy the indices instead
+            context.index_stream_ring_buffer.allocate(context.prerender_cmd, index_size * count, indices_ptr);
+            context.render_cmd.bindIndexBuffer(context.index_stream_ring_buffer.handle(), context.index_stream_ring_buffer.data_offset, index_type);
+        } else
+#endif
+            context.render_cmd.bindIndexBuffer(buffer, offset, index_type);
     } else if (!ordered_indices) {
         const size_t index_buffer_size = index_size * count;
         context.index_stream_ring_buffer.allocate(context.prerender_cmd, index_buffer_size, indices_ptr);

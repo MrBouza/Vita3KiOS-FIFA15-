@@ -36,6 +36,7 @@ struct EmulatorSettings: Codable {
     var textureCache: Bool = true
     var turboMode: Bool = false
     var pstvMode: Bool = false
+    var memoryMapping: Bool = true
 }
 
 struct StorageInfo: Codable {
