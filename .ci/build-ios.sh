@@ -31,6 +31,7 @@ cmake ${seed_args[@]+"${seed_args[@]}"} -S "$repo_root" -B "$build_dir" -G Xcode
     -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
     -DVCPKG_TARGET_TRIPLET=arm64-ios \
     -DUSE_LTO=NEVER \
+    -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
 if [[ -n "$seed" ]]; then
@@ -54,7 +55,9 @@ print(f"Saved {len(entries)} CMake check results")
 PY
 fi
 
-# Route C/C++/Objective-C compiles through ccache when it is installed (CI restores its cache)
+# Route C/C++/Objective-C compiles through ccache when it is installed (CI restores its cache).
+# Precompiled headers are off above: a rebuilt PCH never matches the cache, so every file using it
+# would miss.
 ccache_args=()
 if command -v ccache > /dev/null; then
     ccache_args=(
