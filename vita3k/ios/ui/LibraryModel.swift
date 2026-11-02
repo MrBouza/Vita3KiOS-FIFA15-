@@ -14,6 +14,8 @@ struct GameApp: Codable, Identifiable, Hashable {
     let iconPath: String
     let path: String
     let lastPlayed: Int64
+    let playTime: Int64
+    let customConfig: Bool
 
     var id: String { titleId }
 
@@ -51,6 +53,12 @@ struct StorageInfo: Codable {
     }
 }
 
+struct CrashReport: Codable, Identifiable {
+    let report: String
+    let log: String
+    var id: String { report }
+}
+
 /// One file or folder waiting to be installed
 struct PendingImport: Identifiable {
     let id = UUID()
@@ -74,7 +82,7 @@ private final class ProgressBox {
     init(_ handler: @escaping (Double) -> Void) { self.handler = handler }
 }
 
-private func takeString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
+func takeString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
     guard let pointer else { return nil }
     defer { v3k_free_string(pointer) }
     return String(cString: pointer)
@@ -98,6 +106,10 @@ final class LibraryModel: ObservableObject {
     @Published var installProgress: InstallProgress?
     @Published var lastMessage: String?
     @Published var packageNeedingLicense: PendingImport?
+    /// Set to ask the library to launch a game (from the game settings sheet)
+    @Published var launchRequested: GameApp?
+    /// How the previous session ended, if it crashed (shown once)
+    @Published var crashReport: CrashReport?
 
     private var queue: [PendingImport] = []
     private var installing = false
@@ -130,6 +142,14 @@ final class LibraryModel: ObservableObject {
         if let json = takeString(v3k_settings_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(EmulatorSettings.self, from: data) {
             settings = decoded
+        }
+    }
+
+    /// Picks up the report of a crash in the previous session (once per launch)
+    func checkForCrashReport() {
+        if let json = takeString(v3k_take_crash_report()), let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(CrashReport.self, from: data) {
+            crashReport = decoded
         }
     }
 

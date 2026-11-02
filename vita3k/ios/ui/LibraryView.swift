@@ -79,6 +79,7 @@ struct LibraryView: View {
     @State private var pendingLaunch: GameApp?
     @State private var pendingDelete: GameApp?
     @State private var pendingDeleteSave: GameApp?
+    @State private var gameDetails: GameApp?
     @State private var zrifInput = ""
 
     private var filteredApps: [GameApp] {
@@ -123,6 +124,9 @@ struct LibraryView: View {
                                         .onTapGesture { requestLaunch(app) }
                                         .contextMenu {
                                             Button { requestLaunch(app) } label: { Label("Play", systemImage: "play.fill") }
+                                            Button { gameDetails = app } label: {
+                                                Label("Game settings, patches & saves", systemImage: "slider.horizontal.3")
+                                            }
                                             Button(role: .destructive) { pendingDeleteSave = app } label: {
                                                 Label("Delete save data", systemImage: "externaldrive.badge.minus")
                                             }
@@ -186,6 +190,19 @@ struct LibraryView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView().environmentObject(model)
             }
+            .sheet(item: $gameDetails) { app in
+                GameSettingsView(app: app).environmentObject(model)
+            }
+            .sheet(item: $model.crashReport) { report in
+                CrashReportView(report: report)
+            }
+            .onChange(of: model.launchRequested) { _, app in
+                guard let app else { return }
+                model.launchRequested = nil
+                // Let the sheet finish closing first
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { requestLaunch(app) }
+            }
+            .onAppear { model.checkForCrashReport() }
             .alert(model.jitPreparing ? "JIT is almost ready" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
                 Button("OK", role: .cancel) { pendingLaunch = nil }
             } message: {
@@ -469,6 +486,51 @@ struct InstallOverlay: View {
             .padding(24)
             .frame(maxWidth: 340)
             .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
+        }
+    }
+}
+
+// MARK: - Crash report
+
+struct CrashReportView: View {
+    let report: CrashReport
+    @Environment(\.dismiss) private var dismiss
+
+    private var reportFile: URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Vita3KiOS crash report.txt")
+        try? report.report.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Label("The last session didn't end normally", systemImage: "exclamationmark.triangle.fill")
+                        .font(.headline)
+                        .foregroundStyle(.orange)
+                    Text("Share the report and the log when you report the problem, so it can be fixed.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(report.report)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                    ShareLink(items: [reportFile, URL(fileURLWithPath: report.log)]) {
+                        Label("Share report and log", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+            }
+            .navigationTitle("Crash report")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Close") { dismiss() } }
+            }
         }
     }
 }

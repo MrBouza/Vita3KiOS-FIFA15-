@@ -17,29 +17,38 @@
 
 #include "vita3k_bridge.h"
 
+#include "../crash_report.h"
+#include "../ios_platform.h"
 #include "../ios_session.h"
 #include "../jit/ios_jit.h"
 #include "archive.h"
 
 #include <app/functions.h>
 #include <config/functions.h>
+#include <config/settings.h>
 #include <config/state.h>
 #include <config/version.h>
 #include <io/state.h>
+#include <miniz.h>
 #include <packages/functions.h>
 #include <packages/pkg.h>
+#include <patch/patch.h>
 #include <util/log.h>
+#include <util/net_utils.h>
 #include <util/string_utils.h>
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -258,8 +267,11 @@ char *v3k_apps_json(void) {
         first = false;
         const auto time = times.find(app.path);
         const long long last_played = time != times.end() ? static_cast<long long>(time->second.last_time_used) : 0;
-        json += fmt::format(R"({{"titleId":{},"title":{},"version":{},"category":{},"iconPath":{},"path":{},"lastPlayed":{}}})",
-            quoted(app.title_id), quoted(app.title), quoted(app.app_ver), quoted(app.category), quoted(app.icon_path), quoted(app.path), last_played);
+        const long long play_time = time != times.end() ? static_cast<long long>(time->second.time_used) : 0;
+        const bool custom = emuenv && config::has_custom_config(emuenv->config_path, app.path);
+        json += fmt::format(R"({{"titleId":{},"title":{},"version":{},"category":{},"iconPath":{},"path":{},"lastPlayed":{},"playTime":{},"customConfig":{}}})",
+            quoted(app.title_id), quoted(app.title), quoted(app.app_ver), quoted(app.category), quoted(app.icon_path), quoted(app.path), last_played,
+            play_time, custom ? "true" : "false");
     }
     json += "]";
     return dup_string(json);
@@ -528,3 +540,317 @@ void v3k_request_launch(const char *title_id) {
 }
 
 } // extern "C"
+
+// ======================================================================================
+// Crash reports, shader cache, per-game settings, save backups, game patches
+// ======================================================================================
+
+namespace {
+
+std::optional<app::AppEntry> app_for(const char *title_id) {
+    if (!title_id)
+        return std::nullopt;
+    return ios::find_app_by_title_id(title_id);
+}
+
+uint64_t folder_size(const fs::path &folder) {
+    std::error_code ec;
+    uint64_t total = 0;
+    if (!fs::exists(folder, ec))
+        return 0;
+    for (auto it = fs::recursive_directory_iterator(folder, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (it->is_regular_file(ec))
+            total += it->file_size(ec);
+    }
+    return total;
+}
+
+fs::path save_folder(EmuEnvState &emuenv, const app::AppEntry &app) {
+    return emuenv.vita_fs_path / "ux0/user" / emuenv.io.user_id / "savedata" / app.savedata;
+}
+
+std::string timestamp() {
+    const std::time_t now = std::time(nullptr);
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d-%H%M%S", std::localtime(&now));
+    return buffer;
+}
+
+std::string safe_file_name(const std::string &name) {
+    std::string out;
+    for (const char c : name)
+        out += (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == ' ') ? c : '_';
+    return out.empty() ? std::string("game") : out;
+}
+
+} // namespace
+
+char *v3k_take_crash_report(void) {
+    const std::string report = ios::crash::take_previous_report();
+    if (report.empty())
+        return nullptr;
+    return dup_string(fmt::format(R"({{"report":{},"log":{}}})", quoted(report), quoted(ios::crash::previous_log_path())));
+}
+
+// ---- Shader cache ----
+
+double v3k_shader_cache_bytes(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return 0;
+    return static_cast<double>(folder_size(emuenv->cache_path / "shaders" / title_id));
+}
+
+bool v3k_delete_shader_cache(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return false;
+    std::error_code ec;
+    fs::remove_all(emuenv->cache_path / "shaders" / title_id, ec);
+    LOG_INFO("Deleted the shader cache of {}: {}", title_id, ec ? ec.message() : "ok");
+    return !ec;
+}
+
+// ---- Per-game settings ----
+
+char *v3k_game_settings_json(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = app_for(title_id);
+    if (!emuenv || !app)
+        return dup_string("{}");
+    Config copy = emuenv->cfg;
+    config::set_current_config(copy, emuenv->config_path, app->path);
+    const Config::CurrentConfig &cc = copy.current_config;
+    const bool custom = config::has_custom_config(emuenv->config_path, app->path);
+    const auto b = [](bool v) { return v ? "true" : "false"; };
+    return dup_string(fmt::format(
+        R"({{"custom":{},"resolutionMultiplier":{},"anisotropicFiltering":{},"screenFilter":{},"memoryMapping":{},)"
+        R"("highAccuracy":{},"textureCache":{},"cpuOpt":{},"vSync":{},"fpsHack":{},"disableSurfaceSync":{},)"
+        R"("stretchDisplay":{},"asyncShaders":{},"shaderCache":{}}})",
+        b(custom), cc.resolution_multiplier, cc.anisotropic_filtering, quoted(cc.screen_filter), b(cc.memory_mapping != "disabled"),
+        b(cc.high_accuracy), b(cc.texture_cache), b(cc.cpu_opt), b(cc.v_sync), b(cc.fps_hack), b(cc.disable_surface_sync),
+        b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache)));
+}
+
+bool v3k_set_game_setting(const char *title_id, const char *key, const char *value) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = app_for(title_id);
+    if (!emuenv || !app || !key || !value)
+        return false;
+    Config copy = emuenv->cfg;
+    config::set_current_config(copy, emuenv->config_path, app->path);
+    Config::CurrentConfig &cc = copy.current_config;
+
+    const std::string k = key;
+    const std::string v = value;
+    const bool on = v == "true" || v == "1";
+    if (k == "resolution-multiplier")
+        cc.resolution_multiplier = std::stof(v);
+    else if (k == "anisotropic-filtering")
+        cc.anisotropic_filtering = std::stoi(v);
+    else if (k == "screen-filter")
+        cc.screen_filter = v;
+    else if (k == "memory-mapping")
+        cc.memory_mapping = on ? "double-buffer" : "disabled";
+    else if (k == "high-accuracy")
+        cc.high_accuracy = on;
+    else if (k == "texture-cache")
+        cc.texture_cache = on;
+    else if (k == "cpu-opt")
+        cc.cpu_opt = on;
+    else if (k == "v-sync")
+        cc.v_sync = on;
+    else if (k == "fps-hack")
+        cc.fps_hack = on;
+    else if (k == "disable-surface-sync")
+        cc.disable_surface_sync = on;
+    else if (k == "stretch-display")
+        cc.stretch_the_display_area = on;
+    else if (k == "async-shaders")
+        cc.async_pipeline_compilation = on;
+    else if (k == "shader-cache")
+        cc.shader_cache = on;
+    else
+        return false;
+    return config::save_custom_config(cc, emuenv->config_path, app->path);
+}
+
+bool v3k_reset_game_settings(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = app_for(title_id);
+    if (!emuenv || !app)
+        return false;
+    return config::delete_custom_config(emuenv->config_path, app->path);
+}
+
+// ---- Save data backups ----
+
+char *v3k_export_save_data(const char *title_id, char **message) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = app_for(title_id);
+    const auto fail = [&](const std::string &text) -> char * {
+        if (message)
+            *message = dup_string(text);
+        return nullptr;
+    };
+    if (!emuenv || !app)
+        return fail("This game is not installed.");
+    const fs::path source = save_folder(*emuenv, *app);
+    std::error_code ec;
+    if (app->savedata.empty() || !fs::exists(source, ec) || fs::is_empty(source, ec))
+        return fail(app->title + " has no save data yet.");
+
+    const fs::path exports = fs::path(ios::get_documents_path()) / "Save Backups";
+    fs::create_directories(exports, ec);
+    const fs::path zip_path = exports / fmt::format("{} ({}) {}.zip", safe_file_name(app->title), app->title_id, timestamp());
+
+    mz_zip_archive zip{};
+    if (!mz_zip_writer_init_file(&zip, zip_path.string().c_str(), 0))
+        return fail("Could not create the backup file.");
+    bool ok = true;
+    for (auto it = fs::recursive_directory_iterator(source, ec); ok && !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (!it->is_regular_file(ec))
+            continue;
+        const std::string name = fs::relative(it->path(), source, ec).generic_string();
+        ok = mz_zip_writer_add_file(&zip, name.c_str(), it->path().string().c_str(), nullptr, 0, MZ_BEST_COMPRESSION);
+    }
+    ok = ok && mz_zip_writer_finalize_archive(&zip);
+    mz_zip_writer_end(&zip);
+    if (!ok) {
+        fs::remove(zip_path, ec);
+        return fail("Could not write the backup.");
+    }
+    LOG_INFO("Exported the save data of {} to {}", app->title_id, zip_path.string());
+    if (message)
+        *message = dup_string("Saved to Files › Vita3KiOS › Save Backups.");
+    return dup_string(zip_path.string());
+}
+
+bool v3k_import_save_data(const char *title_id, const char *zip_path, char **message) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = app_for(title_id);
+    const auto result = [&](bool ok, const std::string &text) {
+        if (message)
+            *message = dup_string(text);
+        return ok;
+    };
+    if (!emuenv || !app || !zip_path)
+        return result(false, "This game is not installed.");
+    if (app->savedata.empty())
+        return result(false, app->title + " does not use save data.");
+
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_file(&zip, zip_path, 0))
+        return result(false, "That file is not a zip archive.");
+
+    const fs::path target = save_folder(*emuenv, *app);
+    std::error_code ec;
+    // Keep the current save, just in case
+    if (fs::exists(target, ec) && !fs::is_empty(target, ec)) {
+        const fs::path backup = emuenv->cache_path / "save-backups" / fmt::format("{}-{}", app->savedata, timestamp());
+        fs::create_directories(backup.parent_path(), ec);
+        fs::rename(target, backup, ec);
+        if (ec) {
+            mz_zip_reader_end(&zip);
+            return result(false, "Could not move the current save aside: " + ec.message());
+        }
+    }
+    fs::create_directories(target, ec);
+
+    // Archives made by hand often wrap everything in one folder: strip it when every file shares it
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    std::string prefix;
+    for (mz_uint i = 0; i < count; i++) {
+        char name[1024];
+        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
+        const std::string entry = name;
+        const auto slash = entry.find('/');
+        const std::string top = slash == std::string::npos ? std::string() : entry.substr(0, slash + 1);
+        if (i == 0)
+            prefix = top;
+        else if (top != prefix)
+            prefix.clear();
+        if (top.empty() || entry.find("sce_sys/") == 0)
+            prefix.clear();
+    }
+
+    bool ok = true;
+    for (mz_uint i = 0; ok && i < count; i++) {
+        if (mz_zip_reader_is_file_a_directory(&zip, i))
+            continue;
+        char name[1024];
+        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
+        std::string entry = std::string(name).substr(prefix.size());
+        if (entry.empty() || entry.find("..") != std::string::npos)
+            continue;
+        const fs::path out = target / entry;
+        fs::create_directories(out.parent_path(), ec);
+        ok = mz_zip_reader_extract_to_file(&zip, i, out.string().c_str(), 0);
+    }
+    mz_zip_reader_end(&zip);
+    LOG_INFO("Imported save data for {} from {}: {}", app->title_id, zip_path, ok ? "ok" : "failed");
+    return result(ok, ok ? "Save data imported. The previous save was kept in the cache folder." : "Some files could not be extracted.");
+}
+
+// ---- Game patches (vita3k-patches) ----
+
+bool v3k_download_patches(char **message) {
+    auto *emuenv = ios::get_emuenv();
+    const auto result = [&](bool ok, const std::string &text) {
+        if (message)
+            *message = dup_string(text);
+        return ok;
+    };
+    if (!emuenv)
+        return result(false, "The emulator is not ready.");
+    const std::string xml = net_utils::get_web_response(PATCHLIST_XML_URL);
+    PatchEntries entries;
+    if (xml.empty())
+        return result(false, "Could not download the patch list. Check your connection and try again.");
+    if (!parse_patch_entries(xml, entries))
+        return result(false, "The downloaded patch list is not valid.");
+    std::error_code ec;
+    fs::create_directories(emuenv->patch_path, ec);
+    const fs::path path = patchlist_xml_path(emuenv->patch_path);
+    if (!fs_utils::dump_data(path, xml.data(), static_cast<std::streamsize>(xml.size())))
+        return result(false, "Could not save the patch list.");
+    return result(true, fmt::format("Downloaded {} patches.", entries.size()));
+}
+
+char *v3k_patches_json(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return dup_string("[]");
+    const auto enabled = load_enabled_patches(emuenv->patch_path);
+    const std::string id = title_id;
+    std::string json = "[";
+    bool first = true;
+    for (const auto &entry : load_patch_entries(emuenv->patch_path)) {
+        if (std::find(entry.title_ids.begin(), entry.title_ids.end(), id) == entry.title_ids.end())
+            continue;
+        json += fmt::format(R"({}{{"key":{},"name":{},"author":{},"note":{},"version":{},"appVersion":{},"enabled":{}}})",
+            first ? "" : ",", quoted(entry.key()), quoted(entry.name.empty() ? entry.title : entry.name), quoted(entry.author),
+            quoted(entry.note), quoted(entry.patch_ver), quoted(entry.app_ver), enabled.contains(entry.key()) ? "true" : "false");
+        first = false;
+    }
+    json += "]";
+    return dup_string(json);
+}
+
+bool v3k_patches_downloaded(void) {
+    auto *emuenv = ios::get_emuenv();
+    std::error_code ec;
+    return emuenv && fs::exists(patchlist_xml_path(emuenv->patch_path), ec);
+}
+
+bool v3k_set_patch_enabled(const char *key, bool enabled) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !key)
+        return false;
+    auto set = load_enabled_patches(emuenv->patch_path);
+    if (enabled)
+        set.insert(key);
+    else
+        set.erase(key);
+    return save_enabled_patches(emuenv->patch_path, set);
+}

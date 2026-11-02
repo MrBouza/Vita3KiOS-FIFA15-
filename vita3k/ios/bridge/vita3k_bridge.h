@@ -48,7 +48,7 @@ const char *v3k_storage_path(void);
 int v3k_firmware_state(void);
 
 // ---- Library ----
-// JSON array: [{"titleId","title","version","category","iconPath","path","lastPlayed"}]
+// JSON array: [{"titleId","title","version","category","iconPath","path","lastPlayed","playTime","customConfig"}]
 char *v3k_apps_json(void);
 void v3k_refresh_apps(void);
 bool v3k_delete_app(const char *title_id);
@@ -104,6 +104,40 @@ const char *v3k_log_path(void);
 // ---- Launching ----
 // Asks the app loop to close the library and boot this title
 void v3k_request_launch(const char *title_id);
+
+// ---- Crash reports ----
+// JSON {"report","log"} describing how the previous session ended, or NULL if it ended normally.
+// Returned once per launch.
+char *v3k_take_crash_report(void);
+
+// ---- Shader cache ----
+double v3k_shader_cache_bytes(const char *title_id);
+bool v3k_delete_shader_cache(const char *title_id);
+
+// ---- Per-game settings (override the global settings for one game) ----
+// JSON {"custom":bool, "resolutionMultiplier", "anisotropicFiltering", "screenFilter", "memoryMapping",
+// "highAccuracy", "textureCache", "cpuOpt", "vSync", "fpsHack", "disableSurfaceSync", "stretchDisplay",
+// "asyncShaders", "shaderCache"}
+char *v3k_game_settings_json(const char *title_id);
+// Keys: "resolution-multiplier", "anisotropic-filtering", "screen-filter", and booleans ("true"/"false")
+// "memory-mapping", "high-accuracy", "texture-cache", "cpu-opt", "v-sync", "fps-hack",
+// "disable-surface-sync", "stretch-display", "async-shaders", "shader-cache"
+bool v3k_set_game_setting(const char *title_id, const char *key, const char *value);
+bool v3k_reset_game_settings(const char *title_id);
+
+// ---- Save data backups ----
+// Zips the save into Documents/Save Backups and returns the zip path (free it), or NULL
+char *v3k_export_save_data(const char *title_id, char **message);
+// Replaces the save with a zip's contents (the current save is moved aside first)
+bool v3k_import_save_data(const char *title_id, const char *zip_path, char **message);
+
+// ---- Game patches (github.com/Vita3K/vita3k-patches) ----
+// Blocking network call: run off the main thread
+bool v3k_download_patches(char **message);
+bool v3k_patches_downloaded(void);
+// JSON array [{"key","name","author","note","version","appVersion","enabled"}] for one game
+char *v3k_patches_json(const char *title_id);
+bool v3k_set_patch_enabled(const char *key, bool enabled);
 
 #ifdef __cplusplus
 }

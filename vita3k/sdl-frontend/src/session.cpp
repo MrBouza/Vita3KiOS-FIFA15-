@@ -373,6 +373,9 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
                 case SDL_EVENT_WILL_ENTER_BACKGROUND:
                     LOG_INFO("App going to the background, pausing the game");
                     session.set_pause_reason(app::AppSessionPauseReason::Background, true);
+                    // iOS may kill a backgrounded app without warning: keep the shaders compiled so far
+                    if (emuenv.renderer)
+                        emuenv.renderer->save_caches();
                     break;
                 case SDL_EVENT_DID_ENTER_FOREGROUND:
                     LOG_INFO("App back in the foreground, resuming the game");

@@ -136,11 +136,33 @@ else
 fi
 rm -rf "$icon_work"
 
+# ---- Version ----
+# Marketing version: VITA3KIOS_VERSION, else a v1.2.3 tag being built, else the default in ios_bundle.cmake.
+# Build number: the CI run number, so every IPA installs over the previous one as an update.
+version="${VITA3KIOS_VERSION:-}"
+if [[ -z "$version" && "${GITHUB_REF_TYPE:-}" == tag && "${GITHUB_REF_NAME:-}" == v* ]]; then
+    version="${GITHUB_REF_NAME#v}"
+fi
+if [[ -n "$version" ]]; then
+    "$pb" -c "Set :CFBundleShortVersionString $version" "$plist"
+fi
+version="$("$pb" -c "Print :CFBundleShortVersionString" "$plist")"
+build_number="${GITHUB_RUN_NUMBER:-$(git -C "$repo_root" rev-list --count HEAD)}"
+"$pb" -c "Set :CFBundleVersion $build_number" "$plist"
+commit="$(git -C "$repo_root" rev-parse --short HEAD)"
+"$pb" -c "Delete :V3KCommit" "$plist" 2> /dev/null || true
+"$pb" -c "Add :V3KCommit string $commit" "$plist"
+echo "Version $version ($build_number), commit $commit"
+
 mkdir -p "$output_dir"
 staging="$(mktemp -d)"
 mkdir -p "$staging/Payload"
 cp -R "$app_path" "$staging/Payload/"
-ipa_name="Vita3K-iOS-$(git -C "$repo_root" rev-parse --short HEAD).ipa"
+if [[ "${VITA3KIOS_RELEASE:-0}" == 1 ]]; then
+    ipa_name="Vita3KiOS-${version}.ipa"
+else
+    ipa_name="Vita3KiOS-${version}-${commit}.ipa"
+fi
 (cd "$staging" && zip -qry "$ipa_name" Payload)
 mv "$staging/$ipa_name" "$output_dir/"
 rm -rf "$staging"
@@ -149,4 +171,6 @@ echo "IPA: $output_dir/$ipa_name"
 if [[ -n "${GITHUB_ENV:-}" ]]; then
     echo "IPA_PATH=$output_dir/$ipa_name" >> "$GITHUB_ENV"
     echo "IPA_NAME=${ipa_name%.ipa}" >> "$GITHUB_ENV"
+    echo "IPA_VERSION=$version" >> "$GITHUB_ENV"
+    echo "IPA_BUILD=$build_number" >> "$GITHUB_ENV"
 fi

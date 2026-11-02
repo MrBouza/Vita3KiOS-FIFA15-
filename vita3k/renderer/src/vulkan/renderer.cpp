@@ -1844,6 +1844,15 @@ void VKState::precompile_shader(const ShadersHash &hash) {
     LOG_INFO("Program Compiled {}/{}", programs_count_pre_compiled, shaders_cache_hashs.size());
 }
 
+void VKState::save_caches() {
+    // make sure we are in a game
+    if (shaders_path.empty())
+        return;
+
+    pipeline_cache.save_pipeline_cache();
+    pipeline_cache.next_pipeline_cache_save = std::numeric_limits<uint64_t>::max();
+}
+
 void VKState::preclose_action() {
     // Stop the GPU request wait thread before destruction begins.
     // VKState (owns the queue) is destroyed before VKContext (owns the thread).

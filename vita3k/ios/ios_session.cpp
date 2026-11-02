@@ -17,6 +17,7 @@
 
 #include "ios_session.h"
 #include "archive.h"
+#include "crash_report.h"
 
 #include <compat/functions.h>
 #include <compat/state.h>
@@ -139,6 +140,7 @@ bool initialize(const fs::path &storage_path) {
         fs::create_directories(root_paths.get_patch_path());
         fs::create_directories(root_paths.get_shared_path() / "textures");
 
+        crash::init(storage_path.string());
         if (logging::init(root_paths, true) != Success)
             return false;
 

@@ -74,7 +74,12 @@ private:
 
     // how much time should we wait after the last shader compilation
     // to update the disk-saved shader cache (in seconds)
+#ifdef VITA3K_PLATFORM_IOS
+    // iOS can kill the app without warning (memory, background): save soon after new pipelines appear
+    static constexpr int pipeline_cache_save_delay = 5;
+#else
     static constexpr int pipeline_cache_save_delay = 15;
+#endif
 
     vk::PipelineCache pipeline_cache;
 

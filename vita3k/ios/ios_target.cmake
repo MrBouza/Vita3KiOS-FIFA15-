@@ -10,6 +10,7 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/SettingsView.swift
 	ios/ui/TouchControls.swift
 	ios/ui/MenuMusic.swift
+	ios/ui/GameSettingsView.swift
 )
 
 add_executable(vita3k MACOSX_BUNDLE
@@ -17,6 +18,8 @@ add_executable(vita3k MACOSX_BUNDLE
 	ios/ios_platform.mm
 	ios/ios_platform.h
 	ios/ios_session.cpp
+	ios/crash_report.cpp
+	ios/crash_report.h
 	ios/ios_session.h
 	ios/controls/virtual_pad.cpp
 	ios/controls/virtual_pad.h

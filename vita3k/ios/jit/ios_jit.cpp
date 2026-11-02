@@ -18,6 +18,7 @@
 // Ported from Tsubomi by 125hz (ios/src/UpstreamMain.cpp, https://github.com/125hz/Tsubomi, GPL-2.0)
 
 #include "ios_jit.h"
+#include "../crash_report.h"
 
 #include <cpu/functions.h>
 #include <mem/functions.h>
@@ -104,6 +105,8 @@ void fatal_signal_handler(int sig, siginfo_t *info, void *uct) {
         image = dl_info.dli_fname;
         image_base = reinterpret_cast<uintptr_t>(dl_info.dli_fbase);
     }
+    ios::crash::write_signal(sig, pc, image, image_base ? pc - image_base : 0,
+        info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0);
     // Not async-signal-safe, but the process is dying anyway and this is the only way into the log
     LOG_CRITICAL("FATAL SIGNAL {}: PC=0x{:X} (image '{}' +0x{:X}) fault_addr=0x{:X}",
         sig, pc, image, image_base ? pc - image_base : 0,

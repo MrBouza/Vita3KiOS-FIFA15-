@@ -25,11 +25,15 @@
 
 #include "bridge/vita3k_bridge.h"
 #include "controls/virtual_pad.h"
+#include "crash_report.h"
 #include "ios_session.h"
 #include "jit/ios_jit.h"
 
 #include <app/session_controller.h>
 #include <emuenv/app_launch_request.h>
+#include <emuenv/state.h>
+#include <kernel/state.h>
+#include <kernel/thread/thread_state.h>
 #include <mem/functions.h>
 #include <sdl-frontend/session.h>
 #include <util/log.h>
@@ -40,9 +44,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <string>
 #include <thread>
 
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
@@ -71,6 +77,7 @@ int main(int argc, char *argv[]) {
     }
 
     ios::install_fatal_signal_logger();
+    ios::crash::install_terminate_handler();
     ios::observe_app_state();
 
     // Activate the audio session before SDL opens the audio device, so the audio unit actually runs
@@ -94,10 +101,12 @@ int main(int argc, char *argv[]) {
 
     for (;;) {
         const std::string title_id = ios::run_library_until_launch();
-        if (!ios::find_app_by_title_id(title_id)) {
+        const auto app = ios::find_app_by_title_id(title_id);
+        if (!app) {
             LOG_ERROR("Requested app {} is not installed", title_id);
             continue;
         }
+        ios::crash::session_started(title_id, app->title);
 
         // Re-reserve guest memory before every launch, so a second session gets the same clean
         // address range as the first instead of whatever the previous session left fragmented
@@ -122,9 +131,14 @@ int main(int argc, char *argv[]) {
             auto last_progress = std::chrono::steady_clock::now();
             auto last_memory_log = last_progress;
             bool stall_logged = false;
+            bool background = false;
             while (!session_over.load()) {
                 std::this_thread::sleep_for(500ms);
                 const auto now = std::chrono::steady_clock::now();
+                if (ios::app_in_background() != background) {
+                    background = !background;
+                    ios::crash::session_backgrounded(background);
+                }
                 if (emuenv->frame_count != last_frames) {
                     last_frames = emuenv->frame_count;
                     last_progress = now;
@@ -143,6 +157,21 @@ int main(int argc, char *argv[]) {
                 const uint64_t quit_at = v3k_pad_quit_requested_ms();
                 if (quit_at && SDL_GetTicks() - quit_at > 8000) {
                     LOG_CRITICAL("Watchdog: the game did not close 8 seconds after Quit, closing Vita3K");
+                    // Which guest threads were still alive tells us what blocked the shutdown
+                    std::string threads;
+                    // try_lock: a thread stuck while holding the kernel lock must not stop us from exiting
+                    if (std::unique_lock<std::mutex> lock(emuenv->kernel.mutex, std::try_to_lock); lock.owns_lock()) {
+                        for (const auto &[id, thread] : emuenv->kernel.threads) {
+                            if (thread && thread->status != ThreadStatus::deleted && thread->status != ThreadStatus::dormant)
+                                threads += fmt::format("{}{} ({})", threads.empty() ? "" : ", ", thread->name,
+                                    thread->status == ThreadStatus::running ? "running" : thread->status == ThreadStatus::waiting ? "waiting"
+                                                                                                                                  : "suspended");
+                        }
+                    }
+                    LOG_CRITICAL("Watchdog: guest threads still active: {}", threads.empty() ? "none" : threads);
+                    ios::crash::write_note("The game did not close within 8 seconds of tapping Quit. Threads still active: "
+                        + (threads.empty() ? std::string("none") : threads));
+                    ios::crash::session_ended();
                     if (auto logger = spdlog::default_logger())
                         logger->flush();
                     _exit(0);
@@ -169,6 +198,7 @@ int main(int argc, char *argv[]) {
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
         session_over = true;
         watchdog.join();
+        ios::crash::session_ended();
         v3k_pad_clear_quit_request();
         LOG_INFO("{} exited with code {}, {} free JIT caches", title_id, result, ios::jit_pool_available());
     }

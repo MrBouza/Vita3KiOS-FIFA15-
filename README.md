@@ -16,8 +16,13 @@ Vita3KiOS runs the full, current Vita3K emulator core (CPU recompiler, GXM→Vul
 - On-screen touch controls with themes (PlayStation colours, Xbox-style and Nintendo-style A/B/X/Y, Neon, Minimal), adjustable opacity and size, hidden automatically when a controller connects
 - Button mapping for controllers, including a one-tap ✕/○ swap
 - Eight UI themes, and original menu music composed on the device: endless songs in six styles
-- Library sorting by title or recently played, save data management, log sharing from Settings
-- Works inside LiveContainer
+- **Per-game settings**: resolution, filters, accuracy, FPS hack and more for each game (long-press a game → *Game settings, patches & saves*)
+- **Game patches** from the community [vita3k-patches](https://github.com/Vita3K/vita3k-patches) list (60 FPS, resolution and bug fixes), toggled per game
+- **Shader cache** kept between sessions and saved when the app goes to the background, so the second launch of a game is smooth; per-game cache size and reset
+- **Save backups**: export a game's save as a .zip, import one back (the current save is kept aside)
+- **Crash reports**: if a session crashes or iOS closes the app, the next launch shows what happened with a one-tap share of the report and log
+- Library sorting by title or recently played, play time per game, log sharing from Settings
+- Works inside LiveContainer; updates through AltStore / SideStore
 - Settings for resolution, filtering, V-Sync, CPU options and audio
 
 ## Requirements
@@ -29,8 +34,12 @@ Vita3KiOS runs the full, current Vita3K emulator core (CPU recompiler, GXM→Vul
 
 ## Install
 
-1. Download the latest `Vita3K-iOS-<commit>.ipa` from the [iOS workflow](../../actions/workflows/ios.yml) (open the newest successful run, then **Artifacts**).
-2. Install it with your sideloading tool. New builds install over old ones and keep your data (bundle ID `org.vita3k.ios`).
+- **AltStore / SideStore (updates in-app):** add this source:
+  `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json`
+- **LiveContainer, TrollStore or another signer:** download `Vita3KiOS-<version>.ipa` from [Releases](../../releases/latest).
+- **Test builds** of every commit: the newest successful run of the [iOS workflow](../../actions/workflows/ios.yml) → **Artifacts** (needs a GitHub login).
+
+New versions install over old ones and keep your data (bundle ID `org.vita3k.ios`).
 
 ## Enabling JIT
 
@@ -67,6 +76,10 @@ git clone --recursive https://github.com/oledz-i/Vita3KiOS
 cd Vita3KiOS
 VCPKG_ROOT=/path/to/vcpkg bash .ci/build-ios.sh artifacts
 ```
+
+Repeat builds take about 6 minutes: CI caches vcpkg packages, CMake's feature checks and compiled objects (ccache).
+
+**Releasing:** Actions → iOS → *Run workflow* with a version number (or push a `v1.2.3` tag). The IPA is attached to a GitHub Release and the AltStore / SideStore source is updated automatically.
 
 The iOS code lives in `vita3k/ios/` (app target, SwiftUI frontend, C bridge to the core, JIT), with the dynarmic JIT patch in `vita3k/ios/patches/` (applied automatically at configure time).
 

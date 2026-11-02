@@ -223,6 +223,8 @@ struct State {
 
     virtual void precompile_shader(const ShadersHash &hash) = 0;
     virtual void preclose_action() = 0;
+    // Writes the shader and pipeline caches to disk now (iOS may kill a backgrounded app at any time)
+    virtual void save_caches() {}
 
     virtual ~State() = default;
 

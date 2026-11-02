@@ -210,7 +210,7 @@ struct TouchControlsSection: View {
         } header: {
             Text("Controls")
         } footer: {
-            Text("Touch control changes apply the next time a game starts. In game, the eye button hides or shows the controls and the ✕ at the top quits.")
+            Text("Touch control changes apply the next time a game starts. In game, the eye button hides or shows the controls and the ✕ at the top quits. With a controller, hold Select + Start to open the same menu.")
         }
     }
 }
@@ -323,11 +323,30 @@ struct CreditsSection: View {
 struct AboutSection: View {
     @EnvironmentObject var model: LibraryModel
 
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        let commit = info?["V3KCommit"] as? String
+        return "\(version) (\(build)\(commit.map { ", " + $0 } ?? ""))"
+    }
+
+    private var previousLog: String {
+        URL(fileURLWithPath: String(cString: v3k_log_path())).deletingLastPathComponent()
+            .appendingPathComponent("vita3k-previous.log").path
+    }
+
     var body: some View {
         Section("About") {
-            LabeledContent("Version", value: model.version)
+            LabeledContent("Version", value: appVersion)
+            LabeledContent("Core", value: model.version)
             ShareLink(item: URL(fileURLWithPath: String(cString: v3k_log_path()))) {
                 Label("Share log", systemImage: "square.and.arrow.up")
+            }
+            if FileManager.default.fileExists(atPath: previousLog) {
+                ShareLink(item: URL(fileURLWithPath: previousLog)) {
+                    Label("Share previous session's log", systemImage: "clock.arrow.circlepath")
+                }
             }
             Text("Attach the log when reporting a problem. It's also in the app's folder in the Files app.")
                 .font(.footnote)

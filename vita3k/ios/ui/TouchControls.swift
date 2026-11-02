@@ -238,6 +238,10 @@ final class ControlsOverlayView: UIView {
     private var controllerConnected = !GCController.controllers().isEmpty {
         didSet { applyVisibility() }
     }
+    // Controller shortcut: hold Select + Start to open the game menu (polled, so SDL keeps its input handlers)
+    private var shortcutTimer: Timer?
+    private var shortcutHeldSince: Date?
+    private weak var menuAlert: UIAlertController?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -277,6 +281,34 @@ final class ControlsOverlayView: UIView {
         center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
             self?.controllerConnected = !GCController.controllers().isEmpty
         }
+
+        shortcutTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.checkControllerShortcut()
+        }
+    }
+
+    deinit {
+        shortcutTimer?.invalidate()
+    }
+
+    private func checkControllerShortcut() {
+        let held = GCController.controllers().contains { controller in
+            guard let pad = controller.extendedGamepad else { return false }
+            return pad.buttonMenu.isPressed && (pad.buttonOptions?.isPressed ?? false)
+        }
+        guard held else {
+            shortcutHeldSince = nil
+            return
+        }
+        if let since = shortcutHeldSince {
+            if Date().timeIntervalSince(since) > 1.2 && menuAlert == nil {
+                shortcutHeldSince = .distantFuture // fire once per hold
+                v3k_pad_release_all()
+                showMenu(fromController: true)
+            }
+        } else {
+            shortcutHeldSince = Date()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -295,13 +327,24 @@ final class ControlsOverlayView: UIView {
     }
 
     @objc private func exitTapped() {
-        let alert = UIAlertController(title: "Quit game?", message: "Unsaved progress will be lost.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        showMenu(fromController: false)
+    }
+
+    private func showMenu(fromController: Bool) {
+        guard menuAlert == nil, let root = window?.rootViewController else { return }
+        let alert = UIAlertController(title: "Quit game?", message: fromController
+            ? "Unsaved progress will be lost.\n(Hold Select + Start on a controller to open this menu.)"
+            : "Unsaved progress will be lost.", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { _ in
             v3k_pad_release_all()
             v3k_pad_request_exit()
         })
-        window?.rootViewController?.present(alert, animated: true)
+        alert.addAction(UIAlertAction(title: controlsHidden ? "Show touch controls" : "Hide touch controls", style: .default) { [weak self] _ in
+            self?.controlsHidden.toggle()
+        })
+        alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel))
+        menuAlert = alert
+        (root.presentedViewController ?? root).present(alert, animated: true)
     }
 
     @objc private func hideTapped() {
