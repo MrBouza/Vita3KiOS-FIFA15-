@@ -35,6 +35,7 @@ enum LibraryHost {
         UIView.animate(withDuration: firstShow ? 0.35 : 0.2, delay: 0, options: [.curveEaseOut]) {
             window?.alpha = 1
         }
+        MenuMusic.shared.libraryShown()
         if firstShow {
             // Start preparing JIT once the library is on screen, so opening the app feels instant
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -49,6 +50,8 @@ enum LibraryHost {
     private static var hasShown = false
 
     static func hide() {
+        // The game is about to start: the menu music fades out and stops
+        MenuMusic.shared.libraryHidden()
         window?.isHidden = true
     }
 }

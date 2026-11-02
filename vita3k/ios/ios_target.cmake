@@ -9,6 +9,7 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/LibraryView.swift
 	ios/ui/SettingsView.swift
 	ios/ui/TouchControls.swift
+	ios/ui/MenuMusic.swift
 )
 
 add_executable(vita3k MACOSX_BUNDLE

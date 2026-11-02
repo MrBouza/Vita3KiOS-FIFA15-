@@ -38,6 +38,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -249,12 +250,16 @@ int v3k_firmware_state(void) {
 char *v3k_apps_json(void) {
     std::string json = "[";
     bool first = true;
+    auto *emuenv = ios::get_emuenv();
+    const auto times = emuenv ? app::get_user_app_times(*emuenv) : std::map<std::string, app::AppTime>{};
     for (const auto &app : ios::list_apps()) {
         if (!first)
             json += ",";
         first = false;
-        json += fmt::format(R"({{"titleId":{},"title":{},"version":{},"category":{},"iconPath":{},"path":{}}})",
-            quoted(app.title_id), quoted(app.title), quoted(app.app_ver), quoted(app.category), quoted(app.icon_path), quoted(app.path));
+        const auto time = times.find(app.path);
+        const long long last_played = time != times.end() ? static_cast<long long>(time->second.last_time_used) : 0;
+        json += fmt::format(R"({{"titleId":{},"title":{},"version":{},"category":{},"iconPath":{},"path":{},"lastPlayed":{}}})",
+            quoted(app.title_id), quoted(app.title), quoted(app.app_ver), quoted(app.category), quoted(app.icon_path), quoted(app.path), last_played);
     }
     json += "]";
     return dup_string(json);
@@ -472,6 +477,46 @@ bool v3k_set_setting_string(const char *key, const char *value) {
         return save_settings(*emuenv);
     }
     return false;
+}
+
+namespace {
+void ensure_binds(EmuEnvState &emuenv) {
+    if (emuenv.cfg.controller_binds.size() < 15 || emuenv.cfg.controller_axis_binds.size() < 6)
+        app::reset_controller_binding(emuenv);
+}
+} // namespace
+
+char *v3k_controller_binds_json(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return dup_string("[]");
+    ensure_binds(*emuenv);
+    std::string json = "[";
+    for (size_t i = 0; i < 15; i++)
+        json += (i ? "," : "") + std::to_string(emuenv->cfg.controller_binds[i]);
+    return dup_string(json + "]");
+}
+
+bool v3k_set_controller_bind(int slot, int physical_button) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || slot < 0 || slot >= 15 || physical_button < 0 || physical_button >= 15)
+        return false;
+    ensure_binds(*emuenv);
+    emuenv->cfg.controller_binds[slot] = static_cast<short>(physical_button);
+    return save_settings(*emuenv);
+}
+
+void v3k_reset_controller_binds(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return;
+    app::reset_controller_binding(*emuenv);
+    save_settings(*emuenv);
+}
+
+const char *v3k_log_path(void) {
+    static const std::string path = (fs::path(ios::get_documents_path()) / "vita3k.log").string();
+    return path.c_str();
 }
 
 void v3k_request_launch(const char *title_id) {

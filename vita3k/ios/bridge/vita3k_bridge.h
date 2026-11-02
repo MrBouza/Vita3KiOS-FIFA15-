@@ -48,7 +48,7 @@ const char *v3k_storage_path(void);
 int v3k_firmware_state(void);
 
 // ---- Library ----
-// JSON array: [{"titleId","title","version","category","iconPath","path"}]
+// JSON array: [{"titleId","title","version","category","iconPath","path","lastPlayed"}]
 char *v3k_apps_json(void);
 void v3k_refresh_apps(void);
 bool v3k_delete_app(const char *title_id);
@@ -88,6 +88,18 @@ char *v3k_settings_json(void);
 bool v3k_set_setting_number(const char *key, double value);
 bool v3k_set_setting_bool(const char *key, bool value);
 bool v3k_set_setting_string(const char *key, const char *value);
+
+// ---- Controller mapping ----
+// The core reads each Vita button from one physical (SDL gamepad) button. Slots and values are
+// SDL_GamepadButton numbers: slot = the button's default position, value = physical button used.
+// JSON array of 15 numbers.
+char *v3k_controller_binds_json(void);
+bool v3k_set_controller_bind(int slot, int physical_button);
+void v3k_reset_controller_binds(void);
+
+// ---- Misc ----
+// Path of vita3k.log, for sharing
+const char *v3k_log_path(void);
 
 // ---- Launching ----
 // Asks the app loop to close the library and boot this title

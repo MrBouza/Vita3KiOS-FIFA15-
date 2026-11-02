@@ -13,6 +13,7 @@ struct GameApp: Codable, Identifiable, Hashable {
     let category: String
     let iconPath: String
     let path: String
+    let lastPlayed: Int64
 
     var id: String { titleId }
 

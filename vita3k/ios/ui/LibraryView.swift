@@ -5,18 +5,72 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// UI colour themes (Settings > Appearance). Views read the current one; @AppStorage("v3k.theme")
+/// in the top-level views makes them redraw when it changes.
+enum AppTheme: String, CaseIterable, Identifiable {
+    case midnight, vita, sakura, ocean, sunset, forest, crimson, graphite
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .midnight: "Midnight"
+        case .vita: "Vita Blue"
+        case .sakura: "Sakura"
+        case .ocean: "Ocean"
+        case .sunset: "Sunset"
+        case .forest: "Forest"
+        case .crimson: "Crimson"
+        case .graphite: "Graphite"
+        }
+    }
+
+    private static func rgb(_ hex: UInt32) -> Color {
+        Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    }
+
+    // accent, second accent, background top, background middle
+    private var palette: (UInt32, UInt32, UInt32, UInt32) {
+        switch self {
+        case .midnight: (0x4085FF, 0x8C5CFF, 0x0D0F1F, 0x171233)
+        case .vita: (0x2F8CFF, 0x00C2FF, 0x06142B, 0x0B2347)
+        case .sakura: (0xFF7EB6, 0xFFB3D1, 0x1F0D17, 0x33142A)
+        case .ocean: (0x1FD1C4, 0x3A8DFF, 0x041A1F, 0x082C33)
+        case .sunset: (0xFF8A3D, 0xFF4F81, 0x1F0E0A, 0x331420)
+        case .forest: (0x4CD97B, 0xB4E05A, 0x07170D, 0x0F2617)
+        case .crimson: (0xFF4D5E, 0xFF9150, 0x1A0607, 0x2E0B10)
+        case .graphite: (0xC8CDD6, 0x8A93A3, 0x111214, 0x1D1F23)
+        }
+    }
+
+    var accent: Color { Self.rgb(palette.0) }
+    var accent2: Color { Self.rgb(palette.1) }
+    var background: LinearGradient {
+        LinearGradient(colors: [Self.rgb(palette.2), Self.rgb(palette.3), .black], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+    var accentGradient: LinearGradient {
+        LinearGradient(colors: [accent, accent2], startPoint: .leading, endPoint: .trailing)
+    }
+
+    static var current: AppTheme {
+        AppTheme(rawValue: UserDefaults.standard.string(forKey: "v3k.theme") ?? "") ?? .midnight
+    }
+}
+
 enum Theme {
-    static let accent = Color(red: 0.25, green: 0.52, blue: 1.0)
-    static let accent2 = Color(red: 0.55, green: 0.36, blue: 1.0)
-    static let background = LinearGradient(
-        colors: [Color(red: 0.05, green: 0.06, blue: 0.12), Color(red: 0.09, green: 0.07, blue: 0.20), .black],
-        startPoint: .topLeading, endPoint: .bottomTrailing)
+    static var accent: Color { AppTheme.current.accent }
+    static var accent2: Color { AppTheme.current.accent2 }
+    static var background: LinearGradient { AppTheme.current.background }
     static let card = Color.white.opacity(0.06)
-    static let accentGradient = LinearGradient(colors: [accent, accent2], startPoint: .leading, endPoint: .trailing)
+    static var accentGradient: LinearGradient { AppTheme.current.accentGradient }
 }
 
 struct LibraryView: View {
     @EnvironmentObject var model: LibraryModel
+    @ObservedObject private var music = MenuMusic.shared
+    @AppStorage("v3k.musicEnabled") private var musicEnabled = true
+    @AppStorage("v3k.theme") private var themeName = AppTheme.midnight.rawValue
+    @AppStorage("v3k.librarySort") private var sortMode = "title"
 
     @State private var search = ""
     @State private var showingImporter = false
@@ -28,10 +82,13 @@ struct LibraryView: View {
     @State private var zrifInput = ""
 
     private var filteredApps: [GameApp] {
-        guard !search.isEmpty else { return model.apps }
-        return model.apps.filter {
+        let apps = search.isEmpty ? model.apps : model.apps.filter {
             $0.title.localizedCaseInsensitiveContains(search) || $0.titleId.localizedCaseInsensitiveContains(search)
         }
+        if sortMode == "recent" {
+            return apps.sorted { ($0.lastPlayed, $1.title) > ($1.lastPlayed, $0.title) }
+        }
+        return apps
     }
 
     var body: some View {
@@ -45,6 +102,16 @@ struct LibraryView: View {
 
                         if !model.hasFirmware {
                             FirmwareCallout { openImporter([.item]) }
+                        }
+
+                        if musicEnabled && !music.nowPlaying.isEmpty {
+                            NowPlayingChip(title: music.nowPlaying, style: music.styleName) { music.skip() }
+                        }
+
+                        if !model.apps.isEmpty {
+                            Text(model.apps.count == 1 ? "1 game" : "\(model.apps.count) games")
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.5))
                         }
 
                         if model.apps.isEmpty {
@@ -83,6 +150,16 @@ struct LibraryView: View {
             .navigationTitle("Vita3K")
             .searchable(text: $search, prompt: "Search games")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Picker("Sort", selection: $sortMode) {
+                            Label("Title", systemImage: "textformat").tag("title")
+                            Label("Recently played", systemImage: "clock").tag("recent")
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down.circle")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button { openImporter([.item]) } label: {
@@ -152,6 +229,7 @@ struct LibraryView: View {
             }
         }
         .tint(Theme.accent)
+        .id(themeName) // redraw everything in the new colours when the theme changes
     }
 
     private func openImporter(_ types: [UTType]) {
@@ -254,6 +332,34 @@ struct StatusBar: View {
             Spacer()
         }
         .padding(.top, 4)
+    }
+}
+
+struct NowPlayingChip: View {
+    let title: String
+    let style: String
+    let skip: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "music.note")
+                .foregroundStyle(Theme.accentGradient)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.white)
+                Text(style).font(.caption2).foregroundStyle(.white.opacity(0.5))
+            }
+            Spacer(minLength: 0)
+            Button(action: skip) {
+                Image(systemName: "forward.fill").font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.card))
+        .frame(maxWidth: 360, alignment: .leading)
+        .animation(.easeInOut, value: title)
     }
 }
 

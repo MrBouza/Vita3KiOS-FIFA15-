@@ -18,24 +18,114 @@ private enum Pad {
     static let leftX: Int32 = 0, leftY: Int32 = 1, rightX: Int32 = 2, rightY: Int32 = 3
 }
 
-private let controlTint = UIColor.white
+private func color(_ hex: UInt32) -> UIColor {
+    UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+}
+
+/// Looks of the on-screen controller (Settings > Touch controls > Theme). Only the looks change:
+/// a face button always sends the Vita button in its position.
+enum ControllerTheme: String, CaseIterable, Identifiable {
+    case classic, playstation, xbox, nintendo, neon, minimal
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .classic: "Classic"
+        case .playstation: "PlayStation colours"
+        case .xbox: "Xbox style (A B X Y)"
+        case .nintendo: "Nintendo style (A B X Y)"
+        case .neon: "Neon"
+        case .minimal: "Minimal"
+        }
+    }
+
+    /// Label and colour of the face button at the top, right, bottom and left
+    func face(_ position: Int) -> (String, UIColor) {
+        switch self {
+        case .classic, .minimal: return [("△", .white), ("○", .white), ("✕", .white), ("□", .white)][position]
+        case .playstation: return [("△", color(0x2FD5A0)), ("○", color(0xFF5A5F)), ("✕", color(0x6FA8FF)), ("□", color(0xF48FD0))][position]
+        case .xbox: return [("Y", color(0xF7C51E)), ("B", color(0xE2382F)), ("A", color(0x5BB531)), ("X", color(0x2C82E0))][position]
+        case .nintendo: return [("X", color(0x3D5BD9)), ("A", color(0xE0303A)), ("B", color(0xF2C230)), ("Y", color(0x3BAA55))][position]
+        case .neon: return [("△", color(0x39FFB0)), ("○", color(0xFF3FA4)), ("✕", color(0x3FD8FF)), ("□", color(0xC77DFF))][position]
+        }
+    }
+
+    /// Colour of the d-pad, shoulders, sticks and small buttons
+    var tint: UIColor {
+        switch self {
+        case .neon: color(0x3FD8FF)
+        default: .white
+        }
+    }
+
+    var filled: Bool { self != .minimal }
+    var coloredFill: Bool { self == .playstation || self == .xbox || self == .nintendo }
+
+    static var current: ControllerTheme {
+        ControllerTheme(rawValue: UserDefaults.standard.string(forKey: "v3k.controllerTheme") ?? "") ?? .classic
+    }
+}
+
+/// Touch buttons send whichever physical button the user mapped to their Vita button (Settings >
+/// Controller mapping), so an on-screen ✕ is always Vita ✕
+enum TouchMapping {
+    static var physical: [Int32] = Array(0..<15)
+
+    static func load() {
+        if let pointer = v3k_controller_binds_json() {
+            let json = String(cString: pointer)
+            v3k_free_string(pointer)
+            if let data = json.data(using: .utf8), let binds = try? JSONDecoder().decode([Int32].self, from: data), binds.count >= 15 {
+                physical = binds
+            }
+        }
+    }
+
+    static func button(for slot: Int32) -> Int32 {
+        slot >= 0 && Int(slot) < physical.count ? physical[Int(slot)] : slot
+    }
+}
 
 final class PadButtonView: UIView {
     let button: Int32
     private let label = UILabel()
     private let feedback = UIImpactFeedbackGenerator(style: .light)
 
-    init(button: Int32, title: String, fontSize: CGFloat = 18) {
+    private var baseFill = UIColor.white.withAlphaComponent(0.14)
+    private var pressedFill = UIColor.white.withAlphaComponent(0.45)
+    private let haptics = UserDefaults.standard.object(forKey: "v3k.touchHaptics") as? Bool ?? true
+
+    init(button: Int32, title: String, fontSize: CGFloat = 18, tint: UIColor = .white) {
         self.button = button
         super.init(frame: .zero)
-        backgroundColor = UIColor.white.withAlphaComponent(0.14)
-        layer.borderColor = UIColor.white.withAlphaComponent(0.35).cgColor
-        layer.borderWidth = 1.5
         label.text = title
-        label.textColor = controlTint
         label.font = .systemFont(ofSize: fontSize, weight: .bold)
         label.textAlignment = .center
         addSubview(label)
+        style(color: tint, theme: ControllerTheme.current, faceButton: false)
+        layer.borderWidth = 1.5
+    }
+
+    /// Applies a controller theme: face buttons get their own colour, the rest the theme tint
+    func style(title: String? = nil, color: UIColor, theme: ControllerTheme, faceButton: Bool) {
+        if let title { label.text = title }
+        label.textColor = color
+        if theme.coloredFill && faceButton {
+            baseFill = color.withAlphaComponent(0.28)
+            pressedFill = color.withAlphaComponent(0.6)
+        } else {
+            baseFill = theme.filled ? UIColor.white.withAlphaComponent(0.14) : .clear
+            pressedFill = color.withAlphaComponent(0.45)
+        }
+        backgroundColor = baseFill
+        layer.borderColor = color.withAlphaComponent(theme == .neon ? 0.9 : 0.35).cgColor
+        if theme == .neon {
+            layer.shadowColor = color.cgColor
+            layer.shadowRadius = 6
+            layer.shadowOpacity = 0.8
+            layer.shadowOffset = .zero
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -47,9 +137,9 @@ final class PadButtonView: UIView {
     }
 
     private func setPressed(_ pressed: Bool) {
-        v3k_pad_set_button(button, pressed)
-        backgroundColor = UIColor.white.withAlphaComponent(pressed ? 0.45 : 0.14)
-        if pressed { feedback.impactOccurred() }
+        v3k_pad_set_button(TouchMapping.button(for: button), pressed)
+        backgroundColor = pressed ? pressedFill : baseFill
+        if pressed && haptics { feedback.impactOccurred() }
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { setPressed(true) }
@@ -164,6 +254,19 @@ final class ControlsOverlayView: UIView {
         hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
         addSubview(hideButton)
 
+        // Controller theme
+        let theme = ControllerTheme.current
+        for (position, button) in [triangle, circle, cross, square].enumerated() {
+            let (title, faceColor) = theme.face(position)
+            button.style(title: title, color: faceColor, theme: theme, faceButton: true)
+        }
+        for button in [l, r, up, down, left, right, select, start] {
+            button.style(color: theme.tint, theme: theme, faceButton: false)
+        }
+        for stick in [leftStick, rightStick] {
+            stick.layer.borderColor = theme.tint.withAlphaComponent(0.35).cgColor
+        }
+
         controls.forEach { $0.alpha = opacity }
         applyVisibility()
 
@@ -271,6 +374,7 @@ enum ControlsHost {
 
     static func attach(over gameWindow: UIWindow) {
         detach()
+        TouchMapping.load()
         let overlay: PassthroughWindow
         if let scene = gameWindow.windowScene {
             overlay = PassthroughWindow(windowScene: scene)

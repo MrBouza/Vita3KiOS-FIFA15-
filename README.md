@@ -13,7 +13,10 @@ Vita3KiOS runs the full, current Vita3K emulator core (CPU recompiler, GXM→Vul
 - Import firmware (`.PUP`), games as `.vpk`, `.zip`, `.pkg` (with zRIF) or dumped game folders, from the Files picker or the `Import` folder
 - iOS 26 JIT through StikDebug's `universal.js` (from Tsubomi), classic debugger JIT on iOS 17.4–18
 - Keep your games on an external drive (USB-C SSD, thumb drive, microSD reader) or any folder: **Settings → Storage**
-- On-screen touch controls with adjustable opacity and size, hidden automatically when a controller connects
+- On-screen touch controls with themes (PlayStation colours, Xbox-style and Nintendo-style A/B/X/Y, Neon, Minimal), adjustable opacity and size, hidden automatically when a controller connects
+- Button mapping for controllers, including a one-tap ✕/○ swap
+- Eight UI themes, and original menu music composed on the device: endless songs in six styles
+- Library sorting by title or recently played, save data management, log sharing from Settings
 - Works inside LiveContainer
 - Settings for resolution, filtering, V-Sync, CPU options and audio
 
