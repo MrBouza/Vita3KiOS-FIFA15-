@@ -6,6 +6,7 @@
 // in controls/virtual_pad.cpp, which Vita3K sees like a physical controller. Touches that miss every
 // control fall through to the game, so the Vita touchscreen keeps working.
 
+import GameController
 import UIKit
 
 // SDL_GamepadButton / SDL_GamepadAxis values
@@ -140,6 +141,14 @@ final class ControlsOverlayView: UIView {
         }
     }
 
+    // Settings > Touch controls
+    private let opacity = CGFloat(UserDefaults.standard.object(forKey: "v3k.touchOpacity") as? Double ?? 0.6)
+    private let scale = CGFloat(UserDefaults.standard.object(forKey: "v3k.touchScale") as? Double ?? 1.0)
+    private let hideWithController = UserDefaults.standard.object(forKey: "v3k.touchHideWithController") as? Bool ?? true
+    private var controllerConnected = !GCController.controllers().isEmpty {
+        didSet { applyVisibility() }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -155,7 +164,16 @@ final class ControlsOverlayView: UIView {
         hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
         addSubview(hideButton)
 
+        controls.forEach { $0.alpha = opacity }
         applyVisibility()
+
+        let center = NotificationCenter.default
+        center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] _ in
+            self?.controllerConnected = !GCController.controllers().isEmpty
+        }
+        center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
+            self?.controllerConnected = !GCController.controllers().isEmpty
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -167,9 +185,10 @@ final class ControlsOverlayView: UIView {
     }
 
     private func applyVisibility() {
-        controls.forEach { $0.isHidden = controlsHidden }
+        let hidden = controlsHidden || (hideWithController && controllerConnected)
+        controls.forEach { $0.isHidden = hidden }
         hideButton.setImage(UIImage(systemName: controlsHidden ? "gamecontroller" : "eye.slash"), for: .normal)
-        if controlsHidden { v3k_pad_release_all() }
+        if hidden { v3k_pad_release_all() }
     }
 
     @objc private func exitTapped() {
@@ -189,7 +208,7 @@ final class ControlsOverlayView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let area = bounds.inset(by: safeAreaInsets).insetBy(dx: 12, dy: 10)
-        let unit = min(max(min(area.width, area.height) * 0.13, 40), 64) // button size
+        let unit = min(max(min(area.width, area.height) * 0.13, 40), 64) * scale // button size
 
         // Shoulder buttons
         l.frame = CGRect(x: area.minX, y: area.minY, width: unit * 1.9, height: unit * 0.8)

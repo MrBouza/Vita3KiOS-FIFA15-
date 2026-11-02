@@ -233,6 +233,14 @@ int jit_pool_target() {
     return static_cast<int>(IOS_JIT_POOL_TARGET);
 }
 
+int jit_pool_available() {
+#if defined(__aarch64__)
+    if (os_major_version() >= 26)
+        return static_cast<int>(ios_jit_code_cache_pool_available(IOS_JIT_CACHE_SIZE));
+#endif
+    return -1;
+}
+
 std::string jit_status_text() {
     if (jit_pool_ready())
         return "JIT ready.";

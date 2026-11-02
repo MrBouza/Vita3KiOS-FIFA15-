@@ -37,6 +37,18 @@ struct EmulatorSettings: Codable {
     var pstvMode: Bool = false
 }
 
+struct StorageInfo: Codable {
+    var path: String = ""
+    var custom: Bool = false
+    var freeBytes: UInt64 = 0
+    var totalBytes: UInt64 = 0
+    var note: String = ""
+
+    var freeText: String {
+        ByteCountFormatter.string(fromByteCount: Int64(freeBytes), countStyle: .file) + " free"
+    }
+}
+
 /// One file or folder waiting to be installed
 struct PendingImport: Identifiable {
     let id = UUID()
@@ -78,6 +90,8 @@ final class LibraryModel: ObservableObject {
     @Published var jitTarget = 0
     @Published var settingUpJIT = false
     @Published var settings = EmulatorSettings()
+    @Published var storage = StorageInfo()
+    @Published var storageBusy = false
 
     @Published var installProgress: InstallProgress?
     @Published var lastMessage: String?
@@ -106,6 +120,10 @@ final class LibraryModel: ObservableObject {
         if let json = takeString(v3k_apps_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode([GameApp].self, from: data) {
             apps = decoded.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        }
+        if let json = takeString(v3k_storage_info_json()), let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(StorageInfo.self, from: data) {
+            storage = decoded
         }
         if let json = takeString(v3k_settings_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(EmulatorSettings.self, from: data) {
@@ -141,6 +159,52 @@ final class LibraryModel: ObservableObject {
             self.settingUpJIT = false
             self.reload()
             completion(self.jitEnabled)
+        }
+    }
+
+    func deleteSaveData(_ app: GameApp) {
+        lastMessage = v3k_delete_save_data(app.titleId) ? "Save data of \(app.title) deleted." : "\(app.title) has no save data to delete."
+    }
+
+    // MARK: Storage location
+
+    /// Uses a folder on the device or an external drive for games, saves and firmware. The folder is
+    /// remembered as a bookmark so it can be reopened on the next launch.
+    func chooseStorage(_ url: URL) {
+        _ = url.startAccessingSecurityScopedResource() // kept open: games run from there
+        guard let bookmark = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) else {
+            lastMessage = "Vita3K can't keep access to that folder. Try another location."
+            return
+        }
+        let previous = UserDefaults.standard.data(forKey: "v3k.storageBookmark")
+        UserDefaults.standard.set(bookmark, forKey: "v3k.storageBookmark")
+        let path = url.path
+        storageBusy = true
+        Task.detached(priority: .userInitiated) {
+            var message: UnsafeMutablePointer<CChar>?
+            let ok = v3k_set_storage_folder(path, &message)
+            let text = takeString(message) ?? ""
+            await MainActor.run {
+                if !ok { UserDefaults.standard.set(previous, forKey: "v3k.storageBookmark") }
+                self.storageBusy = false
+                self.lastMessage = text
+                self.reload()
+            }
+        }
+    }
+
+    func useInternalStorage() {
+        UserDefaults.standard.removeObject(forKey: "v3k.storageBookmark")
+        storageBusy = true
+        Task.detached(priority: .userInitiated) {
+            var message: UnsafeMutablePointer<CChar>?
+            _ = v3k_use_internal_storage(&message)
+            let text = takeString(message) ?? ""
+            await MainActor.run {
+                self.storageBusy = false
+                self.lastMessage = text
+                self.reload()
+            }
         }
     }
 

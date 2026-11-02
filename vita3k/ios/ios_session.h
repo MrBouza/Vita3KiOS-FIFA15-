@@ -48,6 +48,17 @@ app::AppSessionController *get_app_session_controller();
 // Sets up logging, config and the emulated environment, storing everything under storage_path
 bool initialize(const fs::path &storage_path);
 
+// ---- Storage location ----
+// The Vita file system (games, saves, firmware) lives in Documents/vita by default, or in a folder the
+// user picked (on the device or an external drive). Inside a picked folder Vita3K uses it directly if
+// it already holds Vita3K data (ux0), otherwise a "Vita3K" subfolder.
+fs::path vita_root_for(const fs::path &picked_folder);
+bool using_custom_storage();
+std::string storage_note(); // why the custom location isn't used, if it isn't
+// Moves the emulator to another location, copying firmware there when it has none. Blocking.
+bool switch_storage(const fs::path &vita_root, bool custom, std::string &message);
+fs::path internal_vita_root();
+
 std::vector<app::AppEntry> list_apps();
 std::optional<app::AppEntry> find_app_by_title_id(const std::string &title_id);
 

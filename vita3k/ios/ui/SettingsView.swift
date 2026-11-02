@@ -3,10 +3,16 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject var model: LibraryModel
     @Environment(\.dismiss) private var dismiss
+
+    @State private var pickingStorage = false
+    @AppStorage("v3k.touchOpacity") private var touchOpacity = 0.6
+    @AppStorage("v3k.touchScale") private var touchScale = 1.0
+    @AppStorage("v3k.touchHideWithController") private var hideWithController = true
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
     private let anisotropy = [1, 2, 4, 8, 16]
@@ -15,6 +21,58 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    LabeledContent("Location", value: model.storage.custom ? URL(fileURLWithPath: model.storage.path).deletingLastPathComponent().lastPathComponent + "/" + URL(fileURLWithPath: model.storage.path).lastPathComponent : "This device")
+                    if model.storage.totalBytes > 0 {
+                        LabeledContent("Space", value: model.storage.freeText)
+                    }
+                    if !model.storage.note.isEmpty {
+                        Label(model.storage.note, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+                    Button {
+                        pickingStorage = true
+                    } label: {
+                        Label("Choose folder or drive…", systemImage: "externaldrive.badge.plus")
+                    }
+                    .disabled(model.storageBusy)
+                    if model.storage.custom {
+                        Button {
+                            model.useInternalStorage()
+                        } label: {
+                            Label("Use this device's storage", systemImage: "iphone")
+                        }
+                        .disabled(model.storageBusy)
+                    }
+                    if model.storageBusy {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Moving storage…").foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Storage")
+                } footer: {
+                    Text("Games, saves and firmware live here. Pick a folder on this device or on an external drive (USB-C SSD, thumb drive, microSD reader) in the Files picker. Firmware is copied over automatically; install games again or copy your existing Vita3K folder (with ux0 inside) onto the drive and pick it. Keep the drive connected while playing.")
+                }
+
+                Section {
+                    VStack(alignment: .leading) {
+                        Text("Opacity: \(Int(touchOpacity * 100))%")
+                        Slider(value: $touchOpacity, in: 0.2...1, step: 0.05)
+                    }
+                    VStack(alignment: .leading) {
+                        Text("Size: \(Int(touchScale * 100))%")
+                        Slider(value: $touchScale, in: 0.7...1.4, step: 0.05)
+                    }
+                    Toggle("Hide when a controller is connected", isOn: $hideWithController)
+                } header: {
+                    Text("Touch controls")
+                } footer: {
+                    Text("Applies the next time a game starts. In game, the eye button hides or shows the controls and ✕ quits.")
+                }
+
                 Section("Graphics") {
                     Picker("Resolution", selection: binding(\.resolutionMultiplier) { model.setNumber("resolution-multiplier", $0) }) {
                         ForEach(resolutions, id: \.self) { value in
@@ -84,6 +142,14 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+            }
+            .fileImporter(isPresented: $pickingStorage, allowedContentTypes: [.folder]) { result in
+                if case .success(let url) = result {
+                    model.chooseStorage(url)
+                }
+            }
+            .alert(model.lastMessage ?? "", isPresented: Binding(get: { model.lastMessage != nil }, set: { if !$0 { model.lastMessage = nil } })) {
+                Button("OK", role: .cancel) { model.lastMessage = nil }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

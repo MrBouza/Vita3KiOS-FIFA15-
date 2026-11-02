@@ -29,6 +29,8 @@
 #include "jit/ios_jit.h"
 
 #include <emuenv/app_launch_request.h>
+#include <app/session_controller.h>
+#include <mem/functions.h>
 #include <sdl-frontend/session.h>
 #include <util/log.h>
 
@@ -36,7 +38,13 @@
 #include <os/proc.h>
 #include <SDL3/SDL_main.h>
 
+#include <atomic>
+#include <chrono>
 #include <string>
+#include <thread>
+
+#include <spdlog/spdlog.h>
+#include <unistd.h>
 
 // Implemented in Swift (ui/TouchControls.swift)
 extern "C" void v3k_controls_attach(void *ui_window);
@@ -63,6 +71,7 @@ int main(int argc, char *argv[]) {
     }
 
     ios::install_fatal_signal_logger();
+    ios::observe_app_state();
 
     // Activate the audio session before SDL opens the audio device, so the audio unit actually runs
     // (otherwise games that wait on audio playback freeze). From Tsubomi.
@@ -82,7 +91,6 @@ int main(int argc, char *argv[]) {
     LOG_INFO("Startup import: {} installed, {} failed", import.installed.size(), import.failed.size());
 
     auto *emuenv = ios::get_emuenv();
-    auto *session_controller = ios::get_app_session_controller();
 
     for (;;) {
         const std::string title_id = ios::run_library_until_launch();
@@ -91,11 +99,56 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        LOG_INFO("Launching {} (JIT {}, {} MiB of memory available)", title_id, ios::jit_pool_ready() ? "ready" : "NOT ready",
+        // Re-reserve guest memory before every launch, so a second session gets the same clean
+        // address range as the first instead of whatever the previous session left fragmented
+        prereserve_guest_memory();
+
+        LOG_INFO("Launching {} (JIT {}, {} free JIT caches, {} MiB of memory available)", title_id,
+            ios::jit_pool_ready() ? "ready" : "NOT ready", ios::jit_pool_available(),
             os_proc_available_memory() / (1024 * 1024));
 
         // The library can rotate freely; games are landscape only
         SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+
+        // A fresh session controller per launch (as Tsubomi does): no state carried over from the last game
+        app::AppSessionController session_controller(*emuenv);
+
+        // Watchdog: logs memory headroom and stalls, and makes sure Quit always gets you out even if the
+        // game is stuck (iOS has no other way to leave a hung game except the app switcher)
+        std::atomic_bool session_over{ false };
+        std::thread watchdog([emuenv, &session_over] {
+            using namespace std::chrono_literals;
+            size_t last_frames = emuenv->frame_count;
+            auto last_progress = std::chrono::steady_clock::now();
+            auto last_memory_log = last_progress;
+            bool stall_logged = false;
+            while (!session_over.load()) {
+                std::this_thread::sleep_for(500ms);
+                const auto now = std::chrono::steady_clock::now();
+                if (emuenv->frame_count != last_frames) {
+                    last_frames = emuenv->frame_count;
+                    last_progress = now;
+                    if (stall_logged)
+                        LOG_INFO("Watchdog: the game is presenting frames again");
+                    stall_logged = false;
+                } else if (!stall_logged && now - last_progress > 8s && !ios::app_in_background()) {
+                    LOG_WARN("Watchdog: no new frame for 8 seconds (the game may be frozen). {} MiB of memory left",
+                        os_proc_available_memory() / (1024 * 1024));
+                    stall_logged = true;
+                }
+                if (now - last_memory_log > 10s) {
+                    LOG_INFO("Watchdog: {} MiB of memory left, {} frames", os_proc_available_memory() / (1024 * 1024), last_frames);
+                    last_memory_log = now;
+                }
+                const uint64_t quit_at = v3k_pad_quit_requested_ms();
+                if (quit_at && SDL_GetTicks() - quit_at > 8000) {
+                    LOG_CRITICAL("Watchdog: the game did not close 8 seconds after Quit, closing Vita3K");
+                    if (auto logger = spdlog::default_logger())
+                        logger->flush();
+                    _exit(0);
+                }
+            }
+        });
 
         // On-screen touch controls: a virtual gamepad plus an overlay on the game window
         const sdl_frontend::Hooks hooks{
@@ -105,13 +158,18 @@ int main(int argc, char *argv[]) {
                         LOG_WARN("Touch controls unavailable: {}", SDL_GetError());
                     void *ui_window = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, nullptr);
                     v3k_controls_attach(ui_window);
+                    ios::set_screen_always_on(true);
                 } else {
+                    ios::set_screen_always_on(false);
                     v3k_controls_detach();
                     v3k_pad_detach();
                 }
             },
         };
-        const int result = sdl_frontend::run(*emuenv, *session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
-        LOG_INFO("{} exited with code {}", title_id, result);
+        const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
+        session_over = true;
+        watchdog.join();
+        v3k_pad_clear_quit_request();
+        LOG_INFO("{} exited with code {}, {} free JIT caches", title_id, result, ios::jit_pool_available());
     }
 }

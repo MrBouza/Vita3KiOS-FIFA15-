@@ -54,6 +54,17 @@ void v3k_refresh_apps(void);
 bool v3k_delete_app(const char *title_id);
 void v3k_free_string(char *str);
 
+// Deletes the save data of an installed app
+bool v3k_delete_save_data(const char *title_id);
+
+// ---- Storage location ----
+// JSON: {"path","custom":bool,"freeBytes","totalBytes","note"}
+char *v3k_storage_info_json(void);
+// Moves the emulator to a picked folder (device or external drive), copying firmware there.
+// Blocking: call off the main thread. *message gets a summary to free with v3k_free_string.
+bool v3k_set_storage_folder(const char *folder, char **message);
+bool v3k_use_internal_storage(char **message);
+
 // ---- Installing ----
 typedef void (*v3k_progress_fn)(void *context, float percent);
 

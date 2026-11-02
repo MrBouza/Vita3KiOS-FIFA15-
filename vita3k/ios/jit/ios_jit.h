@@ -46,5 +46,7 @@ std::string jit_status_text();
 // Regions prepared so far / regions wanted, for the UI
 int jit_pool_progress();
 int jit_pool_target();
+// Prepared code caches currently free (iOS 26 pool); -1 when there is no pool (older iOS)
+int jit_pool_available();
 
 } // namespace ios

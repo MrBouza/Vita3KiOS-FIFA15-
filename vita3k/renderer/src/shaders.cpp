@@ -189,6 +189,13 @@ static shader::GeneratedShader load_shader_generic(shader::Target target, const 
 
     auto shader_log_path = get_shaderlog_path("gxp");
 
+#if defined(VITA3K_PLATFORM_IOS)
+    // iOS: skip the debug dumps (gxp binary, disassembly, GLSL text). They are only for developers, and
+    // writing them for every new shader stutters new scenes on a phone. The SPIR-V cache below is kept.
+    const auto write_data_with_ext = [&](const std::string &, const std::string &) {
+        return true;
+    };
+#else
     // Dump gxp binary
     fs_utils::dump_data(shader_log_path, &program, program.size);
     const auto write_data_with_ext = [&](const std::string &ext, const std::string &data) {
@@ -202,6 +209,7 @@ static shader::GeneratedShader load_shader_generic(shader::Target target, const 
         fs_utils::dump_data(out_path, data.c_str(), data.size());
         return true;
     };
+#endif
 
     shader::GeneratedShader source = shader::convert_gxp(program, hash_text, features, target, hints, maskupdate, false, write_data_with_ext);
 

@@ -4,7 +4,7 @@ An experimental PlayStation Vita emulator for iPhone and iPad, built on [Vita3K]
 
 Vita3KiOS runs the full, current Vita3K emulator core (CPU recompiler, GXM→Vulkan renderer via MoltenVK, kernel and module HLE) inside a native iOS app with a SwiftUI library. The iOS JIT support comes from [Tsubomi](https://github.com/125hz/Tsubomi) by 125hz.
 
-> **Status: early.** The app builds, installs, imports content and shows your library. Running games depends on JIT working on your device, and on-screen touch controls aren't in yet. Use a controller for now. See [ROADMAP-iOS.md](ROADMAP-iOS.md).
+> **Status: early.** Games boot and run with JIT on iOS 26 (tested on iPhone 16 Pro through LiveContainer + StikDebug). Game compatibility follows upstream Vita3K: check the [compatibility list](https://vita3k.org/compatibility.html). See [ROADMAP-iOS.md](ROADMAP-iOS.md).
 
 ## Features
 
@@ -12,6 +12,8 @@ Vita3KiOS runs the full, current Vita3K emulator core (CPU recompiler, GXM→Vul
 - SwiftUI library with game icons, search, firmware/font/JIT status
 - Import firmware (`.PUP`), games as `.vpk`, `.zip`, `.pkg` (with zRIF) or dumped game folders, from the Files picker or the `Import` folder
 - iOS 26 JIT through StikDebug's `universal.js` (from Tsubomi), classic debugger JIT on iOS 17.4–18
+- Keep your games on an external drive (USB-C SSD, thumb drive, microSD reader) or any folder: **Settings → Storage**
+- On-screen touch controls with adjustable opacity and size, hidden automatically when a controller connects
 - Works inside LiveContainer
 - Settings for resolution, filtering, V-Sync, CPU options and audio
 
@@ -48,6 +50,10 @@ When Vita3K opens, it prepares its JIT memory while StikDebug is attached (a "Se
 3. Alternatively, copy files into **Files → On My iPhone → Vita3K → Import** and reopen the app.
 
 Data lives in the app's Documents folder (`vita/` holds the Vita file system, `vita3k.log` is the log). Send the log when reporting a problem.
+
+### External storage
+
+**Settings → Storage → Choose folder or drive…** lets you keep games, saves and firmware on an external drive or any other folder the Files app can reach. Vita3K copies your firmware there and remembers the location across launches. If the drive isn't connected when Vita3K starts, it falls back to the device's storage and tells you. If you already have a desktop Vita3K folder (with `ux0` inside), copy it to the drive and pick it directly.
 
 ## Building
 

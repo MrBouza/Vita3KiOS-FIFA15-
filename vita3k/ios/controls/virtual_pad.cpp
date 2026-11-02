@@ -20,11 +20,13 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 
 namespace {
 
 std::mutex pad_mutex;
+std::atomic<unsigned long long> quit_requested_ms{ 0 };
 SDL_JoystickID pad_id = 0;
 SDL_Joystick *pad = nullptr;
 
@@ -96,9 +98,18 @@ void v3k_pad_release_all(void) {
 }
 
 void v3k_pad_request_exit(void) {
+    quit_requested_ms = SDL_GetTicks();
     SDL_Event event{};
     event.type = SDL_EVENT_QUIT;
     SDL_PushEvent(&event);
+}
+
+unsigned long long v3k_pad_quit_requested_ms(void) {
+    return quit_requested_ms;
+}
+
+void v3k_pad_clear_quit_request(void) {
+    quit_requested_ms = 0;
 }
 
 } // extern "C"

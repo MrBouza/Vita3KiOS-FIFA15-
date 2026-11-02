@@ -369,6 +369,16 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
                     break;
 
 #if defined(VITA3K_PLATFORM_IOS)
+                // iOS stops apps that keep using the GPU in the background: pause while away
+                case SDL_EVENT_WILL_ENTER_BACKGROUND:
+                    LOG_INFO("App going to the background, pausing the game");
+                    session.set_pause_reason(app::AppSessionPauseReason::Background, true);
+                    break;
+                case SDL_EVENT_DID_ENTER_FOREGROUND:
+                    LOG_INFO("App back in the foreground, resuming the game");
+                    session.set_pause_reason(app::AppSessionPauseReason::Background, false);
+                    break;
+
                 case SDL_EVENT_LOW_MEMORY:
                     // iOS kills the app without a crash signal when memory runs out: leave a trace
                     LOG_WARN("iOS memory warning: {} MiB left before the system limit", os_proc_available_memory() / (1024 * 1024));

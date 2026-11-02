@@ -280,6 +280,55 @@ bool v3k_delete_app(const char *title_id) {
     return true;
 }
 
+bool v3k_delete_save_data(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return false;
+    const auto app = ios::find_app_by_title_id(title_id);
+    if (!app || app->savedata.empty())
+        return false;
+    const fs::path savedata = emuenv->vita_fs_path / "ux0/user" / emuenv->io.user_id / "savedata" / app->savedata;
+    std::error_code ec;
+    fs::remove_all(savedata, ec);
+    LOG_INFO("Deleted save data of {}: {}", title_id, ec ? ec.message() : "ok");
+    return !ec;
+}
+
+char *v3k_storage_info_json(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return dup_string("{}");
+    std::error_code ec;
+    const auto space = fs::space(emuenv->vita_fs_path, ec);
+    return dup_string(fmt::format(R"({{"path":{},"custom":{},"freeBytes":{},"totalBytes":{},"note":{}}})",
+        quoted(emuenv->vita_fs_path.string()), ios::using_custom_storage() ? "true" : "false",
+        ec ? 0 : space.available, ec ? 0 : space.capacity, quoted(ios::storage_note())));
+}
+
+bool v3k_set_storage_folder(const char *folder, char **message) {
+    std::string text;
+    bool ok = false;
+    if (folder) {
+        std::lock_guard lock(install_mutex);
+        ok = ios::switch_storage(ios::vita_root_for(fs::path(folder)), true, text);
+    }
+    if (message)
+        *message = dup_string(text);
+    return ok;
+}
+
+bool v3k_use_internal_storage(char **message) {
+    std::string text;
+    bool ok;
+    {
+        std::lock_guard lock(install_mutex);
+        ok = ios::switch_storage(ios::internal_vita_root(), false, text);
+    }
+    if (message)
+        *message = dup_string(text);
+    return ok;
+}
+
 void v3k_free_string(char *str) {
     std::free(str);
 }

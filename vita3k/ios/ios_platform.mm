@@ -23,6 +23,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <sys/sysctl.h>
@@ -95,6 +96,58 @@ std::string run_library_until_launch() {
             return title_id;
         }
     }
+}
+
+namespace {
+std::atomic_bool in_background{ false };
+}
+
+std::string resolve_custom_storage(std::string &note) {
+    @autoreleasepool {
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        NSData *bookmark = [defaults dataForKey:@"v3k.storageBookmark"];
+        if (!bookmark)
+            return {};
+        BOOL stale = NO;
+        NSError *error = nil;
+        NSURL *url = [NSURL URLByResolvingBookmarkData:bookmark options:0 relativeToURL:nil
+                                   bookmarkDataIsStale:&stale error:&error];
+        if (!url) {
+            note = "The custom storage location can't be reached (is the drive connected?). Using internal storage.";
+            return {};
+        }
+        // Access stays open for the whole run: games are read from there
+        [url startAccessingSecurityScopedResource];
+        BOOL is_directory = NO;
+        if (![NSFileManager.defaultManager fileExistsAtPath:url.path isDirectory:&is_directory] || !is_directory) {
+            note = "The custom storage folder is missing (is the drive connected?). Using internal storage.";
+            return {};
+        }
+        if (stale) {
+            NSData *fresh = [url bookmarkDataWithOptions:0 includingResourceValuesForKeys:nil relativeToURL:nil error:nil];
+            if (fresh)
+                [defaults setObject:fresh forKey:@"v3k.storageBookmark"];
+        }
+        return url.path.UTF8String;
+    }
+}
+
+void set_screen_always_on(bool on) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIApplication.sharedApplication.idleTimerDisabled = on;
+    });
+}
+
+void observe_app_state() {
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { in_background = true; }];
+    [center addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { in_background = false; }];
+}
+
+bool app_in_background() {
+    return in_background;
 }
 
 // From Tsubomi (vita3k_ios_configure_audio_session)

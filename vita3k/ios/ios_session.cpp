@@ -32,6 +32,7 @@
 #include <util/sysinfo.h>
 
 #include <SDL3/SDL.h>
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <cctype>
@@ -52,16 +53,78 @@ app::AppSessionController *get_app_session_controller() {
     return session_state().app_session_controller.get();
 }
 
+namespace {
+fs::path documents_root;
+bool custom_storage = false;
+std::string custom_storage_note;
+
+// The storage location is owned by the app (a bookmark), not config.yml: an absolute pref-path there
+// breaks start-up whenever the container moves or a drive is unplugged
+void remove_saved_pref_path(const fs::path &config_dir) {
+    const fs::path config_file = config_dir / "config.yml";
+    std::ifstream in(config_file);
+    if (!in)
+        return;
+    std::string content, line;
+    bool changed = false;
+    while (std::getline(in, line)) {
+        if (line.rfind("pref-path:", 0) == 0) {
+            changed = true;
+            continue;
+        }
+        content += line + "\n";
+    }
+    in.close();
+    if (changed)
+        std::ofstream(config_file, std::ios::trunc) << content;
+}
+} // namespace
+
+fs::path internal_vita_root() {
+    return documents_root / "vita";
+}
+
+fs::path vita_root_for(const fs::path &picked_folder) {
+    std::error_code ec;
+    if (fs::is_directory(picked_folder / "ux0", ec))
+        return picked_folder;
+    return picked_folder / "Vita3K";
+}
+
+bool using_custom_storage() {
+    return custom_storage;
+}
+
+std::string storage_note() {
+    return custom_storage_note;
+}
+
 bool initialize(const fs::path &storage_path) {
     auto &session = session_state();
     if (session.emuenv)
         return true;
 
+    documents_root = storage_path;
+    fs::path vita_root = internal_vita_root();
+    const std::string custom = resolve_custom_storage(custom_storage_note);
+    if (!custom.empty()) {
+        std::error_code ec;
+        const fs::path root = vita_root_for(fs::path(custom));
+        fs::create_directories(root, ec);
+        if (!ec) {
+            vita_root = root;
+            custom_storage = true;
+        } else {
+            custom_storage_note = "Could not use the custom storage folder (" + ec.message() + "). Using internal storage.";
+        }
+    }
+    remove_saved_pref_path(storage_path);
+
     try {
         Root root_paths;
         // The bundle holds data/ and shaders-builtin/ at its root
         root_paths.set_static_assets_path(fs::path(get_bundle_resources_path()));
-        root_paths.set_vita_fs_path(storage_path / "vita");
+        root_paths.set_vita_fs_path(vita_root);
         root_paths.set_log_path(storage_path);
         root_paths.set_config_path(storage_path);
         root_paths.set_shared_path(storage_path);
@@ -127,12 +190,62 @@ bool initialize(const fs::path &storage_path) {
         session.root_paths = std::move(root_paths);
         session.emuenv = std::move(emuenv);
         session.app_session_controller = std::make_unique<app::AppSessionController>(*session.emuenv);
-        LOG_INFO("Vita3K iOS initialised.");
+        LOG_INFO("Vita3K iOS initialised. Storage: {}{}", session.emuenv->vita_fs_path, custom_storage ? " (custom)" : "");
+        if (!custom_storage_note.empty())
+            LOG_WARN("{}", custom_storage_note);
         return true;
     } catch (const std::exception &error) {
         LOG_ERROR("Failed to initialize iOS storage path '{}': {}", storage_path, error.what());
         return false;
     }
+}
+
+bool switch_storage(const fs::path &vita_root, bool custom, std::string &message) {
+    auto *emuenv = get_emuenv();
+    if (!emuenv) {
+        message = "The emulator is not initialised.";
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(vita_root, ec);
+    if (ec) {
+        message = "Can't create the folder there: " + ec.message();
+        return false;
+    }
+
+    // Bring the firmware along, so games run without installing it again
+    const fs::path current = emuenv->vita_fs_path;
+    int copied = 0;
+    if (fs::path(current) != vita_root) {
+        for (const char *partition : { "os0", "pd0", "sa0", "vs0" }) {
+            const fs::path from = current / partition;
+            const fs::path to = vita_root / partition;
+            if (!fs::exists(from, ec) || fs::exists(to, ec))
+                continue;
+            fs::copy(from, to, fs::copy_options::recursive, ec);
+            if (ec) {
+                LOG_WARN("Could not copy {} to the new storage: {}", partition, ec.message());
+                ec.clear();
+            } else {
+                copied++;
+            }
+        }
+    }
+
+    if (!app::switch_emulator_path(*emuenv, vita_root)) {
+        message = "Vita3K couldn't use that folder.";
+        return false;
+    }
+    app::scan_apps(*emuenv);
+    custom_storage = custom;
+    custom_storage_note.clear();
+    LOG_INFO("Storage switched to {}{}", vita_root, custom ? " (custom)" : "");
+
+    const auto space = fs::space(vita_root, ec);
+    message = copied > 0 ? "Storage location changed. Firmware was copied there." : "Storage location changed.";
+    if (!ec)
+        message += fmt::format(" {:.1f} GB free.", static_cast<double>(space.available) / 1e9);
+    return true;
 }
 
 std::vector<app::AppEntry> list_apps() {

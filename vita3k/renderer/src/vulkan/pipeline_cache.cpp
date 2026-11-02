@@ -245,6 +245,10 @@ void PipelineCache::init(bool support_rasterized_order_access) {
         nb_worker_threads = 2;
     else
         nb_worker_threads = 1;
+#if defined(VITA3K_PLATFORM_IOS)
+    // Apple's performance cores compile pipelines quickly: one more worker shortens shader stutter
+    nb_worker_threads = std::max(nb_worker_threads, 3);
+#endif
 
     if (use_async_compilation) {
         // we could not initialize the worker threads previously

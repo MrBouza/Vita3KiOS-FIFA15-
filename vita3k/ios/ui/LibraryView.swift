@@ -24,6 +24,7 @@ struct LibraryView: View {
     @State private var showingSettings = false
     @State private var pendingLaunch: GameApp?
     @State private var pendingDelete: GameApp?
+    @State private var pendingDeleteSave: GameApp?
     @State private var zrifInput = ""
 
     private var filteredApps: [GameApp] {
@@ -55,8 +56,11 @@ struct LibraryView: View {
                                         .onTapGesture { requestLaunch(app) }
                                         .contextMenu {
                                             Button { requestLaunch(app) } label: { Label("Play", systemImage: "play.fill") }
+                                            Button(role: .destructive) { pendingDeleteSave = app } label: {
+                                                Label("Delete save data", systemImage: "externaldrive.badge.minus")
+                                            }
                                             Button(role: .destructive) { pendingDelete = app } label: {
-                                                Label("Delete", systemImage: "trash")
+                                                Label("Delete game", systemImage: "trash")
                                             }
                                         }
                                 }
@@ -118,6 +122,15 @@ struct LibraryView: View {
                 Button("Cancel", role: .cancel) { pendingDelete = nil }
             } message: {
                 Text("The game is removed from Vita3K. Save data is kept.")
+            }
+            .alert("Delete the save data of \(pendingDeleteSave?.title ?? "")?", isPresented: Binding(get: { pendingDeleteSave != nil }, set: { if !$0 { pendingDeleteSave = nil } })) {
+                Button("Delete", role: .destructive) {
+                    if let app = pendingDeleteSave { model.deleteSaveData(app) }
+                    pendingDeleteSave = nil
+                }
+                Button("Cancel", role: .cancel) { pendingDeleteSave = nil }
+            } message: {
+                Text("This can't be undone.")
             }
             .alert("License needed", isPresented: Binding(get: { model.packageNeedingLicense != nil }, set: { _ in })) {
                 TextField("zRIF", text: $zrifInput)

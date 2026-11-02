@@ -38,6 +38,17 @@ bool is_jit_enabled();
 // then hides it and returns that game's title ID.
 std::string run_library_until_launch();
 
+// Custom storage location (a folder on the device or an external drive), chosen in Settings and
+// remembered as a security-scoped bookmark. Returns the folder's path with access started, or an
+// empty string when none is set or it can't be reached (note then says why, e.g. drive unplugged).
+std::string resolve_custom_storage(std::string &note);
+
+// Keeps the screen from dimming and locking while a game runs
+void set_screen_always_on(bool on);
+// Tracks whether the app is in the background (call observe_app_state once at startup)
+void observe_app_state();
+bool app_in_background();
+
 // Sets the AVAudioSession to Playback at 48 kHz and activates it. Returns a line for the log.
 std::string configure_audio_session();
 void set_pending_launch(const std::string &title_id);
