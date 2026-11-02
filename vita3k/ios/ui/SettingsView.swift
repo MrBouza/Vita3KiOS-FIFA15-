@@ -93,7 +93,6 @@ struct SettingsView: View {
 
                 Section("System") {
                     Toggle("CPU optimisations", isOn: binding(\.cpuOpt) { model.setBool("cpu-opt", $0) })
-                    Toggle("Turbo mode", isOn: binding(\.turboMode) { model.setBool("turbo-mode", $0) })
                     Toggle("PS TV mode", isOn: binding(\.pstvMode) { model.setBool("pstv-mode", $0) })
                     Toggle("Performance overlay", isOn: binding(\.performanceOverlay) { model.setBool("performance-overlay", $0) })
                 }
