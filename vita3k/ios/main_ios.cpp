@@ -161,11 +161,10 @@ int main(int argc, char *argv[]) {
                     std::string threads;
                     // try_lock: a thread stuck while holding the kernel lock must not stop us from exiting
                     if (std::unique_lock<std::mutex> lock(emuenv->kernel.mutex, std::try_to_lock); lock.owns_lock()) {
+                        // Names only: reading a thread's status takes its lock, which a stuck thread may hold
                         for (const auto &[id, thread] : emuenv->kernel.threads) {
-                            if (thread && thread->status != ThreadStatus::deleted && thread->status != ThreadStatus::dormant)
-                                threads += fmt::format("{}{} ({})", threads.empty() ? "" : ", ", thread->name,
-                                    thread->status == ThreadStatus::running ? "running" : thread->status == ThreadStatus::waiting ? "waiting"
-                                                                                                                                  : "suspended");
+                            if (thread)
+                                threads += fmt::format("{}{}", threads.empty() ? "" : ", ", thread->name);
                         }
                     }
                     LOG_CRITICAL("Watchdog: guest threads still active: {}", threads.empty() ? "none" : threads);
