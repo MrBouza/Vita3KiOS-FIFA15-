@@ -23,20 +23,20 @@
 //   3. Loop: show the SwiftUI library until a game is picked, then run it through the shared
 //      SDL frontend (the same runner Android uses). When the game exits, the library comes back.
 
-#include "ios_session.h"
 #include "bridge/vita3k_bridge.h"
 #include "controls/virtual_pad.h"
+#include "ios_session.h"
 #include "jit/ios_jit.h"
 
-#include <emuenv/app_launch_request.h>
 #include <app/session_controller.h>
+#include <emuenv/app_launch_request.h>
 #include <mem/functions.h>
 #include <sdl-frontend/session.h>
 #include <util/log.h>
 
 #include <SDL3/SDL.h>
-#include <os/proc.h>
 #include <SDL3/SDL_main.h>
+#include <os/proc.h>
 
 #include <atomic>
 #include <chrono>

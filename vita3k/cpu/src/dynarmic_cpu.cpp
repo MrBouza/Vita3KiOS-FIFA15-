@@ -33,11 +33,11 @@
 #include <spdlog/spdlog.h>
 #endif
 
+#include <atomic>
 #include <bit>
 #include <memory>
-#include <optional>
-#include <atomic>
 #include <mutex>
+#include <optional>
 #include <string>
 
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)

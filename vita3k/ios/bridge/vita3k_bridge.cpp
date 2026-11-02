@@ -22,10 +22,10 @@
 #include "archive.h"
 
 #include <app/functions.h>
-#include <io/state.h>
 #include <config/functions.h>
 #include <config/state.h>
 #include <config/version.h>
+#include <io/state.h>
 #include <packages/functions.h>
 #include <packages/pkg.h>
 #include <util/log.h>

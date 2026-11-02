@@ -1,12 +1,9 @@
 name: Build CI
 
+# Desktop and Android builds from upstream Vita3K. Vita3KiOS ships the iOS IPA (ios.yml), so these
+# run only when started by hand from the Actions tab instead of on every push.
 on:
-  push:
-    paths-ignore:
-      - '**.md'
-  pull_request:
-    paths-ignore:
-      - '**.md'
+  workflow_dispatch:
 
 env:
   BUILD_CONFIG: Release

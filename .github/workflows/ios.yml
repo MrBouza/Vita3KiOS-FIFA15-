@@ -15,8 +15,8 @@ concurrency:
 
 env:
   BUILD_CONFIG: Release
-  VCPKG_ROOT: ${{ github.workspace }}/../vcpkg
-  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/../vcpkg-binary-cache
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
 
 jobs:
   ipa:
@@ -29,20 +29,63 @@ jobs:
         with:
           submodules: recursive
 
+      # Caches must live at paths without "..": actions/cache rejects relative segments,
+      # which is why the vcpkg cache never saved before.
+      - name: Set up paths
+        id: paths
+        run: |
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-binary-cache" >> "$GITHUB_ENV"
+          echo "CMAKE_CHECKS_SEED=$RUNNER_TEMP/cmake-checks/seed.cmake" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/vcpkg-binary-cache" "$RUNNER_TEMP/cmake-checks"
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+
       - name: Set up vcpkg
         run: |
           git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
-          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
+      # Prebuilt openssl/curl/zlib/boost: saves about 5 minutes
       - name: Cache vcpkg packages
         uses: actions/cache@v6
         with:
-          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-ios-${{ hashFiles('vcpkg.json') }}
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-ios-${{ steps.paths.outputs.image }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-ios-${{ steps.paths.outputs.image }}-
+
+      # Results of CMake's feature checks (SDL alone runs hundreds, each one a slow Xcode
+      # try-compile): saves about 9 minutes of configuring
+      - name: Restore CMake check results
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/cmake-checks
+          key: cmake-checks-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}
+          restore-keys: cmake-checks-ios-${{ steps.paths.outputs.image }}-
+
+      - name: Set up ccache
+        id: ccache
+        run: |
+          brew install ccache
+          ccache --set-config=max_size=3G
+          ccache --set-config=compiler_check=content
+          ccache --set-config=depend_mode=true
+          ccache --set-config=base_dir="$GITHUB_WORKSPACE"
+          ccache --set-config=sloppiness=modules,pch_defines,time_macros,include_file_mtime,include_file_ctime,ivfsoverlay,system_headers
+          echo "dir=$(ccache -k cache_dir)" >> "$GITHUB_OUTPUT"
+
+      # Compiled objects: only files that changed since the last build get recompiled
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.ccache.outputs.dir }}
+          key: ccache-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}
+          restore-keys: ccache-ios-${{ steps.paths.outputs.image }}-
 
       - name: Build IPA
-        run: bash ./.ci/build-ios.sh artifacts
+        run: |
+          ccache -z
+          bash ./.ci/build-ios.sh artifacts
+          ccache -s
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7
@@ -50,3 +93,17 @@ jobs:
           name: ${{ env.IPA_NAME }}
           path: ${{ env.IPA_PATH }}
           if-no-files-found: error
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.ccache.outputs.dir }}
+          key: ccache-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}
+
+      - name: Save CMake check results
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/cmake-checks
+          key: cmake-checks-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}

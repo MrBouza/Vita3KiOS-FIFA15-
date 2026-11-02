@@ -15,7 +15,16 @@ build_dir="${repo_root}/build/ios"
 
 : "${VCPKG_ROOT:?VCPKG_ROOT must point at a bootstrapped vcpkg checkout}"
 
-cmake -S "$repo_root" -B "$build_dir" -G Xcode \
+# Results of CMake's feature checks from an earlier build (see ios.yml). With the Xcode generator
+# every check is a slow try-compile, so reusing them cuts configuring from ~10 minutes to seconds.
+seed="${CMAKE_CHECKS_SEED:-}"
+seed_args=()
+if [[ -n "$seed" && -s "$seed" && ! -f "$build_dir/CMakeCache.txt" ]]; then
+    echo "Reusing $(grep -c '^set(' "$seed") CMake check results"
+    seed_args=(-C "$seed")
+fi
+
+cmake ${seed_args[@]+"${seed_args[@]}"} -S "$repo_root" -B "$build_dir" -G Xcode \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_ARCHITECTURES=arm64 \
     -DCMAKE_SYSTEM_PROCESSOR=arm64 \
@@ -23,6 +32,37 @@ cmake -S "$repo_root" -B "$build_dir" -G Xcode \
     -DVCPKG_TARGET_TRIPLET=arm64-ios \
     -DUSE_LTO=NEVER \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+if [[ -n "$seed" ]]; then
+    # Keep only check results (HAVE_FOO=1 and the like): no paths, no CMake or vcpkg state,
+    # no project options, so a stale seed can never change how the project is set up
+    mkdir -p "$(dirname "$seed")"
+    python3 - "$build_dir/CMakeCache.txt" "$seed" <<'PY'
+import re, sys
+entries = []
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    m = re.match(r"^([A-Za-z][A-Za-z0-9_]*):INTERNAL=(.*)$", line.rstrip("\n"))
+    if not m:
+        continue
+    name, value = m.groups()
+    if name.startswith(("CMAKE_", "Z_VCPKG", "VCPKG", "FETCHCONTENT")) or "/" in value or "$" in value:
+        continue
+    value = value.replace("\\", "\\\\").replace('"', '\\"')
+    entries.append(f'set({name} "{value}" CACHE INTERNAL "")')
+open(sys.argv[2], "w").write("\n".join(entries) + "\n")
+print(f"Saved {len(entries)} CMake check results")
+PY
+fi
+
+# Route C/C++/Objective-C compiles through ccache when it is installed (CI restores its cache)
+ccache_args=()
+if command -v ccache > /dev/null; then
+    ccache_args=(
+        C_COMPILER_LAUNCHER="$(command -v ccache)"
+        CLANG_USE_RESPONSE_FILE=NO
+        COMPILER_INDEX_STORE_ENABLE=NO
+    )
+fi
 
 xcodebuild \
     -project "$build_dir/Vita3K.xcodeproj" \
@@ -34,6 +74,7 @@ xcodebuild \
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGN_IDENTITY="" \
+    ${ccache_args[@]+"${ccache_args[@]}"} \
     build
 
 app_path="$(find "$build_dir" -name 'Vita3K.app' -type d -path "*${config}-iphoneos*" | head -n 1)"
