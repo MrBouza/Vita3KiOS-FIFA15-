@@ -71,8 +71,6 @@ The iOS code lives in `vita3k/ios/` (app target, SwiftUI frontend, C bridge to t
 
 - **[Vita3K](https://github.com/Vita3K/Vita3K)** and its contributors: the emulator this app is built on. Please support the upstream project.
 - **[Tsubomi](https://github.com/125hz/Tsubomi)** by **125hz**: the iOS 26 JIT implementation (`vita3k/ios/patches/0001-oaknut-ios-rwx-jit.patch` and the JIT region pool), guest memory pre-reservation, the iOS audio session setup and the high-density game window.
-- **[StikDebug](https://github.com/StephenDev0/StikDebug)**: the on-device JIT enabler and the `universal.js` JIT protocol.
-- **[LiveContainer](https://github.com/LiveContainer/LiveContainer)**: running apps without installing them, with JIT launch scripts.
 - **[dynarmic](https://github.com/merryhime/dynarmic)** and **oaknut** by merryhime, **[MoltenVK](https://github.com/KhronosGroup/MoltenVK)**, **[SDL](https://github.com/libsdl-org/SDL)**, and the other libraries in `external/`.
 
 ## Legal
