@@ -238,8 +238,27 @@ static Config::CurrentConfig get_runtime_current_config_after_save(
     return runtime_current;
 }
 
+#if defined(VITA3K_PLATFORM_IOS)
+// Settings a game is known to need (from the Vita3K compatibility reports), used until the player
+// gives the game settings of its own
+static void apply_builtin_game_fixes(EmuEnvState &emuenv, const std::string &app_path) {
+    if (app_path.empty() || config::has_custom_config(emuenv.config_path, app_path))
+        return;
+    auto &cc = emuenv.cfg.current_config;
+    // Gravity Rush (US, EU): without surface sync the bloom piles up and scenes come out far too
+    // bright (Vita3K/compatibility#177: "Surface Sync enabled (fixes the excessive bloom)")
+    if (app_path == "PCSA00011" || app_path == "PCSF00024") {
+        cc.disable_surface_sync = false;
+        LOG_INFO("Game fix for {}: surface sync on (fixes the excessive bloom)", app_path);
+    }
+}
+#endif
+
 void set_current_config(EmuEnvState &emuenv, const std::string &app_path) {
     config::set_current_config(emuenv.cfg, emuenv.config_path, app_path);
+#if defined(VITA3K_PLATFORM_IOS)
+    apply_builtin_game_fixes(emuenv, app_path);
+#endif
     set_backend_renderer(emuenv, emuenv.cfg.current_config.backend_renderer);
     emuenv.audio.set_global_volume(emuenv.cfg.current_config.audio_volume / 100.f);
     lang::set_locale(emuenv.cfg.current_config.sys_lang);
