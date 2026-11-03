@@ -57,29 +57,4 @@ void sync_visibility_index(VKContext &context, bool enable, uint32_t index, bool
 
 void refresh_pipeline(VKContext &context);
 
-#ifdef __APPLE__
-// Metal needs every vertex attribute at a 4-byte aligned offset, inside the vertex (offset + size
-// <= stride), and a stride that is a multiple of 4. PS Vita games pack vertices freely (a 3-byte
-// normal followed by a colour at offset 15, for instance), and Metal then reads the wrong bytes:
-// vertices fly off into long spikes. Streams that break these rules are repacked: each attribute
-// gets its own aligned slot. The pipeline (vertex input) and the stream upload use the same layout.
-struct MetalVertexSlot {
-    uint32_t attribute; // index in SceGxmVertexProgram::attributes
-    uint32_t src_offset;
-    uint32_t size; // bytes the attribute reads
-    uint32_t dst_offset;
-};
-struct MetalStreamLayout {
-    bool repack = false;
-    uint32_t src_stride = 0;
-    uint32_t stride = 0; // stride to bind and to upload with
-    std::vector<MetalVertexSlot> slots; // only when repack
-};
-MetalStreamLayout metal_stream_layout(const SceGxmVertexProgram &program, uint32_t stream_index);
-// Offset of an attribute in the stream as bound (its slot when repacked)
-uint32_t metal_attribute_offset(const MetalStreamLayout &layout, uint32_t attribute_index, uint32_t original_offset);
-// Copies a stream into the repacked layout
-std::vector<uint8_t> metal_repack_stream(const MetalStreamLayout &layout, const uint8_t *data, uint32_t size);
-#endif
-
 } // namespace renderer::vulkan
