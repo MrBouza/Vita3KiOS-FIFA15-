@@ -267,6 +267,11 @@ bool volume_capacity(const std::string &path, uint64_t &total, uint64_t &availab
     }
 }
 
+bool portrait_mode_enabled() {
+    NSNumber *value = [NSUserDefaults.standardUserDefaults objectForKey:@"v3k.portraitMode"];
+    return value ? value.boolValue : true;
+}
+
 int interface_rotation() {
     UIWindowScene *scene = nil;
     for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {

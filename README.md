@@ -36,7 +36,7 @@
 | 🚀 **Performance options** | 60 FPS mode, Fast CPU, upscaling up to 4× with FSR, background shader compilation and a shader cache kept between sessions. |
 | 📊 **Performance overlay** | Pick what to show: FPS, frame time, CPU, memory, thermals, battery, resolution. Place it where you like. |
 | 🎨 **Looks the part** | Eight animated themes that respond to tilt, original menu music made on the device, and touch-control themes (PlayStation, Xbox-style letters, Nintendo-style, Neon, Minimal). |
-| 🕹 **Controls your way** | Drag and pinch the touch controls into your own layout, use the rear touchpad, and tilt the iPhone for motion games. Any MFi, Xbox, PlayStation or Switch controller works too, with remapping and a ✕/○ swap. |
+| 🕹 **Controls your way** | Play in landscape or upright (portrait mode puts the game on top and the controls below). Drag and pinch the touch controls into your own layout, use the rear touchpad, and tilt the iPhone for motion games. Any MFi, Xbox, PlayStation or Switch controller works too, with remapping and a ✕/○ swap. |
 | 📸 **Game menu** | Screenshots straight to Photos, rear touchpad, layout editor, show/hide controls, quit. Open it with ✕ on screen, Home/PS on a controller, or by holding Select + Start. |
 | 📱 **Feels native** | Put any game on your Home Screen (`vita3k://launch/<TITLE ID>` links), long-press the app icon for recent games, and use "Open in Vita3K" from Files or Safari. |
 | 💾 **External storage** | Keep games on a USB-C SSD, thumb drive or SD reader. |

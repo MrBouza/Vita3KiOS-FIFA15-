@@ -24,6 +24,7 @@
 #include <emuenv/state.h>
 #include <motion/functions.h>
 #include <motion/state.h>
+#include <renderer/display_layout.h>
 #include <renderer/state.h>
 #include <touch/functions.h>
 #include <touch/state.h>
@@ -90,6 +91,10 @@ extern "C" void v3k_set_rear_touch(bool rear) {
 
 extern "C" bool v3k_rear_touch(void) {
     return rear_touch;
+}
+
+extern "C" void v3k_set_portrait_top(float pixels) {
+    renderer::tall_window_top().store(pixels, std::memory_order_relaxed);
 }
 
 namespace ios::extras {

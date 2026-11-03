@@ -28,6 +28,7 @@
 #include "controls/virtual_pad.h"
 #include "crash_report.h"
 #include "game_extras.h"
+#include "ios_platform.h"
 #include "ios_session.h"
 #include "jit/ios_jit.h"
 
@@ -127,8 +128,10 @@ int main(int argc, char *argv[]) {
             ios::jit_pool_ready() ? "ready" : "NOT ready", ios::jit_pool_available(),
             os_proc_available_memory() / (1024 * 1024));
 
-        // The library can rotate freely; games are landscape only
-        SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+        // The library can rotate freely; games are landscape
+        // (Portrait mode: upright too, with the game at the top and the controls below)
+        SDL_SetHint(SDL_HINT_ORIENTATIONS, ios::portrait_mode_enabled() ? "LandscapeLeft LandscapeRight Portrait" : "LandscapeLeft LandscapeRight");
+        v3k_set_portrait_top(-1);
 
         // A fresh session controller per launch (as Tsubomi does): no state carried over from the last game
         app::AppSessionController session_controller(*emuenv);

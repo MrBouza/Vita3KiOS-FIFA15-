@@ -20,6 +20,7 @@
 #define __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
 #endif
 
+#include <renderer/display_layout.h>
 #include <renderer/functions.h>
 #include <renderer/types.h>
 #include <renderer/vulkan/functions.h>
@@ -1218,7 +1219,7 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState 
             const bool pixel_perfect = fullscreen_hd_res_pixel_perfect && fullscreen
                 && !(screen_renderer.extent.width % DEFAULT_RES_WIDTH)
                 && !(screen_renderer.extent.height % (DEFAULT_RES_HEIGHT - 4));
-            if (stretch_the_display_area && !pixel_perfect) {
+            if (stretch_the_display_area && !pixel_perfect && can_stretch(fb_w, fb_h)) {
                 display.viewport_x = 0.0f;
                 display.viewport_y = 0.0f;
                 display.viewport_w = fb_w;
@@ -1232,7 +1233,7 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState 
                 display.viewport_w = fb_w;
                 display.viewport_h = fb_w / vita_aspect;
                 display.viewport_x = 0.0f;
-                display.viewport_y = (fb_h - display.viewport_h) / 2.0f;
+                display.viewport_y = tall_window_y(fb_h, display.viewport_h);
             }
         }
     }

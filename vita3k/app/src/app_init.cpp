@@ -251,6 +251,19 @@ static void apply_builtin_game_fixes(EmuEnvState &emuenv, const std::string &app
         cc.disable_surface_sync = false;
         LOG_INFO("Game fix for {}: surface sync on (fixes the excessive bloom)", app_path);
     }
+    // Persona 4 Golden: with GPU memory mapping its 3D scenes throw long spikes on iOS; without it
+    // they draw correctly (tested on an iPhone 16 Pro)
+    if (app_path == "PCSE00120" || app_path == "PCSB00245") {
+        cc.memory_mapping = "disabled";
+        LOG_INFO("Game fix for {}: GPU memory mapping off (fixes the vertex spikes)", app_path);
+    }
+    // Madden NFL 13: players are skinned on the GPU; without memory mapping that data never reaches
+    // the draws, so faces break up and bodies go missing
+    if (app_path == "PCSE00084") {
+        cc.memory_mapping = "double-buffer";
+        cc.disable_surface_sync = false;
+        LOG_INFO("Game fix for {}: GPU memory mapping and surface sync on (fixes broken faces and missing bodies)", app_path);
+    }
 }
 #endif
 

@@ -202,6 +202,7 @@ struct TouchControlsSection: View {
     @AppStorage("v3k.touchHideWithController") private var hideWithController = true
     @AppStorage("v3k.touchHaptics") private var touchHaptics = true
     @AppStorage("v3k.touchRearButton") private var rearButton = true
+    @AppStorage("v3k.portraitMode") private var portraitMode = true
     @AppStorage("v3k.controllerTheme") private var controllerTheme = ControllerTheme.classic.rawValue
     @EnvironmentObject var model: LibraryModel
     @State private var layoutCustomized = TouchLayout.isCustomized
@@ -223,6 +224,13 @@ struct TouchControlsSection: View {
             }
             Toggle("Hide when a controller is connected", isOn: $hideWithController)
             Toggle("Vibrate on press", isOn: $touchHaptics)
+            Toggle(isOn: $portraitMode) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Portrait mode")
+                    Text("Hold the phone upright to play with the game at the top and the controls below it. Landscape stays as it is; each has its own control layout.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Toggle(isOn: $rearButton) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Rear touchpad button")
@@ -242,7 +250,7 @@ struct TouchControlsSection: View {
             }
             if layoutCustomized {
                 Button("Reset control layout") {
-                    TouchLayout.save([:])
+                    TouchLayout.resetAll()
                     layoutCustomized = false
                 }
             }
@@ -264,6 +272,7 @@ struct TouchControlsSection: View {
 struct EmulationSections: View {
     @EnvironmentObject var model: LibraryModel
     @AppStorage("v3k.fastCPU") private var fastCPU = false
+    @State private var confirmClearShaders = false
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
     private let anisotropy = [1, 2, 4, 8, 16]
@@ -339,7 +348,43 @@ struct EmulationSections: View {
             Text("Vita3KiOS also keeps game threads on the fast CPU cores, encodes GPU work in parallel and turns on iOS Game Mode automatically.")
         }
 
+        Section {
+            Toggle(isOn: binding(\.shaderCache) { model.setBool("shader-cache", $0) }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Shader cache")
+                    Text("Keeps compiled shaders between launches, so a game is smooth the second time.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle("Show shader compile progress", isOn: binding(\.showCompileShaders) { model.setBool("show-compile-shaders", $0) })
+            Toggle(isOn: binding(\.importTextures) { model.setBool("import-textures", $0) }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Texture packs")
+                    Text("Loads replacement textures from the Vita3K folder › textures › <title ID> (HD and translation packs).")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Button("Clear all shader caches", role: .destructive) { confirmClearShaders = true }
+        } header: {
+            Text("Shaders & textures")
+        } footer: {
+            Text("Clearing the caches can fix games whose graphics broke after an update; each game compiles its shaders again the next time.")
+        }
+        .alert("Clear all shader caches?", isPresented: $confirmClearShaders) {
+            Button("Clear", role: .destructive) {
+                for app in model.apps { _ = v3k_delete_shader_cache(app.titleId) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+
         Section("System") {
+            Picker("System language", selection: binding(\.sysLang) { model.setNumber("sys-lang", Double($0)) }) {
+                ForEach(Self.languages, id: \.0) { Text($0.1).tag($0.0) }
+            }
+            Picker("Confirm button", selection: binding(\.sysButton) { model.setNumber("sys-button", Double($0)) }) {
+                Text("✕ (Western games)").tag(1)
+                Text("○ (Japanese games)").tag(0)
+            }
             Toggle("CPU optimisations", isOn: binding(\.cpuOpt) { model.setBool("cpu-opt", $0) })
             Toggle("PS TV mode", isOn: binding(\.pstvMode) { model.setBool("pstv-mode", $0) })
             NavigationLink {
@@ -362,6 +407,13 @@ struct EmulationSections: View {
             Toggle("NGS audio", isOn: binding(\.ngsEnable) { model.setBool("ngs-enable", $0) })
         }
     }
+
+    private static let languages: [(Int, String)] = [
+        (1, "English (US)"), (18, "English (UK)"), (0, "Japanese"), (2, "French"), (3, "Spanish"), (4, "German"),
+        (5, "Italian"), (6, "Dutch"), (7, "Portuguese (Portugal)"), (17, "Portuguese (Brazil)"), (8, "Russian"),
+        (9, "Korean"), (10, "Chinese (Traditional)"), (11, "Chinese (Simplified)"), (12, "Finnish"), (13, "Swedish"),
+        (14, "Danish"), (15, "Norwegian"), (16, "Polish"), (19, "Turkish"),
+    ]
 
     private func label(for value: Double) -> String {
         let native = "\(Int(960 * value))×\(Int(544 * value))"

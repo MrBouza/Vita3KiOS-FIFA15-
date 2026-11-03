@@ -130,6 +130,8 @@ void v3k_request_screenshot(void);
 // Touches on the game go to the rear touchpad instead of the front screen
 void v3k_set_rear_touch(bool rear);
 bool v3k_rear_touch(void);
+// Portrait mode: pixels from the top of the screen to the game picture (negative: centred)
+void v3k_set_portrait_top(float pixels);
 
 // ---- Crash reports ----
 // JSON {"report","log"} describing how the previous session ended, or NULL if it ended normally.

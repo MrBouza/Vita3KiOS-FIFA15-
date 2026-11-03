@@ -80,4 +80,7 @@ int interface_rotation();
 // reports the result over the game with a short message.
 void save_image_to_photos(const std::string &path);
 
+// Settings › Controls › Portrait mode (on unless turned off)
+bool portrait_mode_enabled();
+
 } // namespace ios

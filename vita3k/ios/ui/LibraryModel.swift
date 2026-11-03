@@ -43,6 +43,11 @@ struct EmulatorSettings: Codable {
     var asyncShaders: Bool = true
     var motion: Bool = true
     var surfaceSync: Bool = false
+    var showCompileShaders: Bool = true
+    var shaderCache: Bool = true
+    var importTextures: Bool = false
+    var sysButton: Int = 1
+    var sysLang: Int = 1
 }
 
 struct StorageInfo: Codable {

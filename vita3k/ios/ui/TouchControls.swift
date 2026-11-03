@@ -234,22 +234,35 @@ struct GroupPlacement: Codable, Equatable {
 
 enum TouchLayout {
     private static let key = "v3k.touchLayout"
+    // Portrait mode has a layout of its own; the landscape one keeps its original key
+    private static func key(portrait: Bool) -> String { portrait ? key + ".portrait" : key }
 
-    static func load() -> [String: GroupPlacement] {
-        guard let data = UserDefaults.standard.data(forKey: key),
+    static func load(portrait: Bool = false) -> [String: GroupPlacement] {
+        guard let data = UserDefaults.standard.data(forKey: key(portrait: portrait)),
               let decoded = try? JSONDecoder().decode([String: GroupPlacement].self, from: data) else { return [:] }
         return decoded
     }
 
-    static func save(_ placements: [String: GroupPlacement]) {
+    static func save(_ placements: [String: GroupPlacement], portrait: Bool = false) {
         if placements.isEmpty {
-            UserDefaults.standard.removeObject(forKey: key)
+            UserDefaults.standard.removeObject(forKey: key(portrait: portrait))
         } else if let data = try? JSONEncoder().encode(placements) {
-            UserDefaults.standard.set(data, forKey: key)
+            UserDefaults.standard.set(data, forKey: key(portrait: portrait))
         }
     }
 
-    static var isCustomized: Bool { !load().isEmpty }
+    static var isCustomized: Bool { !load().isEmpty || !load(portrait: true).isEmpty }
+
+    static func resetAll() {
+        save([:])
+        save([:], portrait: true)
+    }
+}
+
+/// Settings › Controls › Portrait mode: holding the phone upright puts the game on top and the
+/// controls below. Landscape is unaffected.
+enum PortraitMode {
+    static var enabled: Bool { UserDefaults.standard.object(forKey: "v3k.portraitMode") as? Bool ?? true }
 }
 
 final class ControlsOverlayView: UIView {
@@ -273,7 +286,14 @@ final class ControlsOverlayView: UIView {
     private let toastLabel = UILabel()
     private var toastGeneration = 0
     private let showRearButton = UserDefaults.standard.object(forKey: "v3k.touchRearButton") as? Bool ?? true
-    private var placements = TouchLayout.load()
+    private var landscapePlacements = TouchLayout.load()
+    private var portraitPlacements = TouchLayout.load(portrait: true)
+    private var isPortrait: Bool { bounds.height > bounds.width }
+    private var placements: [String: GroupPlacement] {
+        get { isPortrait ? portraitPlacements : landscapePlacements }
+        set { if isPortrait { portraitPlacements = newValue } else { landscapePlacements = newValue } }
+    }
+    private var portraitControlsArea = CGRect.zero
     private var editor: LayoutEditorView?
     private var hiddenBeforeEditing = false
 
@@ -499,9 +519,9 @@ final class ControlsOverlayView: UIView {
     func endEditing(save: Bool) {
         guard let editor else { return }
         if save {
-            TouchLayout.save(placements)
+            TouchLayout.save(placements, portrait: isPortrait)
         } else {
-            placements = TouchLayout.load()
+            placements = TouchLayout.load(portrait: isPortrait)
         }
         editor.removeFromSuperview()
         self.editor = nil
@@ -512,7 +532,7 @@ final class ControlsOverlayView: UIView {
         setNeedsLayout()
     }
 
-    var layoutArea: CGRect { bounds.inset(by: safeAreaInsets).insetBy(dx: 12, dy: 10) }
+    var layoutArea: CGRect { isPortrait ? portraitControlsArea : bounds.inset(by: safeAreaInsets).insetBy(dx: 12, dy: 10) }
 
     func views(of group: ControlGroup) -> [UIView] {
         switch group {
@@ -581,6 +601,11 @@ final class ControlsOverlayView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        if isPortrait {
+            layoutPortrait()
+            return
+        }
+        v3k_set_portrait_top(-1)
         let area = layoutArea
         let unit = min(max(min(area.width, area.height) * 0.13, 40), 64) * scale // button size
 
@@ -639,6 +664,69 @@ final class ControlsOverlayView: UIView {
         }
     }
 
+    /// Portrait mode: the game picture sits at the top (the renderer is told where) and the controls
+    /// share the space below it. Same controls and groups as landscape, laid out for a tall screen.
+    private func layoutPortrait() {
+        let insets = safeAreaInsets
+        let scaleFactor = window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        v3k_set_portrait_top(Float(insets.top * scaleFactor))
+        let gameBottom = insets.top + bounds.width * 544 / 960
+        let area = bounds.inset(by: insets).insetBy(dx: 12, dy: 8)
+        let controls = CGRect(x: area.minX, y: gameBottom + 10, width: area.width, height: max(area.maxY - gameBottom - 10, 120))
+        portraitControlsArea = controls
+        let unit = min(max(area.width * 0.15, 44), 70) * scale
+
+        // Shoulder buttons along the top of the controls, the menu buttons between them
+        l.frame = CGRect(x: controls.minX, y: controls.minY, width: unit * 1.7, height: unit * 0.75)
+        r.frame = CGRect(x: controls.maxX - unit * 1.7, y: controls.minY, width: unit * 1.7, height: unit * 0.75)
+        let topButtons = showRearButton ? [exitButton, hideButton, rearButton] : [exitButton, hideButton]
+        let rowWidth = CGFloat(topButtons.count) * 36 + CGFloat(topButtons.count - 1) * 8
+        for (index, button) in topButtons.enumerated() {
+            button.frame = CGRect(x: controls.midX - rowWidth / 2 + CGFloat(index) * 44, y: controls.minY + (unit * 0.75 - 36) / 2, width: 36, height: 36)
+            button.layer.cornerRadius = 18
+        }
+        if !showRearButton {
+            rearButton.frame = CGRect(x: hideButton.frame.maxX + 8, y: hideButton.frame.minY, width: 36, height: 36)
+            rearButton.layer.cornerRadius = 18
+        }
+
+        // Select / Start at the bottom, d-pad and face buttons above, sticks between them
+        let smallWidth = unit * 1.4, smallHeight = unit * 0.55
+        select.frame = CGRect(x: controls.midX - smallWidth - 8, y: controls.maxY - smallHeight, width: smallWidth, height: smallHeight)
+        start.frame = CGRect(x: controls.midX + 8, y: controls.maxY - smallHeight, width: smallWidth, height: smallHeight)
+
+        let clusterSize = unit * 3
+        let free = select.frame.minY - l.frame.maxY
+        let clusterY = l.frame.maxY + max((free - clusterSize - unit * 1.9) / 3, 8)
+        layoutDiamond(top: up, right: right, bottom: down, left: left,
+                      in: CGRect(x: controls.minX, y: clusterY, width: clusterSize, height: clusterSize), unit: unit)
+        layoutDiamond(top: triangle, right: circle, bottom: cross, left: square,
+                      in: CGRect(x: controls.maxX - clusterSize, y: clusterY, width: clusterSize, height: clusterSize), unit: unit)
+
+        let stickSize = unit * 1.9
+        let stickY = min(clusterY + clusterSize + max((free - clusterSize - stickSize) / 3, 6), select.frame.minY - stickSize - 6)
+        leftStick.frame = CGRect(x: controls.minX + unit * 0.6, y: stickY, width: stickSize, height: stickSize)
+        rightStick.frame = CGRect(x: controls.maxX - unit * 0.6 - stickSize, y: stickY, width: stickSize, height: stickSize)
+
+        applyPlacements(in: controls)
+
+        if let hud {
+            // Over the game picture, in the chosen corner
+            let size = hud.sizeThatFits(bounds.size)
+            let left = area.minX, rightEdge = area.maxX - size.width
+            let top = insets.top + 8, bottom = gameBottom - size.height - 8
+            let origin: CGPoint
+            switch hud.corner {
+            case 1: origin = CGPoint(x: rightEdge, y: top)
+            case 2: origin = CGPoint(x: left, y: bottom)
+            case 3: origin = CGPoint(x: rightEdge, y: bottom)
+            default: origin = CGPoint(x: left, y: top)
+            }
+            hud.frame = CGRect(origin: origin, size: size)
+        }
+        if let editor { bringSubviewToFront(editor); editor.refresh() }
+    }
+
     private func layoutDiamond(top: UIView, right: UIView, bottom: UIView, left: UIView, in rect: CGRect, unit: CGFloat) {
         top.frame = CGRect(x: rect.midX - unit / 2, y: rect.minY, width: unit, height: unit)
         bottom.frame = CGRect(x: rect.midX - unit / 2, y: rect.maxY - unit, width: unit, height: unit)
@@ -652,7 +740,7 @@ final class ControlsViewController: UIViewController {
     override func loadView() {
         view = ControlsOverlayView(frame: UIScreen.main.bounds)
     }
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { PortraitMode.enabled ? [.landscape, .portrait] : .landscape }
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 }

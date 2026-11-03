@@ -251,8 +251,9 @@ void PipelineCache::init(bool support_rasterized_order_access) {
     else
         nb_worker_threads = 1;
 #if defined(VITA3K_PLATFORM_IOS)
-    // Apple's performance cores compile pipelines quickly: one more worker shortens shader stutter
-    nb_worker_threads = std::max(nb_worker_threads, 3);
+    // Metal compiles pipelines on its own threads too; four workers let shader-heavy games (Madden
+    // NFL 13 compiles 200+ pipelines in its first match) finish and show their objects much sooner
+    nb_worker_threads = std::max(nb_worker_threads, 4);
 #endif
 
     if (use_async_compilation) {

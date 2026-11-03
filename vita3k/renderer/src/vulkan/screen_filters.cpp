@@ -16,6 +16,8 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include "renderer/vulkan/screen_filters.h"
+
+#include "renderer/display_layout.h"
 #include "renderer/vulkan/screen_renderer.h"
 
 #include "renderer/vulkan/state.h"
@@ -279,7 +281,7 @@ void SinglePassScreenFilter::render(bool is_pre_renderpass, vk::ImageView src_im
         const float window_aspect = static_cast<float>(screen.extent.width) / screen.extent.height;
         constexpr float vita_aspect = static_cast<float>(DEFAULT_RES_WIDTH) / DEFAULT_RES_HEIGHT;
         const bool fullscreen_hd_res_pixel_perfect_en = screen.state.fullscreen_hd_res_pixel_perfect && screen.state.fullscreen && !(screen.extent.width % DEFAULT_RES_WIDTH) && !(screen.extent.height % (DEFAULT_RES_HEIGHT - 4));
-        if (screen.state.stretch_the_display_area && !fullscreen_hd_res_pixel_perfect_en) {
+        if (screen.state.stretch_the_display_area && !fullscreen_hd_res_pixel_perfect_en && can_stretch(static_cast<float>(screen.extent.width), static_cast<float>(screen.extent.height))) {
             // Match the aspect ratio to the screen size.
             vk_viewport.width = static_cast<float>(screen.extent.width);
             vk_viewport.height = static_cast<float>(screen.extent.height);
@@ -296,7 +298,7 @@ void SinglePassScreenFilter::render(bool is_pre_renderpass, vk::ImageView src_im
             vk_viewport.width = static_cast<float>(screen.extent.width);
             vk_viewport.height = screen.extent.width / vita_aspect;
             vk_viewport.x = 0.0f;
-            vk_viewport.y = (screen.extent.height - vk_viewport.height) / 2;
+            vk_viewport.y = tall_window_y(static_cast<float>(screen.extent.height), vk_viewport.height);
         }
         screen.current_cmd_buffer.setViewport(0, vk_viewport);
     }
@@ -511,7 +513,7 @@ void FSRScreenFilter::on_resize() {
     const float window_aspect = static_cast<float>(screen.extent.width) / screen.extent.height;
     const float vita_aspect = static_cast<float>(DEFAULT_RES_WIDTH) / DEFAULT_RES_HEIGHT;
     const bool fullscreen_hd_res_pixel_perfect_en = screen.state.fullscreen_hd_res_pixel_perfect & screen.state.fullscreen & !(screen.extent.width % DEFAULT_RES_WIDTH) & !(screen.extent.height % (DEFAULT_RES_HEIGHT - 4));
-    if (screen.state.stretch_the_display_area && !fullscreen_hd_res_pixel_perfect_en) {
+    if (screen.state.stretch_the_display_area && !fullscreen_hd_res_pixel_perfect_en && can_stretch(static_cast<float>(screen.extent.width), static_cast<float>(screen.extent.height))) {
         // Match the aspect ratio to the screen size.
         output_size.width = static_cast<float>(screen.extent.width);
         output_size.height = static_cast<float>(screen.extent.height);
@@ -528,7 +530,7 @@ void FSRScreenFilter::on_resize() {
         output_size.width = screen.extent.width;
         output_size.height = static_cast<uint32_t>(std::round(screen.extent.width / vita_aspect));
         output_offset.width = 0.0f;
-        output_offset.height = static_cast<uint32_t>(std::round((screen.extent.height - output_size.height) / 2.0f));
+        output_offset.height = static_cast<uint32_t>(std::round(tall_window_y(static_cast<float>(screen.extent.height), static_cast<float>(output_size.height))));
     }
 
     // recreate the intermediate images

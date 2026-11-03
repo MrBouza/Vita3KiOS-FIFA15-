@@ -507,12 +507,13 @@ char *v3k_settings_json(void) {
         R"({{"resolutionMultiplier":{},"anisotropicFiltering":{},"audioVolume":{},"screenFilter":{},)"
         R"("vSync":{},"cpuOpt":{},"ngsEnable":{},"highAccuracy":{},"stretchDisplay":{},)"
         R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{},"fpsHack":{},"asyncShaders":{},)"
-        R"("motion":{},"surfaceSync":{}}})",
+        R"("motion":{},"surfaceSync":{},"showCompileShaders":{},"shaderCache":{},"importTextures":{},"sysButton":{},"sysLang":{}}})",
         cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, json_quote(cfg.screen_filter),
         b(cfg.v_sync), b(cfg.cpu_opt), b(cfg.ngs_enable), b(cfg.high_accuracy), b(cfg.stretch_the_display_area),
         b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode),
         b(cfg.memory_mapping != "disabled"), b(cfg.fps_hack), b(cfg.async_pipeline_compilation),
-        b(!cfg.disable_motion), b(!cfg.disable_surface_sync));
+        b(!cfg.disable_motion), b(!cfg.disable_surface_sync), b(cfg.show_compile_shaders), b(cfg.shader_cache),
+        b(cfg.import_textures), cfg.sys_button, cfg.sys_lang);
     return dup_string(json);
 }
 
@@ -540,6 +541,10 @@ bool v3k_set_setting_number(const char *key, double value) {
     } else if (k == "audio-volume") {
         cfg.audio_volume = static_cast<int>(value);
         cfg.current_config.audio_volume = cfg.audio_volume;
+    } else if (k == "sys-button") {
+        cfg.sys_button = cfg.current_config.sys_button = static_cast<int>(value);
+    } else if (k == "sys-lang") {
+        cfg.sys_lang = cfg.current_config.sys_lang = static_cast<int>(value);
     } else {
         return false;
     }
@@ -574,6 +579,12 @@ bool v3k_set_setting_bool(const char *key, bool value) {
         cfg.fps_hack = cfg.current_config.fps_hack = value;
     } else if (k == "async-shaders") {
         cfg.async_pipeline_compilation = cfg.current_config.async_pipeline_compilation = value;
+    } else if (k == "show-compile-shaders") {
+        cfg.show_compile_shaders = value;
+    } else if (k == "shader-cache") {
+        cfg.shader_cache = cfg.current_config.shader_cache = value;
+    } else if (k == "import-textures") {
+        cfg.import_textures = cfg.current_config.import_textures = value;
     } else if (k == "surface-sync") {
         cfg.disable_surface_sync = cfg.current_config.disable_surface_sync = !value;
     } else if (k == "motion") {
