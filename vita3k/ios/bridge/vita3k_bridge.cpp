@@ -516,6 +516,12 @@ bool v3k_install(const char *path, const char *zrif, v3k_progress_fn progress, v
     return outcome.failed == 0 && outcome.installed > 0;
 }
 
+// Settings saved before FSR left the iOS menu can still say "FSR". The menu has no such entry, so it
+// showed Bilinear while the file (and the log) said FSR; games use Bilinear for it anyway
+static std::string shown_screen_filter(const std::string &filter) {
+    return filter == "FSR" ? "Bilinear" : filter;
+}
+
 char *v3k_settings_json(void) {
     auto *emuenv = ios::get_emuenv();
     if (!emuenv)
@@ -527,7 +533,7 @@ char *v3k_settings_json(void) {
         R"("vSync":{},"cpuOpt":{},"ngsEnable":{},"highAccuracy":{},"stretchDisplay":{},)"
         R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{},"fpsHack":{},"asyncShaders":{},)"
         R"("motion":{},"surfaceSync":{},"showCompileShaders":{},"shaderCache":{},"importTextures":{},"sysButton":{},"sysLang":{}}})",
-        cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, json_quote(cfg.screen_filter),
+        cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, json_quote(shown_screen_filter(cfg.screen_filter)),
         b(cfg.v_sync), b(cfg.cpu_opt), b(cfg.ngs_enable), b(cfg.high_accuracy), b(cfg.stretch_the_display_area),
         b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode),
         b(cfg.memory_mapping != "disabled"), b(cfg.fps_hack), b(cfg.async_pipeline_compilation),
@@ -769,7 +775,7 @@ char *v3k_game_settings_json(const char *title_id) {
         R"({{"custom":{},"resolutionMultiplier":{},"anisotropicFiltering":{},"screenFilter":{},"memoryMapping":{},)"
         R"("highAccuracy":{},"textureCache":{},"cpuOpt":{},"vSync":{},"fpsHack":{},"disableSurfaceSync":{},)"
         R"("stretchDisplay":{},"asyncShaders":{},"shaderCache":{}}})",
-        b(custom), cc.resolution_multiplier, cc.anisotropic_filtering, json_quote(cc.screen_filter), b(cc.memory_mapping != "disabled"),
+        b(custom), cc.resolution_multiplier, cc.anisotropic_filtering, json_quote(shown_screen_filter(cc.screen_filter)), b(cc.memory_mapping != "disabled"),
         b(cc.high_accuracy), b(cc.texture_cache), b(cc.cpu_opt), b(cc.v_sync), b(cc.fps_hack), b(cc.disable_surface_sync),
         b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache)));
 }
