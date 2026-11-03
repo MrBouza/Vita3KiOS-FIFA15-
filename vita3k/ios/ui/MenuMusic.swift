@@ -545,11 +545,9 @@ final class MenuMusic: ObservableObject {
     private func resume() {
         guard enabled else { return }
         let session = AVAudioSession.sharedInstance()
-        // Stay quiet only while another app plays audio that wants to be heard alone (music, podcast)
-        if session.secondaryAudioShouldBeSilencedHint {
-            v3k_log_ui("Menu music: another app is playing audio, staying quiet")
-            return
-        }
+        // No "other audio is playing" check: tools such as StikDebug keep a silent audio session alive in
+        // the background, which made iOS report other audio all the time and the music never played.
+        // The music mixes with other apps, and it can be turned off in Settings.
         // A game's audio may have deactivated the session when it closed
         do {
             if session.category != .playback {

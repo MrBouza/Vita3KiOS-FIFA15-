@@ -42,7 +42,10 @@ inline FilePtr create_shared_file(const fs::path &path, const int open_mode) {
 using DirPtr = std::shared_ptr<_WDIR>;
 
 inline DirPtr create_shared_dir(const fs::path &path) {
-    return DirPtr(_wopendir(path.generic_wstring().c_str()), _wclosedir);
+    _WDIR *dir = _wopendir(path.generic_wstring().c_str());
+    if (!dir)
+        return {};
+    return DirPtr(dir, _wclosedir);
 }
 
 inline std::string get_file_in_dir(const _wdirent *file) {
@@ -63,7 +66,12 @@ inline FilePtr create_shared_file(const fs::path &path, const int open_mode) {
 using DirPtr = std::shared_ptr<DIR>;
 
 inline DirPtr create_shared_dir(const fs::path &path) {
-    return DirPtr(opendir(path.generic_string().c_str()), closedir);
+    // A shared_ptr built with a deleter calls it even for a null pointer, and closedir(NULL) crashes
+    // on Apple platforms: return an empty pointer when the directory can't be opened
+    DIR *dir = opendir(path.generic_string().c_str());
+    if (!dir)
+        return {};
+    return DirPtr(dir, closedir);
 }
 
 inline std::string get_file_in_dir(dirent *file) {
