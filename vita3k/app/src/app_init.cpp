@@ -258,11 +258,12 @@ static void apply_builtin_game_fixes(EmuEnvState &emuenv, const std::string &app
         LOG_INFO("Game fix for {}: GPU memory mapping off (fixes the vertex spikes)", app_path);
     }
     // Madden NFL 13: players are skinned on the GPU; without memory mapping that data never reaches
-    // the draws, so faces break up and bodies go missing
+    // the draws, so faces break up and bodies go missing. Surface sync stays off: with it the game
+    // crashed at boot (iPhone 16 Pro, memory access outside guest memory).
     if (app_path == "PCSE00084") {
         cc.memory_mapping = "double-buffer";
-        cc.disable_surface_sync = false;
-        LOG_INFO("Game fix for {}: GPU memory mapping and surface sync on (fixes broken faces and missing bodies)", app_path);
+        cc.disable_surface_sync = true;
+        LOG_INFO("Game fix for {}: GPU memory mapping on, surface sync off (fixes broken faces and missing bodies)", app_path);
     }
 }
 #endif

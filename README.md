@@ -33,7 +33,7 @@
 | ⚡ **JIT on iOS 26** | Through StikDebug's `universal.js` (from Tsubomi). JIT memory is set up in one batched step, so launch takes about two seconds. |
 | 📦 **Installs everything** | `.pkg`, `.vpk`, `.zip` and dumped folders, including **updates and DLC**. A zip full of `.pkg`s installs in the right order: game → update → DLC. Updates don't ask for a zRIF. |
 | 🛠 **Per-game everything** | Settings, community **patches**, **cheats** (VitaCheat database built in), **mods** (rePatch layout), updates & DLC, and save backups, all from one sheet. |
-| 🚀 **Performance options** | 60 FPS mode, Fast CPU, upscaling up to 4× with FSR, background shader compilation and a shader cache kept between sessions. |
+| 🚀 **Performance options** | 60 FPS mode, Fast CPU, upscaling up to 4×, background shader compilation and a shader cache kept between sessions. |
 | 📊 **Performance overlay** | Pick what to show: FPS, frame time, CPU, memory, thermals, battery, resolution. Place it where you like. |
 | 🎨 **Looks the part** | Eight animated themes that respond to tilt, original menu music made on the device, and touch-control themes (PlayStation, Xbox-style letters, Nintendo-style, Neon, Minimal). |
 | 🕹 **Controls your way** | Play in landscape or upright (portrait mode puts the game on top and the controls below). Drag and pinch the touch controls into your own layout, use the rear touchpad, and tilt the iPhone for motion games. Any MFi, Xbox, PlayStation or Switch controller works too, with remapping and a ✕/○ swap. |
@@ -101,7 +101,7 @@ Go to **Settings → Storage → Choose folder or drive…** to keep games, save
 - **Start with the defaults.** Most games run best at native resolution with background shader compilation on.
 - **60 FPS mode** and **60 FPS patches** double the frame rate of 30 FPS games when the patch list has one for your game. Use one or the other, not both.
 - **Fast CPU** trades some floating-point accuracy for speed. It helps CPU-heavy games, but switch it off if a game misbehaves.
-- **Upscaling** costs GPU time. Try 2× with FSR on Pro models, and keep an eye on the thermals line in the overlay.
+- **Upscaling** costs GPU time. Try 1.5× or 2× on Pro models, and keep an eye on the thermals line in the overlay.
 - **Low Power Mode** and a hot iPhone slow games down a lot. The library tells you when either is the case.
 - **First runs** stutter while shaders compile. The cache is saved, so the second session is smoother.
 

@@ -35,11 +35,11 @@ enum LibraryHost {
         }
         let firstShow = !hasShown
         hasShown = true
-        if firstShow && !UserDefaults.standard.bool(forKey: "v3k.surfaceSyncDefaulted") {
-            // Surface sync is on by default on iOS (many games need it for bloom, reflections and
-            // lighting); this switches it on once for existing installs too. Settings › Graphics.
-            UserDefaults.standard.set(true, forKey: "v3k.surfaceSyncDefaulted")
-            model.setBool("surface-sync", true)
+        if firstShow && !UserDefaults.standard.bool(forKey: "v3k.surfaceSyncOffByDefault") {
+            // Surface sync went back to off by default (on for everything, it crashed Madden NFL 13
+            // at boot): undo the build that switched it on. Per game it can still be turned on.
+            UserDefaults.standard.set(true, forKey: "v3k.surfaceSyncOffByDefault")
+            model.setBool("surface-sync", false)
             model.reload()
         }
         if firstShow {

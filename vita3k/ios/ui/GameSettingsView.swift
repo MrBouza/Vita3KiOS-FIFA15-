@@ -96,7 +96,9 @@ struct GameSettingsView: View {
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
     private let anisotropy = [1, 2, 4, 8, 16]
-    private let filters = ["Nearest", "Bilinear", "Bicubic", "FXAA", "FSR"]
+    // No FSR: it needs a storage-capable RGBA8 swapchain, which Metal does not offer, so Vita3K
+    // falls back to bilinear
+    private let filters = ["Nearest", "Bilinear", "Bicubic", "FXAA"]
 
     var body: some View {
         NavigationStack {

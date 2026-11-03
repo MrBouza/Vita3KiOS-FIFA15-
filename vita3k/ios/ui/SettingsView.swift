@@ -276,7 +276,9 @@ struct EmulationSections: View {
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
     private let anisotropy = [1, 2, 4, 8, 16]
-    private let filters = ["Nearest", "Bilinear", "Bicubic", "FXAA", "FSR"]
+    // No FSR: it needs a storage-capable RGBA8 swapchain, which Metal does not offer, so Vita3K
+    // falls back to bilinear
+    private let filters = ["Nearest", "Bilinear", "Bicubic", "FXAA"]
 
     var body: some View {
         Section {
@@ -295,7 +297,7 @@ struct EmulationSections: View {
         } header: {
             Text("Resolution & frame rate")
         } footer: {
-            Text("Above 1× (native, 960×544) games are rendered sharper but the GPU works harder: 1.5× or 2× suits most iPhones. For a sharper picture at almost no cost, keep 1× and pick the FSR screen filter below. Applies from the next game launch; you can also set it per game.")
+            Text("Above 1× (native, 960×544) games are rendered sharper but the GPU works harder: 1.5× or 2× suits most iPhones. For a softer, smoother picture at almost no cost, keep 1× and try the Bicubic or FXAA screen filter below. Applies from the next game launch; you can also set it per game.")
         }
 
         Section("Graphics") {
@@ -320,7 +322,7 @@ struct EmulationSections: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Surface sync")
                     Text(model.settings.memoryMapping
-                         ? "Lets games read back what they have drawn: needed for bloom, reflections, screen effects and correct lighting in many games (Gravity Rush, for one). Costs some speed, more at higher resolutions."
+                         ? "Lets games read back what they have drawn (bloom, reflections, some lighting). Off by default: it costs speed and can crash some games (Madden NFL 13). Better turned on per game, for the games that need it; Gravity Rush gets it automatically."
                          : "Needs GPU memory mapping, which is off: turn that on for surface sync to work.")
                         .font(.caption).foregroundStyle(.secondary)
                 }

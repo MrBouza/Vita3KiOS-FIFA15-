@@ -98,6 +98,13 @@ void fatal_signal_handler(int sig, siginfo_t *info, void *uct) {
         }
     }
 #endif
+    // Several threads can fault at once (they did in Madden NFL 13): only the first writes the crash
+    // report and log line; the others wait here until it takes the process down
+    static std::atomic_flag reporting = ATOMIC_FLAG_INIT;
+    if (reporting.test_and_set()) {
+        for (;;)
+            pause();
+    }
     Dl_info dl_info{};
     const char *image = "?";
     uintptr_t image_base = 0;
@@ -128,7 +135,7 @@ void install_fatal_signal_logger() {
     alt_stack.ss_size = alt_stack_storage.size();
     sigaltstack(&alt_stack, nullptr);
 
-    struct sigaction sa{};
+    struct sigaction sa {};
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigemptyset(&sa.sa_mask);
     sa.sa_sigaction = fatal_signal_handler;
@@ -138,7 +145,7 @@ void install_fatal_signal_logger() {
 }
 
 bool debugger_attached() {
-    struct kinfo_proc info{};
+    struct kinfo_proc info {};
     std::size_t size = sizeof(info);
     int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
     return sysctl(mib, 4, &info, &size, nullptr, 0) == 0 && (info.kp_proc.p_flag & P_TRACED) != 0;
