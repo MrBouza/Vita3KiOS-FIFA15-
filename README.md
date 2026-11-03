@@ -14,6 +14,7 @@
   <a href="../../actions/workflows/ios.yml"><img src="https://img.shields.io/github/actions/workflow/status/oledz-i/Vita3KiOS/ios.yml?branch=main&label=build" alt="Build status"></a>
   <img src="https://img.shields.io/badge/iOS-17.4%2B-0a84ff" alt="iOS 17.4+">
   <img src="https://img.shields.io/badge/license-GPL--2.0--or--later-lightgrey" alt="GPL-2.0-or-later">
+  <a href="https://ko-fi.com/Oledz"><img src="https://img.shields.io/badge/Ko--fi-support%20Vita3KiOS-ff5e5b?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
 </p>
 
 <p align="center">
@@ -126,6 +127,12 @@ VCPKG_ROOT=/path/to/vcpkg bash .ci/build-ios.sh artifacts
 **Releasing.** Actions → iOS → *Run workflow* with a version number, or push a `v1.2.3` tag. The IPA is attached to a GitHub Release and the AltStore / SideStore source is updated automatically.
 
 The iOS code lives in `vita3k/ios/`: the app target, SwiftUI frontend, C bridge to the core, and JIT. The dynarmic JIT patch is in `vita3k/ios/patches/` and is applied at configure time.
+
+## Support
+
+If Vita3KiOS is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-fi.com/Oledz)**. Thank you!
+
+<a href="https://ko-fi.com/Oledz"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi"></a>
 
 ## Credits
 
