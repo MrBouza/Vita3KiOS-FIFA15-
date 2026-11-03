@@ -164,6 +164,7 @@ final class StickView: UIView {
     private let xAxis: Int32
     private let yAxis: Int32
     private let knob = UIView()
+    private var tracking = false
 
     init(xAxis: Int32, yAxis: Int32) {
         self.xAxis = xAxis
@@ -187,10 +188,11 @@ final class StickView: UIView {
         let size = bounds.width * 0.45
         knob.bounds = CGRect(x: 0, y: 0, width: size, height: size)
         knob.layer.cornerRadius = size / 2
-        if knob.center == .zero { knob.center = CGPoint(x: bounds.midX, y: bounds.midY) }
+        if !tracking { knob.center = CGPoint(x: bounds.midX, y: bounds.midY) }
     }
 
     private func update(_ touch: UITouch) {
+        tracking = true
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         let radius = bounds.width / 2
         var dx = touch.location(in: self).x - center.x
@@ -206,6 +208,7 @@ final class StickView: UIView {
     }
 
     private func reset() {
+        tracking = false
         knob.center = CGPoint(x: bounds.midX, y: bounds.midY)
         v3k_pad_set_axis(xAxis, 0)
         v3k_pad_set_axis(yAxis, 0)
@@ -215,6 +218,38 @@ final class StickView: UIView {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { if let t = touches.first { update(t) } }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { reset() }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { reset() }
+}
+
+/// Groups of touch controls the player can move and resize (in-game menu › Edit control layout)
+enum ControlGroup: String, CaseIterable {
+    case l, r, dpad, face, leftStick, rightStick, startSelect
+}
+
+struct GroupPlacement: Codable, Equatable {
+    /// Offset from the default position, as a fraction of the screen's width and height
+    var dx: CGFloat = 0
+    var dy: CGFloat = 0
+    var scale: CGFloat = 1
+}
+
+enum TouchLayout {
+    private static let key = "v3k.touchLayout"
+
+    static func load() -> [String: GroupPlacement] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: GroupPlacement].self, from: data) else { return [:] }
+        return decoded
+    }
+
+    static func save(_ placements: [String: GroupPlacement]) {
+        if placements.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else if let data = try? JSONEncoder().encode(placements) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    static var isCustomized: Bool { !load().isEmpty }
 }
 
 final class ControlsOverlayView: UIView {
@@ -234,6 +269,13 @@ final class ControlsOverlayView: UIView {
     private let rightStick = StickView(xAxis: Pad.rightX, yAxis: Pad.rightY)
     private let exitButton = UIButton(type: .system)
     private let hideButton = UIButton(type: .system)
+    private let rearButton = UIButton(type: .system)
+    private let toastLabel = UILabel()
+    private var toastGeneration = 0
+    private let showRearButton = UserDefaults.standard.object(forKey: "v3k.touchRearButton") as? Bool ?? true
+    private var placements = TouchLayout.load()
+    private var editor: LayoutEditorView?
+    private var hiddenBeforeEditing = false
 
     private var controls: [UIView] {
         [l, r, up, down, left, right, triangle, circle, cross, square, select, start, leftStick, rightStick]
@@ -276,7 +318,26 @@ final class ControlsOverlayView: UIView {
         hideButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
         addSubview(hideButton)
+
+        rearButton.setImage(UIImage(systemName: "hand.point.up.left"), for: .normal)
+        rearButton.tintColor = UIColor.white.withAlphaComponent(0.85)
+        rearButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        rearButton.addTarget(self, action: #selector(rearTapped), for: .touchUpInside)
+        rearButton.accessibilityLabel = "Rear touchpad"
+        rearButton.isHidden = !showRearButton
+        addSubview(rearButton)
+
+        toastLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        toastLabel.textColor = .white
+        toastLabel.textAlignment = .center
+        toastLabel.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        toastLabel.layer.cornerRadius = 16
+        toastLabel.clipsToBounds = true
+        toastLabel.alpha = 0
+        toastLabel.isUserInteractionEnabled = false
+        addSubview(toastLabel)
         if let hud { addSubview(hud) }
+        updateRearButton()
 
         // Controller theme
         let theme = ControllerTheme.current
@@ -340,10 +401,11 @@ final class ControlsOverlayView: UIView {
     }
 
     private func applyVisibility() {
-        let hidden = controlsHidden || (hideWithController && controllerConnected)
+        let hidden = editor == nil && (controlsHidden || (hideWithController && controllerConnected))
         controls.forEach { $0.isHidden = hidden }
         hideButton.setImage(UIImage(systemName: controlsHidden ? "gamecontroller" : "eye.slash"), for: .normal)
         if hidden { v3k_pad_release_all() }
+        updateRearButton()
     }
 
     @objc private func exitTapped() {
@@ -351,20 +413,166 @@ final class ControlsOverlayView: UIView {
     }
 
     func showMenu(fromController: Bool) {
-        guard menuAlert == nil, let root = window?.rootViewController else { return }
-        let alert = UIAlertController(title: "Quit game?", message: fromController
-            ? "Unsaved progress will be lost.\n(Press the controller's Home/PS button, or hold Select + Start, to open this menu.)"
-            : "Unsaved progress will be lost.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { _ in
-            v3k_pad_release_all()
-            v3k_pad_request_exit()
+        guard menuAlert == nil, editor == nil, let root = window?.rootViewController else { return }
+        let alert = UIAlertController(title: "Game menu", message: fromController
+            ? "Press the controller's Home/PS button, or hold Select + Start, to open this menu."
+            : nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Take screenshot", style: .default) { _ in
+            v3k_request_screenshot()
+        })
+        alert.addAction(UIAlertAction(title: v3k_rear_touch() ? "Touch the front screen" : "Touch the rear touchpad", style: .default) { [weak self] _ in
+            self?.rearTapped()
+        })
+        alert.addAction(UIAlertAction(title: "Edit control layout", style: .default) { [weak self] _ in
+            self?.beginEditing()
         })
         alert.addAction(UIAlertAction(title: controlsHidden ? "Show touch controls" : "Hide touch controls", style: .default) { [weak self] _ in
             self?.controlsHidden.toggle()
         })
+        alert.addAction(UIAlertAction(title: "Quit game", style: .destructive) { [weak self] _ in
+            self?.confirmQuit()
+        })
         alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel))
         menuAlert = alert
         (root.presentedViewController ?? root).present(alert, animated: true)
+    }
+
+    private func confirmQuit() {
+        guard let root = window?.rootViewController else { return }
+        let alert = UIAlertController(title: "Quit game?", message: "Unsaved progress will be lost.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { _ in
+            v3k_pad_release_all()
+            v3k_pad_request_exit()
+        })
+        alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel))
+        menuAlert = alert
+        (root.presentedViewController ?? root).present(alert, animated: true)
+    }
+
+    @objc private func rearTapped() {
+        let rear = !v3k_rear_touch()
+        v3k_set_rear_touch(rear)
+        updateRearButton()
+        showToast(rear ? "Touches go to the rear touchpad" : "Touches go to the front screen")
+    }
+
+    private func updateRearButton() {
+        let rear = v3k_rear_touch()
+        rearButton.backgroundColor = rear ? Theme.accentUIColor.withAlphaComponent(0.85) : UIColor.black.withAlphaComponent(0.45)
+        rearButton.isHidden = !(showRearButton || rear) || editor != nil
+    }
+
+    func showToast(_ message: String) {
+        toastGeneration += 1
+        let generation = toastGeneration
+        toastLabel.text = message
+        let size = toastLabel.sizeThatFits(CGSize(width: bounds.width - 80, height: 40))
+        toastLabel.bounds = CGRect(x: 0, y: 0, width: size.width + 32, height: 32)
+        toastLabel.center = CGPoint(x: bounds.midX, y: safeAreaInsets.top + 70)
+        bringSubviewToFront(toastLabel)
+        UIView.animate(withDuration: 0.2) { self.toastLabel.alpha = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
+            guard let self, self.toastGeneration == generation else { return }
+            UIView.animate(withDuration: 0.3) { self.toastLabel.alpha = 0 }
+        }
+    }
+
+    // MARK: Layout editing
+
+    func beginEditing() {
+        guard editor == nil else { return }
+        v3k_pad_release_all()
+        hiddenBeforeEditing = controlsHidden
+        if controlsHidden { controlsHidden = false }
+        controls.forEach { $0.isHidden = false; $0.isUserInteractionEnabled = false }
+        [exitButton, hideButton, rearButton].forEach { $0.isHidden = true }
+        let newEditor = LayoutEditorView(overlay: self)
+        newEditor.frame = bounds
+        newEditor.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(newEditor)
+        editor = newEditor
+        setNeedsLayout()
+        layoutIfNeeded()
+        newEditor.refresh()
+    }
+
+    func endEditing(save: Bool) {
+        guard let editor else { return }
+        if save {
+            TouchLayout.save(placements)
+        } else {
+            placements = TouchLayout.load()
+        }
+        editor.removeFromSuperview()
+        self.editor = nil
+        controls.forEach { $0.isUserInteractionEnabled = true }
+        [exitButton, hideButton].forEach { $0.isHidden = false }
+        controlsHidden = hiddenBeforeEditing
+        updateRearButton()
+        setNeedsLayout()
+    }
+
+    var layoutArea: CGRect { bounds.inset(by: safeAreaInsets).insetBy(dx: 12, dy: 10) }
+
+    func views(of group: ControlGroup) -> [UIView] {
+        switch group {
+        case .l: [l]
+        case .r: [r]
+        case .dpad: [up, down, left, right]
+        case .face: [triangle, circle, cross, square]
+        case .leftStick: [leftStick]
+        case .rightStick: [rightStick]
+        case .startSelect: [select, start]
+        }
+    }
+
+    func frame(of group: ControlGroup) -> CGRect {
+        views(of: group).map(\.frame).reduce(CGRect.null) { $0.union($1) }
+    }
+
+    func group(at point: CGPoint) -> ControlGroup? {
+        // Smallest group under the finger, so the sticks can sit inside a cluster's box
+        ControlGroup.allCases
+            .filter { frame(of: $0).insetBy(dx: -12, dy: -12).contains(point) }
+            .min { frame(of: $0).width * frame(of: $0).height < frame(of: $1).width * frame(of: $1).height }
+    }
+
+    func placement(of group: ControlGroup) -> GroupPlacement {
+        placements[group.rawValue] ?? GroupPlacement()
+    }
+
+    func setPlacement(_ placement: GroupPlacement, of group: ControlGroup) {
+        placements[group.rawValue] = placement == GroupPlacement() ? nil : placement
+        setNeedsLayout()
+        layoutIfNeeded()
+    }
+
+    func resetPlacements() {
+        placements = [:]
+        setNeedsLayout()
+        layoutIfNeeded()
+    }
+
+    /// Moves and scales each group from its default place, kept on screen
+    private func applyPlacements(in area: CGRect) {
+        for group in ControlGroup.allCases {
+            let placement = self.placement(of: group)
+            guard placement != GroupPlacement() else { continue }
+            let members = views(of: group)
+            let box = frame(of: group)
+            let center = CGPoint(x: box.midX, y: box.midY)
+            var moved = members.map { view -> CGRect in
+                let f = view.frame
+                return CGRect(x: center.x + (f.minX - center.x) * placement.scale + placement.dx * area.width,
+                              y: center.y + (f.minY - center.y) * placement.scale + placement.dy * area.height,
+                              width: f.width * placement.scale, height: f.height * placement.scale)
+            }
+            let newBox = moved.reduce(CGRect.null) { $0.union($1) }
+            let shiftX = max(bounds.minX - newBox.minX, 0) + min(bounds.maxX - newBox.maxX, 0)
+            let shiftY = max(bounds.minY - newBox.minY, 0) + min(bounds.maxY - newBox.maxY, 0)
+            moved = moved.map { $0.offsetBy(dx: shiftX, dy: shiftY) }
+            for (view, frame) in zip(members, moved) { view.frame = frame }
+        }
     }
 
     @objc private func hideTapped() {
@@ -373,7 +581,7 @@ final class ControlsOverlayView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let area = bounds.inset(by: safeAreaInsets).insetBy(dx: 12, dy: 10)
+        let area = layoutArea
         let unit = min(max(min(area.width, area.height) * 0.13, 40), 64) * scale // button size
 
         // Shoulder buttons
@@ -400,16 +608,25 @@ final class ControlsOverlayView: UIView {
         select.frame = CGRect(x: area.midX - smallWidth - 8, y: area.maxY - smallHeight, width: smallWidth, height: smallHeight)
         start.frame = CGRect(x: area.midX + 8, y: area.maxY - smallHeight, width: smallWidth, height: smallHeight)
 
-        // Quit and show/hide, top centre
-        exitButton.frame = CGRect(x: area.midX - 44, y: area.minY, width: 36, height: 36)
-        hideButton.frame = CGRect(x: area.midX + 8, y: area.minY, width: 36, height: 36)
-        exitButton.layer.cornerRadius = 18
-        hideButton.layer.cornerRadius = 18
+        applyPlacements(in: area)
+
+        // Menu, show/hide and rear touchpad, top centre
+        let topButtons = showRearButton ? [exitButton, hideButton, rearButton] : [exitButton, hideButton]
+        let rowWidth = CGFloat(topButtons.count) * 36 + CGFloat(topButtons.count - 1) * 8
+        for (index, button) in topButtons.enumerated() {
+            button.frame = CGRect(x: area.midX - rowWidth / 2 + CGFloat(index) * 44, y: area.minY, width: 36, height: 36)
+            button.layer.cornerRadius = 18
+        }
+        if !showRearButton {
+            rearButton.frame = CGRect(x: hideButton.frame.maxX + 8, y: area.minY, width: 36, height: 36)
+            rearButton.layer.cornerRadius = 18
+        }
+        if let editor { bringSubviewToFront(editor); editor.refresh() }
 
         if let hud {
             let size = hud.sizeThatFits(bounds.size)
             // Below the shoulder buttons at the top, above the screen edge at the bottom
-            let top = l.frame.maxY + 8
+            let top = max(l.frame.maxY, r.frame.maxY, area.minY + 36) + 8
             let bottom = area.maxY - size.height
             let origin: CGPoint
             switch hud.corner {
@@ -493,5 +710,153 @@ public func v3kControlsShowMenu() {
     MainActor.assumeIsolated {
         v3k_pad_release_all()
         (ControlsHost.window?.rootViewController?.view as? ControlsOverlayView)?.showMenu(fromController: true)
+    }
+}
+
+/// Shown over the controls while the player rearranges them: drag a group to move it, pinch to
+/// resize it. Done saves, Reset goes back to the default layout.
+final class LayoutEditorView: UIView {
+    private weak var overlay: ControlsOverlayView?
+    private var outlines: [ControlGroup: CAShapeLayer] = [:]
+    private let bar = UIStackView()
+    private var activeGroup: ControlGroup?
+    private var dragStart = CGPoint.zero
+    private var placementAtStart = GroupPlacement()
+    private var pinchGroup: ControlGroup?
+    private var lastGroup: ControlGroup?
+    private var scaleAtStart: CGFloat = 1
+
+    init(overlay: ControlsOverlayView) {
+        self.overlay = overlay
+        super.init(frame: .zero)
+        backgroundColor = UIColor.black.withAlphaComponent(0.35)
+        isMultipleTouchEnabled = true
+
+        for group in ControlGroup.allCases {
+            let outline = CAShapeLayer()
+            outline.fillColor = UIColor.white.withAlphaComponent(0.06).cgColor
+            outline.strokeColor = UIColor.white.withAlphaComponent(0.8).cgColor
+            outline.lineDashPattern = [6, 4]
+            outline.lineWidth = 1.5
+            layer.addSublayer(outline)
+            outlines[group] = outline
+        }
+
+        let hint = UILabel()
+        hint.text = "Drag to move · pinch to resize"
+        hint.font = .systemFont(ofSize: 13, weight: .medium)
+        hint.textColor = UIColor.white.withAlphaComponent(0.9)
+        let reset = makeButton("Reset", action: #selector(resetTapped), filled: false)
+        let cancel = makeButton("Cancel", action: #selector(cancelTapped), filled: false)
+        let done = makeButton("Done", action: #selector(doneTapped), filled: true)
+        [hint, reset, cancel, done].forEach { bar.addArrangedSubview($0) }
+        bar.axis = .horizontal
+        bar.spacing = 10
+        bar.alignment = .center
+        bar.isLayoutMarginsRelativeArrangement = true
+        bar.layoutMargins = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 6)
+        bar.backgroundColor = UIColor.black.withAlphaComponent(0.75)
+        bar.layer.cornerRadius = 20
+        addSubview(bar)
+
+        addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private func makeButton(_ title: String, action: Selector, filled: Bool) -> UIButton {
+        var config = filled ? UIButton.Configuration.filled() : UIButton.Configuration.gray()
+        config.title = title
+        config.cornerStyle = .capsule
+        config.buttonSize = .small
+        if filled { config.baseBackgroundColor = Theme.accentUIColor }
+        let button = UIButton(configuration: config)
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return button
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let size = bar.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        bar.frame = CGRect(x: bounds.midX - size.width / 2, y: safeAreaInsets.top + 8, width: size.width, height: max(size.height, 40))
+        refresh()
+    }
+
+    func refresh() {
+        guard let overlay else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (group, outline) in outlines {
+            let box = overlay.frame(of: group).insetBy(dx: -6, dy: -6)
+            outline.path = UIBezierPath(roundedRect: box, cornerRadius: 12).cgPath
+            outline.strokeColor = (group == activeGroup || group == pinchGroup ? Theme.accentUIColor : UIColor.white.withAlphaComponent(0.8)).cgColor
+        }
+        CATransaction.commit()
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard activeGroup == nil, let touch = touches.first, let overlay else { return }
+        let point = touch.location(in: self)
+        guard let group = overlay.group(at: point) else { return }
+        activeGroup = group
+        lastGroup = group
+        dragStart = point
+        placementAtStart = overlay.placement(of: group)
+        refresh()
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let group = activeGroup, pinchGroup == nil, let touch = touches.first, let overlay else { return }
+        let point = touch.location(in: self)
+        let area = overlay.layoutArea
+        var placement = placementAtStart
+        placement.dx += (point.x - dragStart.x) / max(area.width, 1)
+        placement.dy += (point.y - dragStart.y) / max(area.height, 1)
+        overlay.setPlacement(placement, of: group)
+        refresh()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { endDrag() }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { endDrag() }
+
+    private func endDrag() {
+        activeGroup = nil
+        refresh()
+    }
+
+    @objc private func pinched(_ recognizer: UIPinchGestureRecognizer) {
+        guard let overlay else { return }
+        switch recognizer.state {
+        case .began:
+            pinchGroup = overlay.group(at: recognizer.location(in: self)) ?? lastGroup
+            if let pinchGroup { scaleAtStart = overlay.placement(of: pinchGroup).scale }
+        case .changed:
+            guard let pinchGroup else { return }
+            var placement = overlay.placement(of: pinchGroup)
+            placement.scale = min(max(scaleAtStart * recognizer.scale, 0.6), 1.8)
+            overlay.setPlacement(placement, of: pinchGroup)
+        default:
+            pinchGroup = nil
+            activeGroup = nil
+        }
+        refresh()
+    }
+
+    @objc private func resetTapped() {
+        overlay?.resetPlacements()
+        refresh()
+    }
+
+    @objc private func cancelTapped() { overlay?.endEditing(save: false) }
+    @objc private func doneTapped() { overlay?.endEditing(save: true) }
+}
+
+/// A short message over the game (from C++: screenshot saved, ...)
+@_cdecl("v3k_controls_toast")
+public func v3kControlsToast(_ message: UnsafePointer<CChar>?) {
+    guard let message else { return }
+    let text = String(cString: message)
+    MainActor.assumeIsolated {
+        (ControlsHost.window?.rootViewController?.view as? ControlsOverlayView)?.showToast(text)
     }
 }

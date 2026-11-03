@@ -24,6 +24,8 @@ add_executable(vita3k MACOSX_BUNDLE
 	ios/crash_report.h
 	ios/cheats.cpp
 	ios/cheats.h
+	ios/game_extras.cpp
+	ios/game_extras.h
 	ios/ios_session.h
 	ios/controls/virtual_pad.cpp
 	ios/controls/virtual_pad.h
@@ -48,6 +50,7 @@ target_link_libraries(vita3k PRIVATE
 	"-framework GameController"
 	"-framework AVFoundation"
 	"-framework CoreMotion"
+	"-framework Photos"
 )
 
 # Objective-C++ sources use ARC

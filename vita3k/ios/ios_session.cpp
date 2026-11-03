@@ -141,7 +141,8 @@ bool initialize(const fs::path &storage_path) {
         fs::create_directories(root_paths.get_shared_path() / "textures");
 
         crash::init(storage_path.string());
-        if (logging::init(root_paths, true) != Success)
+        // No console on iOS: the log goes to vita3k.log only, sparing a write per line
+        if (logging::init(root_paths, false) != Success)
             return false;
 
         LOG_INFO("{}", window_title);

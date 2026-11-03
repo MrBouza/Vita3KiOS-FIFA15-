@@ -75,8 +75,6 @@
 	<true/>
 	<key>GCSupportsGameMode</key>
 	<true/>
-	<key>GCSupportsControllerUserInteraction</key>
-	<true/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<!-- Game controllers can drive the app, not only the touch screen -->
@@ -91,5 +89,22 @@
 	<string>Some PS Vita games use the microphone.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Used for PS Vita ad-hoc multiplayer.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Screenshots you take in a game are saved to Photos.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Some PS Vita games are controlled by tilting.</string>
+
+	<!-- vita3k://launch/<TITLE ID> starts a game, e.g. from a Home Screen shortcut -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>org.vita3k.ios.launch</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>vita3k</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

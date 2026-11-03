@@ -201,7 +201,10 @@ struct TouchControlsSection: View {
     @AppStorage("v3k.touchScale") private var touchScale = 1.0
     @AppStorage("v3k.touchHideWithController") private var hideWithController = true
     @AppStorage("v3k.touchHaptics") private var touchHaptics = true
+    @AppStorage("v3k.touchRearButton") private var rearButton = true
     @AppStorage("v3k.controllerTheme") private var controllerTheme = ControllerTheme.classic.rawValue
+    @EnvironmentObject var model: LibraryModel
+    @State private var layoutCustomized = TouchLayout.isCustomized
 
     var body: some View {
         Section {
@@ -220,6 +223,29 @@ struct TouchControlsSection: View {
             }
             Toggle("Hide when a controller is connected", isOn: $hideWithController)
             Toggle("Vibrate on press", isOn: $touchHaptics)
+            Toggle(isOn: $rearButton) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Rear touchpad button")
+                    Text("A button at the top of the screen that sends your touches to the Vita's rear touchpad, for games that use it. Also in the game menu.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle(isOn: Binding(get: { model.settings.motion }, set: { value in
+                model.settings.motion = value
+                model.setBool("motion", value)
+            })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Motion controls")
+                    Text("Tilting the iPhone (or a controller with motion sensors) moves the Vita's gyroscope and accelerometer.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if layoutCustomized {
+                Button("Reset control layout") {
+                    TouchLayout.save([:])
+                    layoutCustomized = false
+                }
+            }
             NavigationLink {
                 ControllerMappingView()
             } label: {
@@ -228,7 +254,7 @@ struct TouchControlsSection: View {
         } header: {
             Text("Controls")
         } footer: {
-            Text("Touch control changes apply the next time a game starts. In game, the eye button hides or shows the controls and the ✕ at the top quits. With a controller, hold Select + Start to open the same menu.")
+            Text("Touch control changes apply the next time a game starts. In game, the ✕ at the top opens the game menu: screenshot, rear touchpad, edit control layout (drag and pinch to move and resize buttons) and quit. The eye button hides or shows the controls. With a controller, hold Select + Start, or press Home/PS, to open the menu.")
         }
     }
 }

@@ -71,4 +71,13 @@ ProcessStats process_stats();
 // space includes what iOS frees up automatically ("available for important usage")
 bool volume_capacity(const std::string &path, uint64_t &total, uint64_t &available);
 
+// How the screen is turned, as Vita3K's motion code counts it: 0 portrait, 1 landscape with the
+// top of the phone on the left, 2 upside down, 3 landscape with the top on the right; -1 unknown.
+// Main thread only.
+int interface_rotation();
+
+// Adds an image file to the Photos library (asks for permission the first time). Asynchronous;
+// reports the result over the game with a short message.
+void save_image_to_photos(const std::string &path);
+
 } // namespace ios

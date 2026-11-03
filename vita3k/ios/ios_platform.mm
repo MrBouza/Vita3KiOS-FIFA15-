@@ -20,6 +20,8 @@
 #include "ios_platform.h"
 
 #import <AVFoundation/AVFoundation.h>
+#import <Photos/Photos.h>
+#include <objc/runtime.h>
 #import <Foundation/Foundation.h>
 #include <os/proc.h>
 #include <mach/mach.h>
@@ -34,6 +36,7 @@
 // Implemented in Swift (ui/LibraryHost.swift)
 extern "C" void v3k_ui_show(void);
 extern "C" void v3k_ui_hide(void);
+extern "C" void v3k_controls_toast(const char *message);
 
 // Not in the public SDK headers, but a stable syscall wrapper used by every iOS JIT app
 extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
@@ -263,4 +266,126 @@ bool volume_capacity(const std::string &path, uint64_t &total, uint64_t &availab
     }
 }
 
+int interface_rotation() {
+    UIWindowScene *scene = nil;
+    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
+        if ([candidate isKindOfClass:UIWindowScene.class]) {
+            scene = (UIWindowScene *)candidate;
+            break;
+        }
+    }
+    if (!scene)
+        return -1;
+    switch (scene.effectiveGeometry.interfaceOrientation) {
+    case UIInterfaceOrientationPortrait:
+        return 0;
+    case UIInterfaceOrientationLandscapeRight: // phone turned anticlockwise: its top is on the left
+        return 1;
+    case UIInterfaceOrientationPortraitUpsideDown:
+        return 2;
+    case UIInterfaceOrientationLandscapeLeft:
+        return 3;
+    default:
+        return -1;
+    }
+}
+
+void save_image_to_photos(const std::string &path) {
+    NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.c_str()]];
+    const auto report = [](const char *message) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            v3k_controls_toast(message);
+        });
+    };
+    [PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelAddOnly
+                                               handler:^(PHAuthorizationStatus status) {
+                                                   if (status != PHAuthorizationStatusAuthorized && status != PHAuthorizationStatusLimited) {
+                                                       report("Screenshot saved in the Vita3K folder (no access to Photos)");
+                                                       return;
+                                                   }
+                                                   [PHPhotoLibrary.sharedPhotoLibrary performChanges:^{
+                                                       [PHAssetCreationRequest creationRequestForAssetFromImageAtFileURL:url];
+                                                   }
+                                                       completionHandler:^(BOOL success, NSError *) {
+                                                           report(success ? "Screenshot saved to Photos" : "Screenshot saved in the Vita3K folder");
+                                                       }];
+                                               }];
+}
+
 } // namespace ios
+
+// Launch links and Home Screen quick actions --------------------------------------------------
+//
+// vita3k://launch/<TITLE ID> starts a game (Shortcuts can put one on the Home Screen with its own
+// icon), and long-pressing the app icon lists the last games played. SDL owns the app delegate, so
+// its URL handler is wrapped and a quick-action handler is added when the binary loads.
+
+namespace {
+
+std::mutex launch_request_mutex;
+std::string launch_request;
+
+bool take_launch_url(NSURL *url) {
+    if (![url.scheme.lowercaseString isEqualToString:@"vita3k"])
+        return false;
+    // vita3k://launch/PCSE00000 or vita3k://PCSE00000
+    NSString *title_id = url.lastPathComponent;
+    if (!title_id.length || [title_id isEqualToString:@"/"])
+        title_id = url.host;
+    if (!title_id.length || [title_id isEqualToString:@"launch"])
+        return true;
+    {
+        const std::lock_guard lock(launch_request_mutex);
+        launch_request = title_id.uppercaseString.UTF8String;
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:@"V3KLaunchRequest" object:nil];
+    return true;
+}
+
+IMP original_open_url = nullptr;
+
+BOOL v3k_open_url(id self, SEL cmd, UIApplication *app, NSURL *url, NSDictionary *options) {
+    if (take_launch_url(url))
+        return YES;
+    if (original_open_url)
+        return reinterpret_cast<BOOL (*)(id, SEL, UIApplication *, NSURL *, NSDictionary *)>(original_open_url)(self, cmd, app, url, options);
+    return NO;
+}
+
+void v3k_perform_shortcut(id, SEL, UIApplication *, UIApplicationShortcutItem *item, void (^completion)(BOOL)) {
+    NSString *title_id = (NSString *)item.userInfo[@"titleId"];
+    BOOL handled = NO;
+    if (title_id.length)
+        handled = take_launch_url([NSURL URLWithString:[@"vita3k://launch/" stringByAppendingString:title_id]]);
+    if (completion)
+        completion(handled);
+}
+
+} // namespace
+
+@interface V3KLaunchLinks : NSObject
+@end
+
+@implementation V3KLaunchLinks
++ (void)load {
+    Class delegate = NSClassFromString(@"SDLUIKitDelegate");
+    if (!delegate)
+        return;
+    const SEL open_url = @selector(application:openURL:options:);
+    if (Method method = class_getInstanceMethod(delegate, open_url))
+        original_open_url = method_setImplementation(method, reinterpret_cast<IMP>(v3k_open_url));
+    else
+        class_addMethod(delegate, open_url, reinterpret_cast<IMP>(v3k_open_url), "B@:@@@");
+    class_addMethod(delegate, @selector(application:performActionForShortcutItem:completionHandler:),
+        reinterpret_cast<IMP>(v3k_perform_shortcut), "v@:@@@?");
+}
+@end
+
+extern "C" char *v3k_take_launch_request(void) {
+    const std::lock_guard lock(launch_request_mutex);
+    if (launch_request.empty())
+        return nullptr;
+    char *copy = strdup(launch_request.c_str());
+    launch_request.clear();
+    return copy;
+}

@@ -118,6 +118,16 @@ const char *v3k_log_path(void);
 // ---- Launching ----
 // Asks the app loop to close the library and boot this title
 void v3k_request_launch(const char *title_id);
+// Title ID from a vita3k://launch/<ID> link or a Home Screen quick action, or NULL (free the string).
+// A "V3KLaunchRequest" notification is posted when one arrives.
+char *v3k_take_launch_request(void);
+
+// ---- In-game extras (ios/game_extras.cpp), carried out on the next frame ----
+// Saves the current frame to Photos and to <Vita3K folder>/screenshots
+void v3k_request_screenshot(void);
+// Touches on the game go to the rear touchpad instead of the front screen
+void v3k_set_rear_touch(bool rear);
+bool v3k_rear_touch(void);
 
 // ---- Crash reports ----
 // JSON {"report","log"} describing how the previous session ended, or NULL if it ended normally.

@@ -27,6 +27,11 @@
 #include <motion/functions.h>
 #include <touch/functions.h>
 
+#if defined(VITA3K_PLATFORM_IOS)
+#include <pthread.h>
+#include <sys/qos.h>
+#endif
+
 // Code heavily influenced by PPSSSPP's SceDisplay.cpp
 
 static constexpr int TARGET_FPS = 60;
@@ -36,6 +41,10 @@ static constexpr int predict_threshold = 3;
 static constexpr int max_expected_swapchain_size = 6;
 
 static void vblank_sync_thread(EmuEnvState &emuenv) {
+#if defined(VITA3K_PLATFORM_IOS)
+    // iOS: vblank timing paces the game; keep it on the performance cores
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
     DisplayState &display = emuenv.display;
 
     while (!display.abort.load()) {

@@ -35,6 +35,12 @@
 
 #ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>
+
+#endif
+
+#if defined(VITA3K_PLATFORM_IOS)
+#include <pthread.h>
+#include <sys/qos.h>
 #endif
 
 struct FeatureState;
@@ -185,6 +191,10 @@ void reset_command_list(CommandList &command_list) {
 }
 
 static void render_loop(renderer::State &state, DisplayState &display, GxmState &gxm, MemState &mem, Config &config) {
+#if defined(VITA3K_PLATFORM_IOS)
+    // iOS: the renderer feeds the GPU every frame; keep it on the performance cores
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
     if (state.precompile_requested) {
         auto progress_overlay = state.overlay_manager
             ? state.overlay_manager->create<overlay::shader_precompile_progress>()

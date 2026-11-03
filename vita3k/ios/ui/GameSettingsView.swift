@@ -75,6 +75,7 @@ struct GameSettingsView: View {
     @EnvironmentObject var model: LibraryModel
     @Environment(\.dismiss) private var dismiss
 
+    @State private var showingShortcutHelp = false
     @State private var settings = GameSettings()
     @State private var patches: [GamePatch] = []
     @State private var patchesDownloaded = false
@@ -189,6 +190,20 @@ struct GameSettingsView: View {
             } label: {
                 Label("Play", systemImage: "play.fill")
             }
+            Button {
+                UIPasteboard.general.string = "vita3k://launch/\(app.titleId)"
+                showingShortcutHelp = true
+            } label: {
+                Label("Add to Home Screen…", systemImage: "plus.app")
+            }
+        }
+        .alert("Launch link copied", isPresented: $showingShortcutHelp) {
+            Button("Open Shortcuts") {
+                if let url = URL(string: "shortcuts://create-shortcut") { UIApplication.shared.open(url) }
+            }
+            Button("Done", role: .cancel) {}
+        } message: {
+            Text("vita3k://launch/\(app.titleId) is on the clipboard. In Shortcuts, add the Open URLs action, paste the link, then tap Share › Add to Home Screen and pick the game's icon. Vita3K also lists your recent games when you long-press its icon.")
         }
     }
 

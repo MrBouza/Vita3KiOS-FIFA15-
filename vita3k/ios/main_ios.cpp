@@ -27,6 +27,7 @@
 #include "cheats.h"
 #include "controls/virtual_pad.h"
 #include "crash_report.h"
+#include "game_extras.h"
 #include "ios_session.h"
 #include "jit/ios_jit.h"
 
@@ -203,13 +204,17 @@ int main(int argc, char *argv[]) {
                 } },
             // Controller guide / PS button: the in-game menu
             .on_guide_button = [] { v3k_controls_show_menu(); },
-            .on_stop = [emuenv] { ios::cheats::session_ended(*emuenv); },
+            .on_stop = [emuenv] {
+                ios::cheats::session_ended(*emuenv);
+                ios::extras::session_ended(*emuenv); },
             .on_frame = [emuenv, cheats_started = false]() mutable {
                 if (!cheats_started) {
                     cheats_started = true;
                     ios::cheats::session_started(*emuenv);
+                    ios::extras::session_started(*emuenv);
                 }
-                ios::cheats::frame(*emuenv); },
+                ios::cheats::frame(*emuenv);
+                ios::extras::frame(*emuenv); },
         };
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
         session_over = true;

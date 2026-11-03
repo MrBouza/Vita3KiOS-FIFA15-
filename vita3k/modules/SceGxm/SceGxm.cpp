@@ -46,6 +46,11 @@
 #include <util/log.h>
 
 #include <util/tracy.h>
+
+#if defined(VITA3K_PLATFORM_IOS)
+#include <pthread.h>
+#include <sys/qos.h>
+#endif
 TRACY_MODULE_NAME(SceGxm);
 
 template <>
@@ -893,6 +898,10 @@ std::string to_debug_str<SceGxmTransferFlags>(const MemState &mem, SceGxmTransfe
 }
 
 static void display_entry_thread(EmuEnvState &emuenv) {
+#if defined(VITA3K_PLATFORM_IOS)
+    // iOS: hands finished frames to the display; keep it on the performance cores
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
     auto &display_queue = emuenv.gxm.display_queue;
     const ThreadStatePtr display_thread = emuenv.kernel.get_thread(emuenv.gxm.display_queue_thread);
     if (!display_thread) {

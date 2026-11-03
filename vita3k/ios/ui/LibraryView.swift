@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Vita3K team
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -64,6 +65,7 @@ enum Theme {
     static var background: LinearGradient { AppTheme.current.background }
     static let card = Color.white.opacity(0.06)
     static var accentGradient: LinearGradient { AppTheme.current.accentGradient }
+    static var accentUIColor: UIColor { UIColor(AppTheme.current.accent) }
 }
 
 struct LibraryView: View {
@@ -105,6 +107,8 @@ struct LibraryView: View {
                         if !model.hasFirmware {
                             FirmwareCallout { openImporter([.item]) }
                         }
+
+                        PowerNotice()
 
                         if musicEnabled && !music.nowPlaying.isEmpty {
                             NowPlayingChip(title: music.nowPlaying, style: music.styleName) { music.skip() }
@@ -357,6 +361,40 @@ struct StatusBar: View {
             Spacer()
         }
         .padding(.top, 4)
+    }
+}
+
+/// Low Power Mode and a hot iPhone both slow games down a lot: say so before the player starts one
+struct PowerNotice: View {
+    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var thermal = ProcessInfo.processInfo.thermalState
+
+    private var message: String? {
+        if lowPower { return "Low Power Mode is on: games run slower. Turn it off in Control Center for the best performance." }
+        if thermal == .serious || thermal == .critical { return "Your iPhone is hot, so iOS is slowing it down. Games run smoother once it cools off." }
+        return nil
+    }
+
+    var body: some View {
+        Group {
+            if let message {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: lowPower ? "battery.25" : "thermometer.sun.fill")
+                        .foregroundStyle(.orange)
+                    Text(message).font(.caption).foregroundStyle(.white.opacity(0.85))
+                    Spacer(minLength: 0)
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.orange.opacity(0.14)))
+                .frame(maxWidth: 520, alignment: .leading)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange).receive(on: RunLoop.main)) { _ in
+            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification).receive(on: RunLoop.main)) { _ in
+            thermal = ProcessInfo.processInfo.thermalState
+        }
     }
 }
 

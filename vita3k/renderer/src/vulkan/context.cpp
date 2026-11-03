@@ -28,9 +28,18 @@
 #include <util/log.h>
 #include <util/overloaded.h>
 
+#if defined(VITA3K_PLATFORM_IOS)
+#include <pthread.h>
+#include <sys/qos.h>
+#endif
+
 namespace renderer::vulkan {
 
 void VKContext::wait_thread_function(const MemState &mem) {
+#if defined(VITA3K_PLATFORM_IOS)
+    // iOS: the game waits on these GPU fences; wake it without delay
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
     // try to wait for multiple fences at the same time if possible
     std::vector<vk::Fence> fences;
 
