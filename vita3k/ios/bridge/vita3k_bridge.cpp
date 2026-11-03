@@ -17,6 +17,7 @@
 
 #include "vita3k_bridge.h"
 
+#include "../cheats.h"
 #include "../crash_report.h"
 #include "../ios_platform.h"
 #include "../ios_session.h"
@@ -48,6 +49,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 
@@ -797,7 +799,41 @@ bool v3k_import_save_data(const char *title_id, const char *zip_path, char **mes
     return result(ok, ok ? "Save data imported. The previous save was kept in the cache folder." : "Some files could not be extracted.");
 }
 
-// ---- Game patches (vita3k-patches) ----
+// ---- Game patches and cheats (github.com/Vita3K/vita3k-patches) ----
+
+namespace {
+
+constexpr const char *PATCH_REPO_ZIP = "https://codeload.github.com/Vita3K/vita3k-patches/zip/refs/heads/main";
+
+std::string zip_entry_text(const std::string &zip_data, const std::string &suffix) {
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_mem(&zip, zip_data.data(), zip_data.size(), 0))
+        return {};
+    std::string text;
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint i = 0; i < count; i++) {
+        char name[512];
+        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
+        if (!std::string(name).ends_with(suffix))
+            continue;
+        size_t size = 0;
+        if (void *data = mz_zip_reader_extract_to_heap(&zip, i, &size, 0)) {
+            text.assign(static_cast<const char *>(data), size);
+            mz_free(data);
+        }
+        break;
+    }
+    mz_zip_reader_end(&zip);
+    return text;
+}
+
+bool version_matches(const std::string &wanted, const std::string &have) {
+    if (wanted.empty())
+        return true;
+    return patch_versions_equal(wanted, have);
+}
+
+} // namespace
 
 bool v3k_download_patches(char **message) {
     auto *emuenv = ios::get_emuenv();
@@ -808,20 +844,30 @@ bool v3k_download_patches(char **message) {
     };
     if (!emuenv)
         return result(false, "The emulator is not ready.");
-    std::string xml, error;
-    if (!ios::download(PATCHLIST_XML_URL, xml, error) || xml.empty()) {
-        LOG_ERROR("Patch list download failed: {}", error);
-        return result(false, "Could not download the patch list (" + error + "). Check your connection and try again.");
+
+    std::string zip_data, error;
+    if (!ios::download(PATCH_REPO_ZIP, zip_data, error) || zip_data.empty()) {
+        LOG_ERROR("Patch and cheat download failed: {}", error);
+        return result(false, "Could not download patches and cheats (" + error + "). Check your connection and try again.");
     }
+
+    // Patches: patch/patchlist.xml
+    const std::string xml = zip_entry_text(zip_data, "/patch/patchlist.xml");
     PatchEntries entries;
-    if (!parse_patch_entries(xml, entries))
+    if (xml.empty() || !parse_patch_entries(xml, entries))
         return result(false, "The downloaded patch list is not valid.");
     std::error_code ec;
     fs::create_directories(emuenv->patch_path, ec);
-    const fs::path path = patchlist_xml_path(emuenv->patch_path);
-    if (!fs_utils::dump_data(path, xml.data(), static_cast<std::streamsize>(xml.size())))
+    if (!fs_utils::dump_data(patchlist_xml_path(emuenv->patch_path), xml.data(), static_cast<std::streamsize>(xml.size())))
         return result(false, "Could not save the patch list.");
-    return result(true, fmt::format("Downloaded {} patches.", entries.size()));
+    std::set<std::string> patched_games;
+    for (const auto &entry : entries)
+        patched_games.insert(entry.title);
+
+    // Cheats: cheat/*.psv
+    const int cheat_files = ios::cheats::install_database(emuenv->patch_path, zip_data, error);
+    LOG_INFO("Downloaded {} patches for {} games and {} cheat files", entries.size(), patched_games.size(), cheat_files);
+    return result(true, fmt::format("Downloaded {} patches for {} games, and {} cheat files.", entries.size(), patched_games.size(), cheat_files));
 }
 
 char *v3k_patches_json(const char *title_id) {
@@ -830,14 +876,17 @@ char *v3k_patches_json(const char *title_id) {
         return dup_string("[]");
     const auto enabled = load_enabled_patches(emuenv->patch_path);
     const std::string id = title_id;
+    const auto app = ios::find_app_by_title_id(id);
+    const std::string game_version = app ? app->app_ver : std::string();
     std::string json = "[";
     bool first = true;
     for (const auto &entry : load_patch_entries(emuenv->patch_path)) {
         if (std::find(entry.title_ids.begin(), entry.title_ids.end(), id) == entry.title_ids.end())
             continue;
-        json += fmt::format(R"({}{{"key":{},"name":{},"author":{},"note":{},"version":{},"appVersion":{},"enabled":{}}})",
+        json += fmt::format(R"({}{{"key":{},"name":{},"author":{},"note":{},"version":{},"appVersion":{},"enabled":{},"versionMatches":{}}})",
             first ? "" : ",", quoted(entry.key()), quoted(entry.name.empty() ? entry.title : entry.name), quoted(entry.author),
-            quoted(entry.note), quoted(entry.patch_ver), quoted(entry.app_ver), enabled.contains(entry.key()) ? "true" : "false");
+            quoted(entry.note), quoted(entry.patch_ver), quoted(entry.app_ver), enabled.contains(entry.key()) ? "true" : "false",
+            version_matches(entry.app_ver, game_version) ? "true" : "false");
         first = false;
     }
     json += "]";
@@ -860,4 +909,197 @@ bool v3k_set_patch_enabled(const char *key, bool enabled) {
     else
         set.erase(key);
     return save_enabled_patches(emuenv->patch_path, set);
+}
+
+char *v3k_all_patches_json(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return dup_string("[]");
+    const auto enabled = load_enabled_patches(emuenv->patch_path);
+    const auto installed = ios::list_apps();
+    // One group per game (entries of one game share their title)
+    std::vector<std::string> order;
+    std::map<std::string, std::vector<const PatchEntry *>> groups;
+    const auto entries = load_patch_entries(emuenv->patch_path);
+    for (const auto &entry : entries) {
+        if (!groups.contains(entry.title))
+            order.push_back(entry.title);
+        groups[entry.title].push_back(&entry);
+    }
+    std::sort(order.begin(), order.end());
+    std::string json = "[";
+    bool first_group = true;
+    for (const auto &title : order) {
+        const auto &group = groups[title];
+        std::set<std::string> ids;
+        for (const auto *entry : group)
+            ids.insert(entry->title_ids.begin(), entry->title_ids.end());
+        const app::AppEntry *owned = nullptr;
+        for (const auto &app : installed) {
+            if (ids.contains(app.title_id)) {
+                owned = &app;
+                break;
+            }
+        }
+        std::string id_list;
+        for (const auto &id : ids)
+            id_list += (id_list.empty() ? "" : ",") + quoted(id);
+        std::string patches;
+        for (const auto *entry : group) {
+            patches += fmt::format(R"({}{{"key":{},"name":{},"author":{},"note":{},"version":{},"appVersion":{},"enabled":{},"versionMatches":{}}})",
+                patches.empty() ? "" : ",", quoted(entry->key()), quoted(entry->name), quoted(entry->author), quoted(entry->note),
+                quoted(entry->patch_ver), quoted(entry->app_ver), enabled.contains(entry->key()) ? "true" : "false",
+                owned && version_matches(entry->app_ver, owned->app_ver) ? "true" : "false");
+        }
+        json += fmt::format(R"({}{{"title":{},"titleIds":[{}],"installedTitleId":{},"installedVersion":{},"patches":[{}]}})",
+            first_group ? "" : ",", quoted(title), id_list, quoted(owned ? owned->title_id : ""), quoted(owned ? owned->app_ver : ""), patches);
+        first_group = false;
+    }
+    json += "]";
+    return dup_string(json);
+}
+
+// ---- Cheats ----
+
+bool v3k_cheats_downloaded(void) {
+    auto *emuenv = ios::get_emuenv();
+    return emuenv && ios::cheats::database_installed(emuenv->patch_path);
+}
+
+char *v3k_cheats_json(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return dup_string("[]");
+    const auto app = app_for(title_id);
+    const std::string game_version = app ? app->app_ver : std::string();
+    std::string json = "[";
+    for (const auto &cheat : ios::cheats::list(emuenv->patch_path, title_id)) {
+        json += fmt::format(R"({}{{"key":{},"name":{},"author":{},"file":{},"gameVersion":{},"supported":{},"enabled":{},"versionMatches":{}}})",
+            json.size() > 1 ? "," : "", quoted(cheat.key), quoted(cheat.name), quoted(cheat.author), quoted(cheat.file),
+            quoted(cheat.game_version), cheat.supported ? "true" : "false", cheat.enabled ? "true" : "false",
+            version_matches(cheat.game_version, game_version) ? "true" : "false");
+    }
+    json += "]";
+    return dup_string(json);
+}
+
+bool v3k_set_cheat_enabled(const char *title_id, const char *key, bool enabled) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id || !key)
+        return false;
+    return ios::cheats::set_enabled(emuenv->patch_path, title_id, key, enabled);
+}
+
+char *v3k_cheats_folder(void) {
+    auto *emuenv = ios::get_emuenv();
+    return dup_string(emuenv ? (emuenv->patch_path / "cheats").string() : std::string());
+}
+
+// ---- Mods (rePatch layout: ux0/rePatch/<title ID>/ replaces files of the game) ----
+
+namespace {
+
+fs::path mod_folder(EmuEnvState &emuenv, const std::string &title_id, bool enabled) {
+    return emuenv.vita_fs_path / "ux0" / (enabled ? "rePatch" : "rePatch-disabled") / title_id;
+}
+
+} // namespace
+
+char *v3k_mod_info_json(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return dup_string("{}");
+    std::error_code ec;
+    const fs::path on = mod_folder(*emuenv, title_id, true);
+    const fs::path off = mod_folder(*emuenv, title_id, false);
+    const bool disabled = !fs::exists(on, ec) && fs::exists(off, ec);
+    const fs::path folder = disabled ? off : on;
+    int files = 0;
+    if (fs::exists(folder, ec)) {
+        for (auto it = fs::recursive_directory_iterator(folder, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+            files += it->is_regular_file(ec) ? 1 : 0;
+    }
+    return dup_string(fmt::format(R"({{"path":{},"files":{},"bytes":{},"enabled":{}}})",
+        quoted(on.string()), files, folder_size(folder), disabled ? "false" : "true"));
+}
+
+bool v3k_import_mod(const char *title_id, const char *zip_path, char **message) {
+    auto *emuenv = ios::get_emuenv();
+    const auto result = [&](bool ok, const std::string &text) {
+        if (message)
+            *message = dup_string(text);
+        return ok;
+    };
+    if (!emuenv || !title_id || !zip_path)
+        return result(false, "This game is not installed.");
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_file(&zip, zip_path, 0))
+        return result(false, "That file is not a zip archive.");
+
+    const std::string id = title_id;
+    const fs::path target = mod_folder(*emuenv, id, true);
+    std::error_code ec;
+    // A disabled mod folder comes back on, so the new files join it
+    if (fs::exists(mod_folder(*emuenv, id, false), ec) && !fs::exists(target, ec)) {
+        fs::create_directories(target.parent_path(), ec);
+        fs::rename(mod_folder(*emuenv, id, false), target, ec);
+    }
+    fs::create_directories(target, ec);
+
+    // Mods come as rePatch/<ID>/..., <ID>/..., or just the game's files: strip the wrappers
+    const auto relative_name = [&](std::string name) {
+        for (const std::string &prefix : { std::string("ux0/"), std::string("rePatch/"), std::string("repatch/"), id + "/" }) {
+            const auto at = name.find(prefix);
+            if (at != std::string::npos && (at == 0 || name[at - 1] == '/'))
+                name = name.substr(at + prefix.size());
+        }
+        return name;
+    };
+
+    int written = 0;
+    bool ok = true;
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint i = 0; ok && i < count; i++) {
+        if (mz_zip_reader_is_file_a_directory(&zip, i))
+            continue;
+        char name[1024];
+        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
+        const std::string entry = relative_name(name);
+        if (entry.empty() || entry.find("..") != std::string::npos || entry.starts_with("__MACOSX"))
+            continue;
+        const fs::path out = target / entry;
+        fs::create_directories(out.parent_path(), ec);
+        ok = mz_zip_reader_extract_to_file(&zip, i, out.string().c_str(), 0);
+        written += ok ? 1 : 0;
+    }
+    mz_zip_reader_end(&zip);
+    LOG_INFO("Installed a mod for {}: {} files", id, written);
+    if (!ok)
+        return result(false, "Some files of the mod could not be extracted.");
+    return result(true, fmt::format("Mod installed ({} files). It applies the next time the game starts.", written));
+}
+
+bool v3k_set_mods_enabled(const char *title_id, bool enabled) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return false;
+    const fs::path from = mod_folder(*emuenv, title_id, !enabled);
+    const fs::path to = mod_folder(*emuenv, title_id, enabled);
+    std::error_code ec;
+    if (!fs::exists(from, ec))
+        return true;
+    fs::create_directories(to.parent_path(), ec);
+    fs::remove_all(to, ec);
+    fs::rename(from, to, ec);
+    return !ec;
+}
+
+bool v3k_delete_mods(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return false;
+    std::error_code ec;
+    fs::remove_all(mod_folder(*emuenv, title_id, true), ec);
+    fs::remove_all(mod_folder(*emuenv, title_id, false), ec);
+    return !ec;
 }

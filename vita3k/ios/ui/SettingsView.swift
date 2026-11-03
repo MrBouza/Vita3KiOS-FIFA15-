@@ -18,6 +18,15 @@ struct SettingsView: View {
                 StorageSection()
                 TouchControlsSection()
                 EmulationSections()
+                Section {
+                    NavigationLink {
+                        AllPatchesView()
+                    } label: {
+                        Label("Patches", systemImage: "bandage")
+                    }
+                } footer: {
+                    Text("Cheats and mods are set per game: long-press a game › Game settings, patches & saves.")
+                }
                 JITSection()
                 CreditsSection()
                 AboutSection()

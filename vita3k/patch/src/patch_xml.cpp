@@ -136,6 +136,11 @@ bool patch_entry_matches(const PatchEntry &entry, const std::string &titleid, co
     if (!entry.app_ver.empty() && !patch_versions_equal(entry.app_ver, app_ver))
         return false;
 
+    // 36 of the 58 community patches have no NID. Title ID, executable and game version already
+    // pin them to one build of the game, so apply them instead of skipping them forever.
+    if (entry.nid.empty())
+        return !entry.app_ver.empty();
+
     const auto expected = parse_hex(entry.nid);
     return expected && *expected == nid;
 }
@@ -147,8 +152,15 @@ Patches get_xml_patches(const fs::path &patch_dir, const std::string &titleid, c
         return patches;
 
     for (const auto &entry : load_patch_entries(patch_dir)) {
-        if (!enabled.contains(entry.key()) || !patch_entry_matches(entry, titleid, bin, app_ver, nid))
+        if (!enabled.contains(entry.key()))
             continue;
+        if (!patch_entry_matches(entry, titleid, bin, app_ver, nid)) {
+            if (std::find(entry.title_ids.begin(), entry.title_ids.end(), titleid) != entry.title_ids.end()
+                && string_utils::tolower(file_name_of(bin)) == string_utils::tolower(file_name_of(entry.app_elf)))
+                LOG_WARN("Patch {} ({}) is on but was made for game version {} (NID {}); this game is version {} (NID 0x{:08X}), so it is skipped",
+                    entry.title, entry.name, entry.app_ver.empty() ? "any" : entry.app_ver, entry.nid.empty() ? "any" : entry.nid, app_ver, nid);
+            continue;
+        }
 
         LOG_INFO("Enabled patch: {} ({} {})", entry.title, entry.name, entry.patch_ver);
         patches.insert(patches.end(), entry.patches.begin(), entry.patches.end());

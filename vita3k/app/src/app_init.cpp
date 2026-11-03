@@ -77,6 +77,8 @@
 #include <algorithm>
 #include <fstream>
 
+#include <chrono>
+
 namespace app {
 
 static float sdl_axis_to_float(int16_t axis, float mult) {
@@ -467,23 +469,44 @@ bool init(EmuEnvState &state, Config &cfg, const Root &root_paths) {
 }
 
 void shutdown_app_runtime(EmuEnvState &state) {
+    // Each step is timed so a log shows exactly which one a stuck Quit is waiting on
+    auto step_start = std::chrono::steady_clock::now();
+    const auto step_done = [&](const char *step) {
+        const auto now = std::chrono::steady_clock::now();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - step_start).count();
+        if (ms >= 100)
+            LOG_WARN("Shutdown: {} took {} ms", step, ms);
+        else
+            LOG_DEBUG("Shutdown: {} took {} ms", step, ms);
+        step_start = now;
+    };
+    LOG_INFO("Shutdown: stopping the game");
+
     state.audio.stop_all_ports();
+    step_done("audio ports");
 
     gxm::shutdown(state);
+    step_done("gxm");
 
     state.net.abort_all();
     state.http.shutdown_connections();
+    step_done("network");
 
     state.kernel.process_exit();
+    step_done("guest threads");
 
     state.motion.reset_runtime();
 
     state.audio.deinit();
+    step_done("audio");
 
     state.renderer->preclose_action();
+    step_done("shader cache save");
     renderer::stop_render_thread(*state.renderer);
+    step_done("render thread");
     gxm::destroy_all_contexts(state, true);
     gxm::destroy_all_render_targets(state, true);
+    step_done("gxm contexts");
     state.gxm.deinit();
     state.overlay_manager.reset();
 
@@ -529,6 +552,8 @@ void shutdown_app_runtime(EmuEnvState &state) {
     state.renderer.reset();
 
     deinit_mem(state.mem);
+    step_done("cleanup");
+    LOG_INFO("Shutdown: done");
 }
 
 void reset_app_state(EmuEnvState &state) {

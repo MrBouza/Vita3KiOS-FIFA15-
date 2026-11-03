@@ -131,13 +131,29 @@ char *v3k_export_save_data(const char *title_id, char **message);
 // Replaces the save with a zip's contents (the current save is moved aside first)
 bool v3k_import_save_data(const char *title_id, const char *zip_path, char **message);
 
-// ---- Game patches (github.com/Vita3K/vita3k-patches) ----
-// Blocking network call: run off the main thread
+// ---- Game patches and cheats (github.com/Vita3K/vita3k-patches) ----
+// Downloads the patch list and the cheat files in one go. Blocking: run off the main thread.
 bool v3k_download_patches(char **message);
 bool v3k_patches_downloaded(void);
-// JSON array [{"key","name","author","note","version","appVersion","enabled"}] for one game
+// JSON array [{"key","name","author","note","version","appVersion","enabled","versionMatches"}] for one game
 char *v3k_patches_json(const char *title_id);
+// Every patch, grouped by game: [{"title","titleIds":[],"installedTitleId","installedVersion","patches":[...]}]
+char *v3k_all_patches_json(void);
 bool v3k_set_patch_enabled(const char *key, bool enabled);
+
+bool v3k_cheats_downloaded(void);
+// JSON array [{"key","name","author","file","gameVersion","supported","enabled","versionMatches"}]
+char *v3k_cheats_json(const char *title_id);
+bool v3k_set_cheat_enabled(const char *title_id, const char *key, bool enabled);
+// Folder for the user's own .psv cheat files (free the string)
+char *v3k_cheats_folder(void);
+
+// ---- Mods (files in ux0/rePatch/<title ID>/ replace the game's files, like rePatch on a Vita) ----
+// JSON {"path","files","bytes","enabled"}
+char *v3k_mod_info_json(const char *title_id);
+bool v3k_import_mod(const char *title_id, const char *zip_path, char **message);
+bool v3k_set_mods_enabled(const char *title_id, bool enabled);
+bool v3k_delete_mods(const char *title_id);
 
 #ifdef __cplusplus
 }

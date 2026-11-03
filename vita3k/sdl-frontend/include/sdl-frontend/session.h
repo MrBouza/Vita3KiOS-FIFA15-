@@ -45,6 +45,8 @@ struct Hooks {
     std::function<void()> on_ime_changed;
     // The session is about to stop
     std::function<void()> on_stop;
+    // Called on the main thread about 60 times a second while the game runs
+    std::function<void()> on_frame;
 };
 
 // Boots launch_request in an SDL window and runs it until the app exits or the window is closed,

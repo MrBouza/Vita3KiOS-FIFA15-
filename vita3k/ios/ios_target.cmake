@@ -20,6 +20,8 @@ add_executable(vita3k MACOSX_BUNDLE
 	ios/ios_session.cpp
 	ios/crash_report.cpp
 	ios/crash_report.h
+	ios/cheats.cpp
+	ios/cheats.h
 	ios/ios_session.h
 	ios/controls/virtual_pad.cpp
 	ios/controls/virtual_pad.h

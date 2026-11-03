@@ -460,6 +460,9 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
 
             app::update_runtime_metrics(emuenv, runtime_metrics);
 
+            if (hooks.on_frame && session.is_running())
+                hooks.on_frame();
+
             // Stop requested by overlay/ingame OR crashed
             if (session.stop_requested() || !session.is_running()) {
                 running = false;

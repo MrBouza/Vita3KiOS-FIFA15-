@@ -310,6 +310,27 @@ std::string translate_path(const char *path, VitaIoDevice &device, const IOState
     return relative_path;
 }
 
+// rePatch-style mods: a file at ux0:rePatch/<title ID>/<path> replaces app0:<path> when it is read.
+// This is the layout PS Vita mods already use, so they can be dropped in as they are.
+static bool find_mod_file(const IOState &io, VitaIoDevice device, const std::string &translated_path, const fs::path &vita_fs_path, fs::path &out) {
+    if (device != VitaIoDevice::app0 || io.title_id.empty() || translated_path.empty())
+        return false;
+    const fs::path mod_root = vita_fs_path / "ux0" / "rePatch" / io.title_id;
+    std::error_code ec;
+    if (!fs::is_directory(mod_root, ec))
+        return false;
+    // translated_path is relative to ux0: (app/<title id>/...): keep only the part inside the game
+    std::string relative = translated_path;
+    const std::string app_prefix = io.device_paths.app0 + "/";
+    if (relative.starts_with(app_prefix))
+        relative.erase(0, app_prefix.size());
+    const fs::path candidate = mod_root / fs_utils::utf8_to_path(relative);
+    if (!fs::is_regular_file(candidate, ec))
+        return false;
+    out = candidate;
+    return true;
+}
+
 fs::path expand_path(IOState &io, const char *path, const fs::path &vita_fs_path) {
     auto device = device::get_device(path);
 
@@ -348,6 +369,14 @@ SceUID open_file(IOState &io, const char *path, const int flags, const fs::path 
     }
 
     auto system_path = device::construct_emulated_path(device, translated_path, vita_fs_path, io.redirect_stdio);
+    if (!(flags & (SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC | SCE_O_APPEND))) {
+        fs::path mod_path;
+        // translate_path() turned app0 into ux0: check the device the game asked for
+        if (find_mod_file(io, device_for_icase, translated_path, vita_fs_path, mod_path)) {
+            LOG_INFO("Mod: {} is replaced by {}", path, mod_path);
+            system_path = mod_path;
+        }
+    }
     if (fs::is_directory(system_path)) {
         LOG_ERROR("Cannot open directory: {}", system_path);
         return IO_ERROR(SCE_ERROR_ERRNO_ENOENT);
@@ -532,6 +561,8 @@ int stat_file(IOState &io, const char *file, SceIoStat *statp, const fs::path &v
 
         const auto translated_path = translate_path(file, device, io.device_paths);
         file_path = device::construct_emulated_path(device, translated_path, vita_fs_path, io.redirect_stdio);
+        if (fs::path mod_path; find_mod_file(io, device_for_icase, translated_path, vita_fs_path, mod_path))
+            file_path = mod_path;
 
         if (!fs::exists(file_path)) {
             if (io.case_isens_find_enabled) {

@@ -24,6 +24,7 @@
 //      SDL frontend (the same runner Android uses). When the game exits, the library comes back.
 
 #include "bridge/vita3k_bridge.h"
+#include "cheats.h"
 #include "controls/virtual_pad.h"
 #include "crash_report.h"
 #include "ios_session.h"
@@ -55,6 +56,7 @@
 // Implemented in Swift (ui/TouchControls.swift)
 extern "C" void v3k_controls_attach(void *ui_window);
 extern "C" void v3k_controls_detach(void);
+extern "C" void v3k_controls_show_menu(void);
 
 namespace {
 
@@ -155,8 +157,8 @@ int main(int argc, char *argv[]) {
                     last_memory_log = now;
                 }
                 const uint64_t quit_at = v3k_pad_quit_requested_ms();
-                if (quit_at && SDL_GetTicks() - quit_at > 8000) {
-                    LOG_CRITICAL("Watchdog: the game did not close 8 seconds after Quit, closing Vita3K");
+                if (quit_at && SDL_GetTicks() - quit_at > 20000) {
+                    LOG_CRITICAL("Watchdog: the game did not close 20 seconds after Quit, closing Vita3K");
                     // Which guest threads were still alive tells us what blocked the shutdown
                     std::string threads;
                     // try_lock: a thread stuck while holding the kernel lock must not stop us from exiting
@@ -168,7 +170,7 @@ int main(int argc, char *argv[]) {
                         }
                     }
                     LOG_CRITICAL("Watchdog: guest threads still active: {}", threads.empty() ? "none" : threads);
-                    ios::crash::write_note("The game did not close within 8 seconds of tapping Quit. Threads still active: "
+                    ios::crash::write_note("The game did not close within 20 seconds of tapping Quit. Threads still active: "
                         + (threads.empty() ? std::string("none") : threads));
                     ios::crash::session_ended();
                     if (auto logger = spdlog::default_logger())
@@ -191,8 +193,16 @@ int main(int argc, char *argv[]) {
                     ios::set_screen_always_on(false);
                     v3k_controls_detach();
                     v3k_pad_detach();
+                } },
+            // Controller guide / PS button: the in-game menu
+            .on_guide_button = [] { v3k_controls_show_menu(); },
+            .on_stop = [emuenv] { ios::cheats::session_ended(*emuenv); },
+            .on_frame = [emuenv, cheats_started = false]() mutable {
+                if (!cheats_started) {
+                    cheats_started = true;
+                    ios::cheats::session_started(*emuenv);
                 }
-            },
+                ios::cheats::frame(*emuenv); },
         };
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
         session_over = true;

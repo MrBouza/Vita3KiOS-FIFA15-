@@ -253,8 +253,13 @@ Address alloc_aligned(MemState &state, uint32_t size, const char *name, unsigned
 }
 
 static void align_to_page(MemState &state, Address &addr, Address &size) {
-    const Address end = align(addr + size, STANDARD_PAGE_SIZE);
-    addr = align_down(addr, STANDARD_PAGE_SIZE);
+    // Protections must cover whole host pages: mprotect works on host pages (16 KiB on Apple
+    // silicon), so a 4 KiB segment would share its page with unprotected memory. A write there
+    // faulted with no segment to match, the page was unprotected anyway, and the segment silently
+    // stopped trapping writes (stale textures and GPU buffers).
+    const Address page = std::max<Address>(STANDARD_PAGE_SIZE, static_cast<Address>(state.host_page_size));
+    const Address end = align(addr + size, page);
+    addr = align_down(addr, page);
     size = end - addr;
 }
 
@@ -375,7 +380,9 @@ bool add_protect(MemState &state, Address addr, const uint32_t size, const MemPe
             --it;
     }
 
-    while (it != state.protect_tree.end() && it->first < addr + size) {
+    // Merge every segment overlapping the aligned range (not just the requested bytes), so no
+    // two segments ever share a host page
+    while (it != state.protect_tree.end() && it->first < addr + protect.size) {
         const Address start = std::min(it->first, addr);
         protect.size = std::max(it->first + it->second.size, addr + protect.size) - start;
         addr = start;

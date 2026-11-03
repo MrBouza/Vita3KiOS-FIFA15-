@@ -125,7 +125,7 @@ struct LibraryView: View {
                                         .contextMenu {
                                             Button { requestLaunch(app) } label: { Label("Play", systemImage: "play.fill") }
                                             Button { gameDetails = app } label: {
-                                                Label("Game settings, patches & saves", systemImage: "slider.horizontal.3")
+                                                Label("Game settings, patches, cheats & mods", systemImage: "slider.horizontal.3")
                                             }
                                             Button(role: .destructive) { pendingDeleteSave = app } label: {
                                                 Label("Delete save data", systemImage: "externaldrive.badge.minus")

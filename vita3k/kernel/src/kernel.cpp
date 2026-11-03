@@ -31,6 +31,9 @@
 #include <util/lock_and_find.h>
 #include <util/log.h>
 
+#include <chrono>
+#include <string>
+
 #include <SDL3/SDL_mutex.h>
 #include <SDL3/SDL_thread.h>
 
@@ -228,7 +231,19 @@ void KernelState::process_exit() {
     }
 
     std::unique_lock<std::mutex> lock(mutex);
+#if defined(VITA3K_PLATFORM_IOS)
+    // A guest thread stuck in a host call never ends: waiting for it forever left Quit hanging until the
+    // app was killed. Give the threads a few seconds, then go back to the library without them.
+    if (!thread_deleted_cond.wait_for(lock, std::chrono::seconds(5), [this] { return threads.empty(); })) {
+        std::string names;
+        for (const auto &[id, thread] : threads)
+            names += fmt::format("{}{} (#{})", names.empty() ? "" : ", ", thread->name, id);
+        LOG_ERROR("Shutdown: {} guest thread(s) did not end within 5 seconds, leaving them: {}", threads.size(), names);
+        return;
+    }
+#else
     thread_deleted_cond.wait(lock, [this] { return threads.empty(); });
+#endif
 }
 
 void KernelState::set_threads_paused(bool paused) {

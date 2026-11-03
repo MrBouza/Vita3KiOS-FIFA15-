@@ -31,8 +31,35 @@ struct GamePatch: Codable, Identifiable {
     let version: String
     let appVersion: String
     var enabled: Bool
+    let versionMatches: Bool
 
     var id: String { key }
+}
+
+struct GameCheat: Codable, Identifiable {
+    let key: String
+    let name: String
+    let author: String
+    let file: String
+    let gameVersion: String
+    let supported: Bool
+    var enabled: Bool
+    let versionMatches: Bool
+
+    var id: String { key }
+}
+
+struct ModInfo: Codable {
+    var path = ""
+    var files = 0
+    var bytes: Double = 0
+    var enabled = true
+}
+
+/// What the shared zip picker is choosing a file for
+private enum ZipImport: Identifiable {
+    case save, mod
+    var id: Int { self == .save ? 0 : 1 }
 }
 
 /// Everything about one game: its own settings, patches, shader cache and save data
@@ -48,7 +75,12 @@ struct GameSettingsView: View {
     @State private var shaderCacheBytes: Double = 0
     @State private var message: String?
     @State private var exportedSave: URL?
-    @State private var importingSave = false
+    @State private var zipImport: ZipImport?
+    @State private var cheats: [GameCheat] = []
+    @State private var cheatsDownloaded = false
+    @State private var showUnsupportedCheats = false
+    @State private var mod = ModInfo()
+    @State private var confirmDeleteMods = false
     @State private var confirmDeleteSave = false
     @State private var confirmDeleteGame = false
 
@@ -62,6 +94,8 @@ struct GameSettingsView: View {
                 header
                 settingsSection
                 patchesSection
+                cheatsSection
+                modsSection
                 storageSection
                 Section {
                     Button(role: .destructive) { confirmDeleteGame = true } label: {
@@ -75,13 +109,26 @@ struct GameSettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onAppear(perform: load)
-            .fileImporter(isPresented: $importingSave, allowedContentTypes: [.zip]) { result in
-                guard case let .success(url) = result else { return }
+            .fileImporter(isPresented: Binding(get: { zipImport != nil }, set: { if !$0 { zipImport = nil } }), allowedContentTypes: [.zip]) { result in
+                let kind = zipImport
+                zipImport = nil
+                guard case let .success(url) = result, let kind else { return }
                 let access = url.startAccessingSecurityScopedResource()
                 defer { if access { url.stopAccessingSecurityScopedResource() } }
                 var text: UnsafeMutablePointer<CChar>?
-                _ = v3k_import_save_data(app.titleId, url.path, &text)
+                switch kind {
+                case .save: _ = v3k_import_save_data(app.titleId, url.path, &text)
+                case .mod: _ = v3k_import_mod(app.titleId, url.path, &text)
+                }
                 message = takeString(text)
+                load()
+            }
+            .alert("Delete the mods of \(app.title)?", isPresented: $confirmDeleteMods) {
+                Button("Delete", role: .destructive) {
+                    _ = v3k_delete_mods(app.titleId)
+                    load()
+                }
+                Button("Cancel", role: .cancel) {}
             }
             .sheet(item: Binding(get: { exportedSave.map(ShareItem.init) }, set: { if $0 == nil { exportedSave = nil } })) { item in
                 ShareSheet(items: [item.url])
@@ -181,8 +228,12 @@ struct GameSettingsView: View {
 
     private var patchesSection: some View {
         Section {
-            if patches.isEmpty {
-                Text(patchesDownloaded ? "No patches for this game yet." : "Download the community patch list to see fixes and enhancements for this game (60 FPS, resolution and bug fixes).")
+            if !patchesDownloaded {
+                Text("Download the community patches and cheats to see what's available for this game.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if patches.isEmpty {
+                Text("There are no community patches for \(app.title) (\(app.titleId)). Settings › Patches lists every game that has one.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -193,26 +244,110 @@ struct GameSettingsView: View {
                 })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(patch.name)
-                        let detail = [patch.author.isEmpty ? nil : "by \(patch.author)",
-                                      patch.appVersion.isEmpty ? nil : "game v\(patch.appVersion)"].compactMap { $0 }.joined(separator: " · ")
-                        if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                        Text(patch.appVersion.isEmpty ? "Any game version" : "For game version \(patch.appVersion)")
+                            .font(.caption)
+                            .foregroundStyle(patch.versionMatches ? Color.secondary : Color.orange)
+                        if !patch.versionMatches {
+                            Text("You have version \(app.version), so this patch won't apply. Install the matching game update.")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
                         if !patch.note.isEmpty { Text(patch.note).font(.caption2).foregroundStyle(.secondary) }
                     }
                 }
             }
-            Button {
-                downloadPatches()
-            } label: {
-                HStack {
-                    Label(patchesDownloaded ? "Update patch list" : "Download patch list", systemImage: "arrow.down.circle")
-                    if downloadingPatches { Spacer(); ProgressView() }
-                }
-            }
-            .disabled(downloadingPatches)
+            downloadButton
         } header: {
             Text("Patches")
         } footer: {
             Text("Patches come from github.com/Vita3K/vita3k-patches and apply the next time the game starts.")
+        }
+    }
+
+    private var downloadButton: some View {
+        Button {
+            downloadPatches()
+        } label: {
+            HStack {
+                Label(patchesDownloaded ? "Update patches & cheats" : "Download patches & cheats", systemImage: "arrow.down.circle")
+                if downloadingPatches { Spacer(); ProgressView() }
+            }
+        }
+        .disabled(downloadingPatches)
+    }
+
+    private var cheatsSection: some View {
+        Section {
+            let shown = cheats.filter { $0.supported || showUnsupportedCheats }
+            if !cheatsDownloaded {
+                Text("Download the community patches and cheats (above) to see cheats for this game.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if cheats.isEmpty {
+                Text("There are no cheats for \(app.title) (\(app.titleId)) in the database. You can add your own VitaCheat .psv file to Files › Vita3KiOS › patch › cheats.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if let version = cheats.first(where: { !$0.versionMatches })?.gameVersion {
+                Text("These cheats were written for game version \(version); you have \(app.version). They may do nothing, or the wrong thing.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            ForEach(shown) { cheat in
+                Toggle(isOn: Binding(get: { cheat.enabled }, set: { on in
+                    if let index = cheats.firstIndex(where: { $0.key == cheat.key }) { cheats[index].enabled = on }
+                    _ = v3k_set_cheat_enabled(app.titleId, cheat.key, on)
+                })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(cheat.name)
+                        if !cheat.supported {
+                            Text("Uses a code type Vita3KiOS can't run yet").font(.caption2).foregroundStyle(.orange)
+                        } else if !cheat.author.isEmpty {
+                            Text("by \(cheat.author)").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .disabled(!cheat.supported)
+            }
+            let unsupported = cheats.filter { !$0.supported }.count
+            if unsupported > 0 {
+                Toggle("Show \(unsupported) unsupported cheat\(unsupported == 1 ? "" : "s")", isOn: $showUnsupportedCheats)
+                    .font(.footnote)
+            }
+        } header: {
+            Text(cheats.isEmpty ? "Cheats" : "Cheats (\(cheats.filter(\.supported).count))")
+        } footer: {
+            Text("Cheats run while the game plays and apply the next time it starts. Back up your save first: a wrong cheat can corrupt it.")
+        }
+    }
+
+    private var modsSection: some View {
+        Section {
+            if mod.files > 0 {
+                Toggle(isOn: Binding(get: { mod.enabled }, set: { on in
+                    _ = v3k_set_mods_enabled(app.titleId, on)
+                    load()
+                })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use mods")
+                        Text("\(mod.files) file\(mod.files == 1 ? "" : "s"), \(ByteCountFormatter.string(fromByteCount: Int64(mod.bytes), countStyle: .file))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Button {
+                zipImport = .mod
+            } label: {
+                Label("Install mod (.zip)", systemImage: "puzzlepiece.extension")
+            }
+            if mod.files > 0 {
+                Button(role: .destructive) { confirmDeleteMods = true } label: {
+                    Label("Delete mods", systemImage: "trash")
+                }
+            }
+        } header: {
+            Text("Mods")
+        } footer: {
+            Text("Files of a mod replace the game's files, like rePatch on a PS Vita: Vita rePatch mods work as they are. You can also copy files into Files › Vita3KiOS › vita › ux0 › rePatch › \(app.titleId). Changes apply the next time the game starts.")
         }
     }
 
@@ -237,7 +372,7 @@ struct GameSettingsView: View {
                 Label("Export save data", systemImage: "square.and.arrow.up")
             }
             Button {
-                importingSave = true
+                zipImport = .save
             } label: {
                 Label("Import save data (.zip)", systemImage: "square.and.arrow.down")
             }
@@ -263,6 +398,15 @@ struct GameSettingsView: View {
             patches = decoded
         }
         patchesDownloaded = v3k_patches_downloaded()
+        cheatsDownloaded = v3k_cheats_downloaded()
+        if let json = takeString(v3k_cheats_json(app.titleId)), let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([GameCheat].self, from: data) {
+            cheats = decoded
+        }
+        if let json = takeString(v3k_mod_info_json(app.titleId)), let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(ModInfo.self, from: data) {
+            mod = decoded
+        }
         shaderCacheBytes = v3k_shader_cache_bytes(app.titleId)
     }
 
@@ -275,7 +419,7 @@ struct GameSettingsView: View {
             await MainActor.run {
                 downloadingPatches = false
                 load()
-                if !ok || patches.isEmpty { message = summary }
+                message = summary
             }
         }
     }
@@ -331,5 +475,126 @@ extension GameApp {
         let minutes = (playTime % 3600) / 60
         if hours > 0 { return "Played \(hours) h \(minutes) min" }
         return "Played \(max(minutes, 1)) min"
+    }
+}
+
+// MARK: - Every patch
+
+struct PatchGame: Codable, Identifiable {
+    let title: String
+    let titleIds: [String]
+    let installedTitleId: String
+    let installedVersion: String
+    var patches: [GamePatch]
+
+    var id: String { title }
+    var installed: Bool { !installedTitleId.isEmpty }
+}
+
+/// Every community patch, one section per game, with the games you have first
+struct AllPatchesView: View {
+    @State private var games: [PatchGame] = []
+    @State private var downloaded = false
+    @State private var downloading = false
+    @State private var onlyInstalled = false
+    @State private var search = ""
+    @State private var message: String?
+
+    private var shown: [PatchGame] {
+        games.filter { game in
+            (!onlyInstalled || game.installed)
+                && (search.isEmpty || game.title.localizedCaseInsensitiveContains(search)
+                    || game.titleIds.contains { $0.localizedCaseInsensitiveContains(search) })
+        }
+        .sorted { ($0.installed ? 0 : 1, $0.title) < ($1.installed ? 0 : 1, $1.title) }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Button {
+                    download()
+                } label: {
+                    HStack {
+                        Label(downloaded ? "Update patches & cheats" : "Download patches & cheats", systemImage: "arrow.down.circle")
+                        if downloading { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(downloading)
+                if downloaded {
+                    Toggle("Only games I have", isOn: $onlyInstalled)
+                    let total = games.reduce(0) { $0 + $1.patches.count }
+                    let installed = games.filter(\.installed).count
+                    Text("\(total) patches for \(games.count) games. You have \(installed) of these games.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("A patch applies only to the game version it was made for. Turn patches on here or from a game's settings; they apply the next time the game starts.")
+            }
+
+            ForEach($games) { $game in
+                if shown.contains(where: { $0.id == game.id }) {
+                    Section {
+                        ForEach($game.patches) { $patch in
+                            Toggle(isOn: Binding(get: { patch.enabled }, set: { on in
+                                patch.enabled = on
+                                _ = v3k_set_patch_enabled(patch.key, on)
+                            })) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(patch.name)
+                                    Text(patch.appVersion.isEmpty ? "Any game version" : "For game version \(patch.appVersion)")
+                                        .font(.caption)
+                                        .foregroundStyle(!game.installed || patch.versionMatches ? Color.secondary : Color.orange)
+                                    if game.installed && !patch.versionMatches {
+                                        Text("You have version \(game.installedVersion): it won't apply")
+                                            .font(.caption2)
+                                            .foregroundStyle(.orange)
+                                    }
+                                }
+                            }
+                        }
+                    } header: {
+                        HStack {
+                            Text(game.title)
+                            Spacer()
+                            if game.installed {
+                                Text("INSTALLED").font(.caption2.weight(.bold)).foregroundStyle(.green)
+                            }
+                        }
+                    } footer: {
+                        Text(game.titleIds.joined(separator: " · "))
+                    }
+                }
+            }
+        }
+        .searchable(text: $search, prompt: "Game or title ID")
+        .navigationTitle("Patches")
+        .onAppear(perform: load)
+        .alert(message ?? "", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    private func load() {
+        downloaded = v3k_patches_downloaded()
+        if let json = takeString(v3k_all_patches_json()), let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([PatchGame].self, from: data) {
+            games = decoded
+        }
+    }
+
+    private func download() {
+        downloading = true
+        Task.detached {
+            var text: UnsafeMutablePointer<CChar>?
+            _ = v3k_download_patches(&text)
+            let summary = takeString(text)
+            await MainActor.run {
+                downloading = false
+                load()
+                message = summary
+            }
+        }
     }
 }

@@ -330,10 +330,10 @@ final class ControlsOverlayView: UIView {
         showMenu(fromController: false)
     }
 
-    private func showMenu(fromController: Bool) {
+    func showMenu(fromController: Bool) {
         guard menuAlert == nil, let root = window?.rootViewController else { return }
         let alert = UIAlertController(title: "Quit game?", message: fromController
-            ? "Unsaved progress will be lost.\n(Hold Select + Start on a controller to open this menu.)"
+            ? "Unsaved progress will be lost.\n(Press the controller's Home/PS button, or hold Select + Start, to open this menu.)"
             : "Unsaved progress will be lost.", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { _ in
             v3k_pad_release_all()
@@ -448,4 +448,13 @@ public func v3kControlsAttach(_ uiWindow: UnsafeMutableRawPointer?) {
 @_cdecl("v3k_controls_detach")
 public func v3kControlsDetach() {
     MainActor.assumeIsolated { ControlsHost.detach() }
+}
+
+/// Controller guide / PS button pressed in game
+@_cdecl("v3k_controls_show_menu")
+public func v3kControlsShowMenu() {
+    MainActor.assumeIsolated {
+        v3k_pad_release_all()
+        (ControlsHost.window?.rootViewController?.view as? ControlsOverlayView)?.showMenu(fromController: true)
+    }
 }
