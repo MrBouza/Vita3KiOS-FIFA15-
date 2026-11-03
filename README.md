@@ -40,7 +40,8 @@
 | 📸 **Game menu** | Screenshots straight to Photos, rear touchpad, layout editor, show/hide controls, quit. Open it with ✕ on screen, Home/PS on a controller, or by holding Select + Start. |
 | 📱 **Feels native** | Put any game on your Home Screen (`vita3k://launch/<TITLE ID>` links), long-press the app icon for recent games, and use "Open in Vita3K" from Files or Safari. |
 | 💾 **External storage** | Keep games on a USB-C SSD, thumb drive or SD reader. |
-| 🩺 **Crash reports** | If a game crashes, the next launch shows what happened, with the report and log one tap away. |
+| 🩺 **Crash reports** | If a game crashes, the next launch shows what happened. **Report a problem** in Settings bundles the logs, crash report, device and settings into one file for the Discord. |
+| ✅ **Knows your games** | Each game shows its state on the Vita3K compatibility list, and games with known issues get recommended settings automatically from an online fixes list ([`dist/game-fixes.txt`](dist/game-fixes.txt)) that can be updated without a new release. |
 
 ## Requirements
 

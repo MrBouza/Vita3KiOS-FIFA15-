@@ -106,6 +106,8 @@ struct LibraryView: View {
 
                         if !model.hasFirmware {
                             FirmwareCallout { openImporter([.item]) }
+                        } else if !model.hasFonts {
+                            FontsCallout { openImporter([.item]) }
                         }
 
                         PowerNotice()
@@ -319,6 +321,9 @@ struct GameCard: View {
                 }
             }
             .foregroundStyle(.white.opacity(0.5))
+            if let compatibility = app.compatibility {
+                CompatibilityBadge(compatibility: compatibility)
+            }
         }
         .contentShape(Rectangle())
     }
@@ -438,6 +443,47 @@ struct Pill: View {
             .padding(.vertical, 6)
             .background(Capsule().fill((good ? Color.green : Color.orange).opacity(0.18)))
             .foregroundStyle(good ? Color.green : Color.orange)
+    }
+}
+
+/// The game's state on the Vita3K compatibility list
+struct CompatibilityBadge: View {
+    let compatibility: Compatibility
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle().fill(compatibility.color).frame(width: 6, height: 6)
+            Text(compatibility.label).font(.caption2.weight(.semibold))
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(compatibility.color.opacity(0.16)))
+        .foregroundStyle(compatibility.color)
+    }
+}
+
+/// Firmware is installed but the font package isn't: some games show no text without it
+struct FontsCallout: View {
+    let action: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "textformat").font(.title3).foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Font package missing").font(.subheadline.weight(.semibold))
+                Text("Some games show blank text without it. Import PSP2UPDAT.PUP (the font package from PlayStation's firmware page).")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+                Button("Import font package", action: action)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
+        .frame(maxWidth: 520, alignment: .leading)
     }
 }
 

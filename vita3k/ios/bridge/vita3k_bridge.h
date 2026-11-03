@@ -193,6 +193,19 @@ bool v3k_import_mod(const char *title_id, const char *zip_path, char **message);
 bool v3k_set_mods_enabled(const char *title_id, bool enabled);
 bool v3k_delete_mods(const char *title_id);
 
+// ---- Compatibility list (Vita3K/compatibility), game fixes list, problem reports ----
+// Blocking downloads: call off the main thread
+bool v3k_update_compat_db(void);
+bool v3k_update_game_fixes(void);
+// JSON {"note","settings"} of this game's entry in the game fixes list, or NULL (free the string)
+char *v3k_game_fix_json(const char *title_id);
+// A on/off setting from the game fixes list: 1 on, 0 off, -1 not set (fast-cpu is read this way)
+int v3k_game_fix_flag(const char *title_id, const char *key);
+// Writes the game's recommended settings into its own settings (for games that already have some)
+bool v3k_apply_game_fix(const char *title_id);
+// Zips the logs, the last crash report, device info and settings for sharing; returns its path
+char *v3k_make_problem_report(char **message);
+
 #ifdef __cplusplus
 }
 #endif

@@ -75,7 +75,10 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <fstream>
+#include <sstream>
 
 #include <chrono>
 
@@ -239,6 +242,90 @@ static Config::CurrentConfig get_runtime_current_config_after_save(
 }
 
 #if defined(VITA3K_PLATFORM_IOS)
+// Used until the list has been downloaded once (same lines as dist/game-fixes.txt at release)
+static constexpr const char *DEFAULT_GAME_FIXES = R"(PCSA00011 surface-sync=on | Surface sync on: fixes the over-bright bloom
+PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
+PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
+PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
+PCSE00084 memory-mapping=on surface-sync=off async-shaders=off v-sync=on fast-cpu=off | Memory mapping on (faces and bodies), surface sync off (black field, crash), shaders compiled before drawing (no missing players), Fast CPU off
+)";
+
+bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix) {
+    std::ifstream file_in(file);
+    std::istringstream default_in(DEFAULT_GAME_FIXES);
+    std::istream &in = file_in ? static_cast<std::istream &>(file_in) : static_cast<std::istream &>(default_in);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        const auto first = line.find_first_not_of(" \t");
+        if (first == std::string::npos || line[first] == '#')
+            continue;
+        std::string note;
+        if (const auto bar = line.find('|'); bar != std::string::npos) {
+            note = line.substr(bar + 1);
+            line.resize(bar);
+            const auto note_start = note.find_first_not_of(" \t");
+            note = note_start == std::string::npos ? std::string() : note.substr(note_start);
+        }
+        std::istringstream tokens(line);
+        std::string id;
+        tokens >> id;
+        std::transform(id.begin(), id.end(), id.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        if (id != title_id)
+            continue;
+        fix = {};
+        fix.note = note;
+        std::string token;
+        while (tokens >> token) {
+            const auto eq = token.find('=');
+            if (eq != std::string::npos && eq > 0)
+                fix.settings.emplace_back(token.substr(0, eq), token.substr(eq + 1));
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool apply_fix_setting(Config::CurrentConfig &cc, const std::string &key, const std::string &value) {
+    const bool on = value == "on" || value == "true" || value == "1" || value == "yes";
+    const bool off = value == "off" || value == "false" || value == "0" || value == "no";
+    if (!on && !off && key != "resolution" && key != "screen-filter")
+        return false;
+    if (key == "memory-mapping")
+        cc.memory_mapping = on ? "double-buffer" : "disabled";
+    else if (key == "surface-sync")
+        cc.disable_surface_sync = !on;
+    else if (key == "high-accuracy")
+        cc.high_accuracy = on;
+    else if (key == "async-shaders")
+        cc.async_pipeline_compilation = on;
+    else if (key == "texture-cache")
+        cc.texture_cache = on;
+    else if (key == "shader-cache")
+        cc.shader_cache = on;
+    else if (key == "fps-hack")
+        cc.fps_hack = on;
+    else if (key == "cpu-opt")
+        cc.cpu_opt = on;
+    else if (key == "v-sync")
+        cc.v_sync = on;
+    else if (key == "stretch")
+        cc.stretch_the_display_area = on;
+    else if (key == "resolution") {
+        const float multiplier = std::strtof(value.c_str(), nullptr);
+        if (multiplier < 0.5f || multiplier > 4.0f)
+            return false;
+        cc.resolution_multiplier = multiplier;
+    } else if (key == "screen-filter")
+        cc.screen_filter = value;
+    else
+        return false;
+    return true;
+}
+#endif
+
+#if defined(VITA3K_PLATFORM_IOS)
 // Settings a game is known to need (from the Vita3K compatibility reports), used until the player
 // gives the game settings of its own
 static void apply_builtin_game_fixes(EmuEnvState &emuenv, const std::string &app_path) {
@@ -260,10 +347,28 @@ static void apply_builtin_game_fixes(EmuEnvState &emuenv, const std::string &app
     // Madden NFL 13: players are skinned on the GPU; without memory mapping that data never reaches
     // the draws, so faces break up and bodies go missing. Surface sync stays off: with it the game
     // crashed at boot (iPhone 16 Pro, memory access outside guest memory).
+    // With surface sync the field also went black. Pipelines are compiled before drawing (not in the
+    // background) so players and the field never go missing while 300+ shaders compile; the shader
+    // cache makes later matches smooth. V-Sync stays on.
     if (app_path == "PCSE00084") {
         cc.memory_mapping = "double-buffer";
         cc.disable_surface_sync = true;
-        LOG_INFO("Game fix for {}: GPU memory mapping on, surface sync off (fixes broken faces and missing bodies)", app_path);
+        cc.async_pipeline_compilation = false;
+        cc.v_sync = true;
+        LOG_INFO("Game fix for {}: GPU memory mapping on, surface sync off, shaders compiled before drawing, V-Sync on", app_path);
+    }
+
+    // The downloadable list (Settings › Game fixes) has the last word: fixes found after a release
+    GameFix fix;
+    if (find_game_fix(emuenv.cache_path / "game-fixes.txt", app_path, fix)) {
+        std::string applied;
+        for (const auto &[key, value] : fix.settings) {
+            if (apply_fix_setting(cc, key, value))
+                applied += fmt::format(" {}={}", key, value);
+            else
+                LOG_WARN("Game fixes list: unknown setting {}={} for {}", key, value, app_path);
+        }
+        LOG_INFO("Game fixes list for {}:{}{}", app_path, applied, fix.note.empty() ? "" : " (" + fix.note + ")");
     }
 }
 #endif
@@ -652,9 +757,9 @@ void apply_renderer_config(EmuEnvState &emuenv) {
     auto &r = *emuenv.renderer;
     const auto &cc = emuenv.cfg.current_config;
     LOG_INFO("Game settings: resolution {}x, filter {}, memory mapping {}, high accuracy {}, async shaders {}, shader cache {}, "
-             "texture cache {}, surface sync {}, FPS hack {}, CPU optimisations {}",
+             "texture cache {}, surface sync {}, FPS hack {}, CPU optimisations {}, V-Sync {}",
         cc.resolution_multiplier, cc.screen_filter, cc.memory_mapping, cc.high_accuracy, cc.async_pipeline_compilation,
-        cc.shader_cache, cc.texture_cache, cc.disable_surface_sync ? "off" : "on", cc.fps_hack, cc.cpu_opt);
+        cc.shader_cache, cc.texture_cache, cc.disable_surface_sync ? "off" : "on", cc.fps_hack, cc.cpu_opt, cc.v_sync);
 
     r.res_multiplier = cc.resolution_multiplier;
     r.set_vsync_state(cc.v_sync);

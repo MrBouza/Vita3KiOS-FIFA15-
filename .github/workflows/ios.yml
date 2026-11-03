@@ -12,11 +12,13 @@ on:
       - '**.md'
       - 'dist/altstore/**'
       - 'dist/readme/**'
+      - 'dist/game-fixes.txt'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'dist/altstore/**'
       - 'dist/readme/**'
+      - 'dist/game-fixes.txt'
   workflow_dispatch:
     inputs:
       release:

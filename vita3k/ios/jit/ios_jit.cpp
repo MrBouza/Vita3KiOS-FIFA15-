@@ -65,7 +65,9 @@ std::atomic_bool g_unhandled_universal_jit_breakpoint{ false };
 
 constexpr std::size_t IOS_JIT_CACHE_SIZE = 16 * 1024 * 1024;
 // Tsubomi: Gravity Rush runs ~24 concurrently-live guest threads; keep headroom for thread churn
-constexpr std::size_t IOS_JIT_POOL_TARGET = 32;
+// 48 x 16 MiB: games such as Disgaea 3 keep more than 32 threads alive at once. Memory is only
+// used when a region is taken; the one-time setup at launch takes about a second longer.
+constexpr std::size_t IOS_JIT_POOL_TARGET = 48;
 
 int os_major_version() {
     char version[32]{};

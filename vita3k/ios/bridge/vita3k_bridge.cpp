@@ -25,6 +25,8 @@
 #include "archive.h"
 
 #include <app/functions.h>
+#include <compat/functions.h>
+#include <compat/state.h>
 #include <config/functions.h>
 #include <config/settings.h>
 #include <config/state.h>
@@ -41,6 +43,7 @@
 #include <util/string_utils.h>
 
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <atomic>
@@ -53,6 +56,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -342,6 +346,11 @@ int v3k_firmware_state(void) {
     return (state.preinstalled_package ? 1 : 0) | (state.main_firmware ? 2 : 0) | (state.font_package ? 4 : 0);
 }
 
+namespace {
+// The compatibility list is replaced from a background download while the library reads it
+std::mutex compat_mutex;
+} // namespace
+
 char *v3k_apps_json(void) {
     std::string json = "[";
     bool first = true;
@@ -355,9 +364,19 @@ char *v3k_apps_json(void) {
         const long long last_played = time != times.end() ? static_cast<long long>(time->second.last_time_used) : 0;
         const long long play_time = time != times.end() ? static_cast<long long>(time->second.time_used) : 0;
         const bool custom = emuenv && config::has_custom_config(emuenv->config_path, app.path);
-        json += fmt::format(R"({{"titleId":{},"title":{},"version":{},"category":{},"iconPath":{},"path":{},"lastPlayed":{},"playTime":{},"customConfig":{}}})",
+        int compat_state = -1;
+        uint32_t compat_issue = 0;
+        if (emuenv) {
+            const std::lock_guard compat_lock(compat_mutex);
+            const auto it = emuenv->compat.app_compat_db.find(app.title_id);
+            if (it != emuenv->compat.app_compat_db.end()) {
+                compat_state = static_cast<int>(it->second.state);
+                compat_issue = it->second.issue_id;
+            }
+        }
+        json += fmt::format(R"({{"titleId":{},"title":{},"version":{},"category":{},"iconPath":{},"path":{},"lastPlayed":{},"playTime":{},"customConfig":{},"compat":{},"compatIssue":{}}})",
             json_quote(app.title_id), json_quote(app.title), json_quote(app.app_ver), json_quote(app.category), json_quote(app.icon_path), json_quote(app.path), last_played,
-            play_time, custom ? "true" : "false");
+            play_time, custom ? "true" : "false", compat_state, compat_issue);
     }
     json += "]";
     return dup_string(json);
@@ -1317,4 +1336,140 @@ bool v3k_delete_game_content(const char *title_id, bool update) {
     fs::remove_all(emuenv->vita_fs_path / "ux0" / (update ? "patch" : "addcont") / title_id, ec);
     LOG_INFO("Deleted the {} of {}: {}", update ? "update" : "DLC", title_id, ec ? ec.message() : "ok");
     return !ec;
+}
+
+// ---- Compatibility list, game fixes list, problem reports ----
+
+namespace {
+constexpr const char *COMPAT_DB_ZIP = "https://github.com/Vita3K/compatibility/releases/download/compat_db/app_compat_db.xml.zip";
+constexpr const char *GAME_FIXES_URL = "https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/game-fixes.txt";
+} // namespace
+
+bool v3k_update_compat_db(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return false;
+    std::string data, error;
+    if (!ios::download(COMPAT_DB_ZIP, data, error) || data.empty()) {
+        LOG_WARN("Compatibility list download failed: {}", error);
+        return false;
+    }
+    const std::lock_guard lock(compat_mutex);
+    const std::span<const uint8_t> bytes(reinterpret_cast<const uint8_t *>(data.data()), data.size());
+    const bool ok = compat::install_db(emuenv->compat, fs::path(emuenv->cache_path.string()), bytes, "");
+    LOG_INFO("Compatibility list {}: {} games", ok ? "updated" : "could not be installed", emuenv->compat.app_compat_db.size());
+    return ok;
+}
+
+bool v3k_update_game_fixes(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return false;
+    std::string data, error;
+    if (!ios::download(GAME_FIXES_URL, data, error) || data.empty() || data.size() > 1024 * 1024 || data.find('\0') != std::string::npos) {
+        LOG_WARN("Game fixes list download failed: {}", error.empty() ? "not a text file" : error);
+        return false;
+    }
+    const fs::path file = fs::path(emuenv->cache_path.string()) / "game-fixes.txt";
+    const fs::path temp = file.string() + ".new";
+    std::error_code ec;
+    fs::create_directories(file.parent_path(), ec);
+    if (!fs_utils::dump_data(temp, data.data(), static_cast<std::streamsize>(data.size())))
+        return false;
+    fs::rename(temp, file, ec);
+    return !ec;
+}
+
+char *v3k_game_fix_json(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return nullptr;
+    app::GameFix fix;
+    if (!app::find_game_fix(fs::path(emuenv->cache_path.string()) / "game-fixes.txt", title_id, fix))
+        return nullptr;
+    std::string settings;
+    for (const auto &[key, value] : fix.settings)
+        settings += (settings.empty() ? "" : ", ") + key + " " + value;
+    return dup_string(fmt::format(R"({{"note":{},"settings":{}}})", json_quote(fix.note), json_quote(settings)));
+}
+
+bool v3k_apply_game_fix(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return false;
+    app::GameFix fix;
+    if (!app::find_game_fix(fs::path(emuenv->cache_path.string()) / "game-fixes.txt", title_id, fix))
+        return false;
+    bool ok = true;
+    for (const auto &[key, value] : fix.settings) {
+        const bool on = value == "on" || value == "true" || value == "1" || value == "yes";
+        const char *flag = on ? "true" : "false";
+        if (key == "memory-mapping" || key == "high-accuracy" || key == "async-shaders" || key == "texture-cache"
+            || key == "shader-cache" || key == "fps-hack" || key == "cpu-opt" || key == "v-sync")
+            ok &= v3k_set_game_setting(title_id, key.c_str(), flag);
+        else if (key == "surface-sync")
+            ok &= v3k_set_game_setting(title_id, "disable-surface-sync", on ? "false" : "true");
+        else if (key == "stretch")
+            ok &= v3k_set_game_setting(title_id, "stretch-display", flag);
+        else if (key == "resolution")
+            ok &= v3k_set_game_setting(title_id, "resolution-multiplier", value.c_str());
+        else if (key == "screen-filter")
+            ok &= v3k_set_game_setting(title_id, "screen-filter", value.c_str());
+    }
+    LOG_INFO("Applied the recommended settings to {}'s own settings", title_id);
+    return ok;
+}
+
+int v3k_game_fix_flag(const char *title_id, const char *key) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id || !key)
+        return -1;
+    app::GameFix fix;
+    if (app::find_game_fix(fs::path(emuenv->cache_path.string()) / "game-fixes.txt", title_id, fix)) {
+        for (const auto &[k, v] : fix.settings) {
+            if (k == key)
+                return (v == "on" || v == "true" || v == "1" || v == "yes") ? 1 : 0;
+        }
+    }
+    return -1;
+}
+
+char *v3k_make_problem_report(char **message) {
+    auto *emuenv = ios::get_emuenv();
+    const fs::path folder = fs::path(v3k_log_path()).parent_path();
+    const fs::path zip_path = fs::temp_directory_path() / fmt::format("Vita3KiOS-report-{}.zip", std::time(nullptr));
+    mz_zip_archive zip{};
+    if (!mz_zip_writer_init_file(&zip, zip_path.string().c_str(), 0)) {
+        if (message)
+            *message = dup_string("Could not create the report file.");
+        return nullptr;
+    }
+    // Make sure what was logged so far is in the file
+    if (auto logger = spdlog::default_logger())
+        logger->flush();
+    for (const char *name : { "vita3k.log", "vita3k-previous.log", "last-crash-report.txt" }) {
+        const fs::path file = folder / name;
+        std::error_code ec;
+        if (fs::exists(file, ec))
+            mz_zip_writer_add_file(&zip, name, file.string().c_str(), nullptr, 0, MZ_BEST_COMPRESSION);
+    }
+    std::string info = fmt::format("Vita3KiOS {}\nDevice: {}\niOS: {}\nJIT: {}\n", v3k_version(), ios::get_device_model(), ios::get_os_version(),
+        v3k_is_jit_enabled() ? "enabled" : "not enabled");
+    if (char *settings = v3k_settings_json()) {
+        info += std::string("Settings: ") + settings + "\n";
+        std::free(settings);
+    }
+    if (emuenv) {
+        std::error_code ec;
+        for (const auto &entry : fs::directory_iterator(fs::path(emuenv->config_path.string()) / "config", ec)) {
+            if (entry.path().extension() == ".xml") {
+                const std::string name = "game-settings/" + entry.path().filename().string();
+                mz_zip_writer_add_file(&zip, name.c_str(), entry.path().string().c_str(), nullptr, 0, MZ_BEST_COMPRESSION);
+            }
+        }
+    }
+    mz_zip_writer_add_mem(&zip, "device.txt", info.data(), info.size(), MZ_BEST_COMPRESSION);
+    mz_zip_writer_finalize_archive(&zip);
+    mz_zip_writer_end(&zip);
+    return dup_string(zip_path.string());
 }

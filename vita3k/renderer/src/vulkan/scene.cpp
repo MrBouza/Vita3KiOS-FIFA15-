@@ -26,6 +26,7 @@
 #include <util/log.h>
 
 #include <set>
+#include <unordered_map>
 
 namespace renderer::vulkan {
 
@@ -105,17 +106,42 @@ void mid_scene_flush(VKContext &context, const SceGxmNotification notification) 
 #ifdef __APPLE__
 // restride vertex attribute binding strides to multiple of 4
 // needed for metal because it only allows multiples of 4.
+// The copy goes to a buffer kept for the renderer thread: no allocation per draw.
+static std::vector<uint8_t> &restride_scratch() {
+    static thread_local std::vector<uint8_t> scratch;
+    return scratch;
+}
+
 void restride_stream(const uint8_t *&stream, uint32_t &size, uint32_t stride) {
     const uint32_t new_stride = align(stride, 4);
     const uint32_t nb_vertex_input = ((size + stride - 1) / stride);
 
-    uint8_t *new_data = new uint8_t[nb_vertex_input * new_stride];
+    std::vector<uint8_t> &new_data = restride_scratch();
+    if (new_data.size() < static_cast<size_t>(nb_vertex_input) * new_stride)
+        new_data.resize(static_cast<size_t>(nb_vertex_input) * new_stride);
     for (uint32_t i = 0; i < nb_vertex_input; i++) {
-        memcpy(new_data + new_stride * i, stream + stride * i, stride);
+        // the last vertex may be cut short by the stream size
+        const uint32_t bytes = std::min(stride, size - stride * i);
+        memcpy(new_data.data() + new_stride * i, stream + stride * i, bytes);
     }
 
-    stream = new_data;
+    stream = new_data.data();
     size = nb_vertex_input * new_stride;
+}
+
+// Metal layouts per vertex program and stream, computed once instead of for every draw. The key
+// covers the attribute and stream layout (key_hash) and the shader (its address), which decides the
+// attribute sizes of regformat inputs.
+static const MetalStreamLayout &cached_metal_layout(const SceGxmVertexProgram &program, int stream) {
+    static thread_local std::unordered_map<uint64_t, MetalStreamLayout> cache;
+    const uint64_t key = (program.key_hash ^ (static_cast<uint64_t>(program.program.address()) * 0x9E3779B97F4A7C15ULL)) * 31 + static_cast<uint64_t>(stream);
+    auto it = cache.find(key);
+    if (it == cache.end()) {
+        if (cache.size() > 4096)
+            cache.clear();
+        it = cache.emplace(key, metal_stream_layout(program, stream)).first;
+    }
+    return it->second;
 }
 #endif
 
@@ -331,7 +357,7 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
             // Vulkan allows any stride and offset, but Metal only allows multiples of 4: copy those streams
             // Odd strides are copied with the stride rounded up to 4; when their attributes sit at
             // unaligned offsets too, the copy gives each attribute an aligned slot (metal_stream_layout)
-            const MetalStreamLayout metal_layout = metal_stream_layout(vertex_program, i);
+            const MetalStreamLayout &metal_layout = cached_metal_layout(vertex_program, i);
             const bool restride = vertex_program.streams[i].stride % 4 != 0 && !metal_layout.repack;
             if (restride || metal_layout.repack || (state.vertex_streams[i].data.address() & 3) != 0)
                 read_from_mapping = false;
@@ -358,12 +384,6 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
 #endif
                 context.vertex_stream_ring_buffer.allocate(context.prerender_cmd, stream_size, stream);
                 context.vertex_stream_offsets[i] = context.vertex_stream_ring_buffer.data_offset;
-
-#ifdef __APPLE__
-                if (restride) {
-                    delete[] stream;
-                }
-#endif
             }
 
             state.vertex_streams[i].data = nullptr;
@@ -481,7 +501,8 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     // Metal has no triangle fans and MoltenVK does not emulate them (portability subset: triangleFans
     // is false): a fan drawn anyway comes out as long stray slivers. Expand fans into triangle lists
     // on the CPU: (v0, vk, vk+1) for each k.
-    std::vector<uint8_t> fan_indices;
+    static thread_local std::vector<uint8_t> fan_indices;
+    fan_indices.clear();
     uint32_t fan_max_index = 0;
     if (type == SCE_GXM_PRIMITIVE_TRIANGLE_FAN && !ordered_indices) {
         if (count < 3)

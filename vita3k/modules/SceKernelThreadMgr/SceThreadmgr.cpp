@@ -1362,7 +1362,7 @@ EXPORT(int, sceKernelCreateThreadForUser, const char *name, SceKernelThreadEntry
 
     const ThreadStatePtr thread = emuenv.kernel.create_thread(emuenv.mem, name, entry.cast<void>(), init_priority, options->cpu_affinity_mask, options->stack_size, options->attr);
     if (!thread)
-        return RET_ERROR(SCE_KERNEL_ERROR_ERROR);
+        return RET_ERROR(SCE_KERNEL_ERROR_NO_MEMORY);
     return thread->id;
 }
 

@@ -16,11 +16,55 @@ struct GameApp: Codable, Identifiable, Hashable {
     let lastPlayed: Int64
     let playTime: Int64
     let customConfig: Bool
+    /// Vita3K compatibility list: -1 unknown, 0 nothing ... 6 playable
+    let compat: Int
+    let compatIssue: Int
 
     var id: String { titleId }
 
+    var compatibility: Compatibility? { Compatibility(rawValue: compat) }
+
     var icon: UIImage? {
         iconPath.isEmpty ? nil : UIImage(contentsOfFile: iconPath)
+    }
+}
+
+/// States of the Vita3K compatibility list (github.com/Vita3K/compatibility)
+enum Compatibility: Int {
+    case nothing = 0, bootable, intro, menu, ingameLess, ingameMore, playable
+
+    var label: String {
+        switch self {
+        case .nothing: "Nothing"
+        case .bootable: "Boots"
+        case .intro: "Intro"
+        case .menu: "Menus"
+        case .ingameLess: "In game −"
+        case .ingameMore: "In game +"
+        case .playable: "Playable"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .nothing: "Doesn't start in Vita3K yet"
+        case .bootable: "Starts, but doesn't get past a black screen"
+        case .intro: "Shows its intro, then stops"
+        case .menu: "Reaches the menus but not gameplay"
+        case .ingameLess: "Reaches gameplay with major problems"
+        case .ingameMore: "Gameplay works with some problems"
+        case .playable: "Playable from start to finish"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .nothing, .bootable: .red
+        case .intro, .menu: .orange
+        case .ingameLess: .yellow
+        case .ingameMore: .mint
+        case .playable: .green
+        }
     }
 }
 
@@ -187,13 +231,33 @@ final class LibraryModel: ObservableObject {
         }
     }
 
+    /// Compatibility list (once a day) and game fixes list (every launch), in the background
+    func updateOnlineLists() {
+        let defaults = UserDefaults.standard
+        let lastCompat = defaults.double(forKey: "v3k.compatUpdated")
+        let compatDue = Date().timeIntervalSince1970 - lastCompat > 24 * 3600
+        DispatchQueue.global(qos: .utility).async {
+            _ = v3k_update_game_fixes()
+            var compatUpdated = false
+            if compatDue && v3k_update_compat_db() {
+                compatUpdated = true
+            }
+            DispatchQueue.main.async {
+                if compatUpdated { defaults.set(Date().timeIntervalSince1970, forKey: "v3k.compatUpdated") }
+                self.reload()
+            }
+        }
+    }
+
     func refresh() {
         v3k_refresh_apps()
         reload()
     }
 
     func launch(_ app: GameApp) {
-        v3k_set_fast_cpu(UserDefaults.standard.bool(forKey: "v3k.fastCPU"))
+        // Fast CPU: the game fixes list can turn it off (or on) for a game
+        let fastCPUFix = v3k_game_fix_flag(app.titleId, "fast-cpu")
+        v3k_set_fast_cpu(fastCPUFix >= 0 ? fastCPUFix == 1 : UserDefaults.standard.bool(forKey: "v3k.fastCPU"))
         // The overlay is drawn by the app now (PerformanceHUD.swift): keep the core's own one off
         if settings.performanceOverlay {
             _ = v3k_set_setting_bool("performance-overlay", false)

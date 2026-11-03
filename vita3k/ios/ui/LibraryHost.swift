@@ -43,6 +43,8 @@ enum LibraryHost {
             model.reload()
         }
         if firstShow {
+            // After JIT setup (StikDebug pauses the app while it works)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { model.updateOnlineLists() }
             NotificationCenter.default.addObserver(forName: Notification.Name("V3KLaunchRequest"), object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { takeLaunchRequest() }
             }

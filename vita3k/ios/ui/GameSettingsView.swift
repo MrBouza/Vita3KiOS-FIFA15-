@@ -76,6 +76,7 @@ struct GameSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var preciseMath = false
+    @State private var gameFix: GameFixInfo?
     @State private var showingShortcutHelp = false
     @State private var settings = GameSettings()
     @State private var patches: [GamePatch] = []
@@ -185,6 +186,35 @@ struct GameSettingsView: View {
                     Text(app.title).font(.headline)
                     Text("\(app.titleId) · v\(app.version)").font(.caption).foregroundStyle(.secondary)
                     Text(app.playTimeText).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let compatibility = app.compatibility {
+                Link(destination: URL(string: "https://github.com/Vita3K/compatibility/issues/\(app.compatIssue)")!) {
+                    HStack {
+                        CompatibilityBadge(compatibility: compatibility)
+                        Text(compatibility.detail).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let fix = gameFix {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(settings.custom ? "Recommended settings available" : "Recommended settings applied", systemImage: "wand.and.stars")
+                        .font(.subheadline.weight(.semibold))
+                    Text(fix.note.isEmpty ? fix.settings : "\(fix.note) (\(fix.settings))")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if settings.custom {
+                        Text("This game has settings of its own, so they're not used automatically.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Use recommended settings") {
+                            _ = v3k_apply_game_fix(app.titleId)
+                            load()
+                            model.reload()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
                 }
             }
             Button {
@@ -464,6 +494,9 @@ struct GameSettingsView: View {
     // MARK: Helpers
 
     private func load() {
+        if let json = takeString(v3k_game_fix_json(app.titleId)), let data = json.data(using: .utf8) {
+            gameFix = try? JSONDecoder().decode(GameFixInfo.self, from: data)
+        }
         preciseMath = UserDefaults.standard.bool(forKey: "v3k.preciseMath.\(app.titleId)")
         if let json = takeString(v3k_game_settings_json(app.titleId)), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(GameSettings.self, from: data) {
@@ -677,4 +710,10 @@ struct AllPatchesView: View {
             }
         }
     }
+}
+
+/// This game's line in the downloadable game fixes list
+struct GameFixInfo: Decodable {
+    let note: String
+    let settings: String
 }

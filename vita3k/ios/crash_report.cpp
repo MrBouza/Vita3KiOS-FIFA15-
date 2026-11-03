@@ -150,6 +150,9 @@ void init(const std::string &folder) {
     if (fs::exists(log, ec))
         fs::rename(log, dir / "vita3k-previous.log", ec);
 
+    // Kept for Settings › Report a problem, until the next crash replaces it
+    if (!text.empty())
+        fs::rename(report, dir / "last-crash-report.txt", ec);
     fs::remove(report, ec);
     fs::remove(marker, ec);
 }

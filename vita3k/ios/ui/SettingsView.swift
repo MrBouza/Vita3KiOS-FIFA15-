@@ -469,6 +469,7 @@ struct CreditsSection: View {
 
 struct AboutSection: View {
     @EnvironmentObject var model: LibraryModel
+    @State private var report: URL?
 
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
@@ -495,10 +496,22 @@ struct AboutSection: View {
                     Label("Share previous session's log", systemImage: "clock.arrow.circlepath")
                 }
             }
+            Button {
+                var message: UnsafeMutablePointer<CChar>?
+                if let path = takeString(v3k_make_problem_report(&message)) {
+                    report = URL(fileURLWithPath: path)
+                }
+                _ = takeString(message)
+            } label: {
+                Label("Report a problem…", systemImage: "ladybug")
+            }
+            .sheet(item: Binding(get: { report.map(ShareItem.init) }, set: { if $0 == nil { report = nil } })) { item in
+                ShareSheet(items: [item.url])
+            }
             Link(destination: URL(string: "https://discord.gg/pZyQDPHKF")!) {
                 Label("Join the Discord", systemImage: "bubble.left.and.bubble.right")
             }
-            Text("Attach the log when reporting a problem, on the Discord for example. It's also in the app's folder in the Files app.")
+            Text("Report a problem bundles the logs, the last crash report, your device and settings into one file to post on the Discord. Say which game and what went wrong.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

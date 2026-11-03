@@ -187,9 +187,25 @@ ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<c
         LOG_ERROR("Out of core number to allocate, use 0");
         core_num = 0;
     }
-    CPUStatePtr cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
-    if (!cpu)
+    CPUStatePtr cpu;
+#if defined(VITA3K_PLATFORM_IOS)
+    // iOS 26+: every guest thread needs one of the JIT regions prepared at launch. A game that keeps
+    // more threads alive than there are regions (Disgaea 3) used to bring the app down with an
+    // uncaught bad_alloc: fail this one thread creation instead, as a Vita out of memory would.
+    try {
+        cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
+    } catch (const std::exception &e) {
+        LOG_ERROR("Thread \"{}\" could not be created: no JIT memory left ({}). Too many threads are running at once.", name ? name : "", e.what());
+        corenum_allocator.free_corenum(core_num);
         return nullptr;
+    }
+#else
+    cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
+#endif
+    if (!cpu) {
+        corenum_allocator.free_corenum(core_num);
+        return nullptr;
+    }
     // A guest function the kernel calls returns to the halt instruction, in Thumb mode
     cpu->return_pc = halt_instruction.get() | 1;
     set_log_code(*cpu, debugger.watch_code);

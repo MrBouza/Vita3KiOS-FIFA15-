@@ -76,6 +76,17 @@ void apply_runtime_settings(EmuEnvState &emuenv);
 SettingsCommitResult commit_settings(EmuEnvState &emuenv, const Config &desired_cfg, const std::string &scope_app_path = {});
 SettingsCommitResult delete_custom_settings(EmuEnvState &emuenv, const std::string &scope_app_path);
 void set_current_config(EmuEnvState &emuenv, const std::string &app_path);
+
+#if defined(VITA3K_PLATFORM_IOS)
+// Recommended settings for a game from the downloadable game fixes list (cache/game-fixes.txt).
+// One line per game: "<TITLE ID> key=value key=value | note". Applied when the game has no
+// settings of its own.
+struct GameFix {
+    std::vector<std::pair<std::string, std::string>> settings;
+    std::string note;
+};
+bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix);
+#endif
 void destroy(EmuEnvState &emuenv);
 
 bool init_apps_list(EmuEnvState &emuenv);

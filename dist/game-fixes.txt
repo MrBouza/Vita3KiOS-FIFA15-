@@ -1,0 +1,24 @@
+# Vita3KiOS game fixes
+#
+# Recommended settings per game. The app downloads this file when the library opens and applies a
+# game's line when it starts, unless the player has given that game settings of their own.
+# Edit it on GitHub: everyone gets the change the next time they open the app, no new build needed.
+#
+# One line per game:   TITLE_ID  setting=value  setting=value  | note shown in the game's settings
+#
+# Settings: memory-mapping, surface-sync, high-accuracy, async-shaders, texture-cache, shader-cache,
+#           fps-hack, cpu-opt, v-sync, stretch, fast-cpu (on/off), resolution (0.5 to 4), screen-filter
+#           (Nearest, Bilinear, Bicubic, FXAA)
+# Lines starting with # are ignored.
+
+# Gravity Rush (US, EU): without surface sync the bloom builds up and scenes are far too bright
+PCSA00011 surface-sync=on | Surface sync on: fixes the over-bright bloom (Vita3K/compatibility#177)
+PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom (Vita3K/compatibility#177)
+
+# Persona 4 Golden (US, EU): vertex spikes in 3D scenes with GPU memory mapping
+PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
+PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
+
+# Madden NFL 13: players are skinned on the GPU (needs memory mapping); surface sync crashed it at
+# boot or blacked out the field; shaders compiled before drawing so nothing goes missing
+PCSE00084 memory-mapping=on surface-sync=off async-shaders=off v-sync=on fast-cpu=off | Memory mapping on (faces and bodies), surface sync off (black field, crash), shaders compiled before drawing (no missing players), Fast CPU off
