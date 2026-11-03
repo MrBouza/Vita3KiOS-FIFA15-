@@ -11,10 +11,12 @@ on:
     paths-ignore:
       - '**.md'
       - 'dist/altstore/**'
+      - 'dist/readme/**'
   pull_request:
     paths-ignore:
       - '**.md'
       - 'dist/altstore/**'
+      - 'dist/readme/**'
   workflow_dispatch:
     inputs:
       release:
