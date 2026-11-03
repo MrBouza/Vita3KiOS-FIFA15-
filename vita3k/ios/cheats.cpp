@@ -33,6 +33,7 @@
 #include <mem/functions.h>
 #include <mem/ptr.h>
 #include <packages/sfo.h>
+#include <patch/patch.h>
 #include <util/log.h>
 
 #include <fmt/format.h>
@@ -545,7 +546,7 @@ void session_started(EmuEnvState &emuenv) {
                 LOG_WARN("Cheat '{}' uses a code type Vita3KiOS does not run yet, skipping it", cheat.info.name);
                 continue;
             }
-            if (!cheat.info.game_version.empty() && cheat.info.game_version != emuenv.app_info.app_version)
+            if (!cheat.info.game_version.empty() && !patch_versions_equal(cheat.info.game_version, emuenv.app_info.app_version))
                 LOG_WARN("Cheat '{}' was made for game version {}, this is version {}: it may not work",
                     cheat.info.name, cheat.info.game_version, emuenv.app_info.app_version);
             LOG_INFO("Cheat enabled: {}", cheat.info.name);
