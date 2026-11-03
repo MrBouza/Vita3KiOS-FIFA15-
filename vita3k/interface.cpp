@@ -45,6 +45,8 @@
 #include <string>
 #include <util/log.h>
 #include <util/string_utils.h>
+
+#include <algorithm>
 #include <util/vector_utils.h>
 #include <util/vita_theme_utils.h>
 
@@ -291,6 +293,14 @@ static std::vector<std::string> get_archive_contents_path(const ZipPtr &zip) {
             vector_utils::push_if_not_exists(content_path, m_filename);
         }
     }
+
+    // Install games before their updates and DLC (ux0-style dumps: app/, patch/, addcont/), or an
+    // update found first would fail with "install app before patch"
+    const auto rank = [](const std::string &path) {
+        const auto lower = string_utils::tolower(path);
+        return lower.contains("addcont/") ? 2 : (lower.contains("patch/") ? 1 : 0);
+    };
+    std::ranges::stable_sort(content_path, [&](const std::string &a, const std::string &b) { return rank(a) < rank(b); });
 
     return content_path;
 }

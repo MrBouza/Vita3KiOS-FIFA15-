@@ -130,6 +130,70 @@ struct InstallOutcome {
     std::vector<std::string> errors; // readable reasons, shown to the user
 };
 
+bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &zrif_in, v3k_progress_fn progress, void *context, InstallOutcome &outcome);
+
+// Games first, then updates, then DLC: an update or DLC needs its game installed
+int pkg_order(const fs::path &pkg) {
+    PkgInfo info;
+    if (!read_pkg_info(pkg, info))
+        return 3;
+    return info.kind == "game" ? 0 : info.kind == "update" ? 1
+        : info.kind == "dlc"                               ? 2
+                                                           : 3;
+}
+
+// Extracts the .pkg files of a zip (with any .zrif next to them) and installs them. Returns how
+// many installed; failures are counted in outcome.
+int install_pkgs_in_zip(EmuEnvState &emuenv, const fs::path &zip_path, v3k_progress_fn progress, void *context, InstallOutcome &outcome) {
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_file(&zip, zip_path.string().c_str(), 0))
+        return 0;
+    std::vector<mz_uint> entries;
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint i = 0; i < count; i++) {
+        char name[1024];
+        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
+        const std::string lower = string_utils::tolower(name);
+        if (!mz_zip_reader_is_file_a_directory(&zip, i) && (lower.ends_with(".pkg") || lower.ends_with(".zrif"))
+            && !lower.starts_with("__macosx"))
+            entries.push_back(i);
+    }
+    if (std::none_of(entries.begin(), entries.end(), [&](mz_uint i) {
+            char name[1024];
+            mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
+            return string_utils::tolower(name).ends_with(".pkg");
+        })) {
+        mz_zip_reader_end(&zip);
+        return 0;
+    }
+
+    const fs::path temp = emuenv.cache_path / "zip-pkg" / zip_path.stem();
+    std::error_code ec;
+    fs::remove_all(temp, ec);
+    fs::create_directories(temp, ec);
+    std::vector<fs::path> pkgs;
+    for (const mz_uint i : entries) {
+        char name[1024];
+        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
+        const fs::path out = temp / fs::path(name).filename();
+        if (mz_zip_reader_extract_to_file(&zip, i, out.string().c_str(), 0) && string_utils::tolower(out.extension().string()) == ".pkg")
+            pkgs.push_back(out);
+    }
+    mz_zip_reader_end(&zip);
+
+    std::ranges::stable_sort(pkgs, [](const fs::path &a, const fs::path &b) { return pkg_order(a) < pkg_order(b); });
+    int installed = 0;
+    for (const auto &pkg : pkgs) {
+        LOG_INFO("Installing {} from {}", pkg.filename().string(), zip_path.filename().string());
+        if (install_file(emuenv, pkg, {}, progress, context, outcome))
+            installed++;
+        else
+            outcome.failed++;
+    }
+    fs::remove_all(temp, ec);
+    return installed;
+}
+
 // Installs one file. Folders are handled by install_path.
 bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &zrif_in, v3k_progress_fn progress, void *context, InstallOutcome &outcome) {
     const auto report = [&](float percent) {
@@ -146,6 +210,8 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
         return true;
     }
     case 2: {
+        // .pkg files inside the zip (often updates or DLC): extracted and installed like loose ones
+        const int pkg_results = install_pkgs_in_zip(emuenv, file, progress, context, outcome);
         const auto reinstall = [](const std::string &, const std::string &) { return true; };
         const auto progress_fn = [&](ArchiveContents contents) {
             if (contents.progress)
@@ -153,7 +219,8 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
             else if (contents.count && contents.current && *contents.count > 0)
                 report(*contents.current / *contents.count * 100.f);
         };
-        return !install_archive(emuenv, file, progress_fn, reinstall).empty();
+        const bool archive_installed = !install_archive(emuenv, file, progress_fn, reinstall).empty();
+        return archive_installed || pkg_results > 0;
     }
     case 3: {
         std::string zrif = zrif_in.empty() ? read_zrif(file) : zrif_in;
@@ -198,8 +265,10 @@ void install_path(EmuEnvState &emuenv, const fs::path &path, const std::string &
         if (entry.is_regular_file() && kind_of(entry.path()) != 0)
             files.push_back(entry.path());
     }
+    // Firmware first, then everything else, with packages ordered game > update > DLC
     std::ranges::stable_sort(files, [](const fs::path &a, const fs::path &b) {
-        return (kind_of(a) == 1) > (kind_of(b) == 1);
+        const auto rank = [](const fs::path &f) { return kind_of(f) == 1 ? -1 : (kind_of(f) == 3 ? pkg_order(f) : 0); };
+        return rank(a) < rank(b);
     });
     for (const auto &file : files) {
         if (install_file(emuenv, file, {}, progress, context, outcome))
