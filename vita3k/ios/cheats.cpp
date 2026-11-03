@@ -28,9 +28,11 @@
 #include <ctrl/ctrl.h>
 #include <ctrl/functions.h>
 #include <emuenv/state.h>
+#include <io/state.h>
 #include <kernel/state.h>
 #include <mem/functions.h>
 #include <mem/ptr.h>
+#include <packages/sfo.h>
 #include <util/log.h>
 
 #include <fmt/format.h>
