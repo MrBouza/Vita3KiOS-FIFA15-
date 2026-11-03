@@ -28,7 +28,7 @@ void set_gyro_bias_correction(MotionState &state, SceBool setValue);
 SceBool get_tilt_correction(MotionState &state);
 void set_tilt_correction(MotionState &state, SceBool setValue);
 SceBool get_deadband(MotionState &state);
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(VITA3K_PLATFORM_IOS)
 void set_display_rotation(MotionState &state, int rotation);
 #endif
 void set_deadband(MotionState &state, SceBool setValue);

@@ -121,6 +121,8 @@ void v3k_request_launch(const char *title_id);
 // Title ID from a vita3k://launch/<ID> link or a Home Screen quick action, or NULL (free the string).
 // A "V3KLaunchRequest" notification is posted when one arrives.
 char *v3k_take_launch_request(void);
+// Path of a file opened with "Open in Vita3K", or NULL (free the string). Same notification.
+char *v3k_take_import_request(void);
 
 // ---- In-game extras (ios/game_extras.cpp), carried out on the next frame ----
 // Saves the current frame to Photos and to <Vita3K folder>/screenshots

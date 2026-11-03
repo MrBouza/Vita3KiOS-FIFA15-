@@ -62,6 +62,14 @@ enum LibraryHost {
 
     /// vita3k://launch/<ID> links and Home Screen quick actions
     static func takeLaunchRequest() {
+        // Files opened with "Open in Vita3K" are installed once the library is showing
+        if window?.isHidden == false {
+            var urls: [URL] = []
+            while let path = takeString(v3k_take_import_request()) {
+                urls.append(URL(fileURLWithPath: path))
+            }
+            if !urls.isEmpty { model.enqueue(urls) }
+        }
         if let titleId = takeString(v3k_take_launch_request()) {
             externalLaunch = titleId
         }

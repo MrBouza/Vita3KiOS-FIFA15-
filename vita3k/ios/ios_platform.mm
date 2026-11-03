@@ -30,6 +30,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <vector>
 #include <sys/sysctl.h>
 #include <unistd.h>
 
@@ -317,15 +318,33 @@ void save_image_to_photos(const std::string &path) {
 // Launch links and Home Screen quick actions --------------------------------------------------
 //
 // vita3k://launch/<TITLE ID> starts a game (Shortcuts can put one on the Home Screen with its own
-// icon), and long-pressing the app icon lists the last games played. SDL owns the app delegate, so
-// its URL handler is wrapped and a quick-action handler is added when the binary loads.
+// icon), and long-pressing the app icon lists the last games played. SDL owns the scene delegate, so
+// its URL handler is wrapped and quick-action handlers are added when the binary loads.
 
 namespace {
 
 std::mutex launch_request_mutex;
 std::string launch_request;
 
+std::vector<std::string> import_requests;
+
+// "Open in Vita3K" from Files, Safari or another app: the file is installed from the library
+bool take_import_url(NSURL *url) {
+    if (!url.isFileURL)
+        return false;
+    // Opened in place: keep access for this run, the install reads it later
+    [url startAccessingSecurityScopedResource];
+    {
+        const std::lock_guard lock(launch_request_mutex);
+        import_requests.push_back(url.path.UTF8String);
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:@"V3KLaunchRequest" object:nil];
+    return true;
+}
+
 bool take_launch_url(NSURL *url) {
+    if (take_import_url(url))
+        return true;
     if (![url.scheme.lowercaseString isEqualToString:@"vita3k"])
         return false;
     // vita3k://launch/PCSE00000 or vita3k://PCSE00000
@@ -342,23 +361,37 @@ bool take_launch_url(NSURL *url) {
     return true;
 }
 
-IMP original_open_url = nullptr;
+IMP original_handle_url = nullptr;
+IMP original_will_connect = nullptr;
 
-BOOL v3k_open_url(id self, SEL cmd, UIApplication *app, NSURL *url, NSDictionary *options) {
+// SDL routes every URL it is given (at launch and later) through -handleURL:
+void v3k_handle_url(id self, SEL cmd, NSURL *url) {
     if (take_launch_url(url))
-        return YES;
-    if (original_open_url)
-        return reinterpret_cast<BOOL (*)(id, SEL, UIApplication *, NSURL *, NSDictionary *)>(original_open_url)(self, cmd, app, url, options);
-    return NO;
+        return;
+    if (original_handle_url)
+        reinterpret_cast<void (*)(id, SEL, NSURL *)>(original_handle_url)(self, cmd, url);
 }
 
-void v3k_perform_shortcut(id, SEL, UIApplication *, UIApplicationShortcutItem *item, void (^completion)(BOOL)) {
+bool take_shortcut(UIApplicationShortcutItem *item) {
     NSString *title_id = (NSString *)item.userInfo[@"titleId"];
-    BOOL handled = NO;
-    if (title_id.length)
-        handled = take_launch_url([NSURL URLWithString:[@"vita3k://launch/" stringByAppendingString:title_id]]);
+    if (!title_id.length)
+        return false;
+    return take_launch_url([NSURL URLWithString:[@"vita3k://launch/" stringByAppendingString:title_id]]);
+}
+
+// Quick action while Vita3K is running
+void v3k_perform_shortcut(id, SEL, UIWindowScene *, UIApplicationShortcutItem *item, void (^completion)(BOOL)) {
+    const bool handled = take_shortcut(item);
     if (completion)
         completion(handled);
+}
+
+// Quick action that launched Vita3K
+void v3k_will_connect(id self, SEL cmd, UIScene *scene, UISceneSession *session, UISceneConnectionOptions *options) {
+    if (options.shortcutItem)
+        take_shortcut(options.shortcutItem);
+    if (original_will_connect)
+        reinterpret_cast<void (*)(id, SEL, UIScene *, UISceneSession *, UISceneConnectionOptions *)>(original_will_connect)(self, cmd, scene, session, options);
 }
 
 } // namespace
@@ -368,18 +401,27 @@ void v3k_perform_shortcut(id, SEL, UIApplication *, UIApplicationShortcutItem *i
 
 @implementation V3KLaunchLinks
 + (void)load {
-    Class delegate = NSClassFromString(@"SDLUIKitDelegate");
+    // SDL's scene delegate (SDL_uikitappdelegate.m) is also the app delegate
+    Class delegate = NSClassFromString(@"SDLUIKitSceneDelegate");
     if (!delegate)
         return;
-    const SEL open_url = @selector(application:openURL:options:);
-    if (Method method = class_getInstanceMethod(delegate, open_url))
-        original_open_url = method_setImplementation(method, reinterpret_cast<IMP>(v3k_open_url));
-    else
-        class_addMethod(delegate, open_url, reinterpret_cast<IMP>(v3k_open_url), "B@:@@@");
-    class_addMethod(delegate, @selector(application:performActionForShortcutItem:completionHandler:),
+    if (Method method = class_getInstanceMethod(delegate, NSSelectorFromString(@"handleURL:")))
+        original_handle_url = method_setImplementation(method, reinterpret_cast<IMP>(v3k_handle_url));
+    if (Method method = class_getInstanceMethod(delegate, @selector(scene:willConnectToSession:options:)))
+        original_will_connect = method_setImplementation(method, reinterpret_cast<IMP>(v3k_will_connect));
+    class_addMethod(delegate, @selector(windowScene:performActionForShortcutItem:completionHandler:),
         reinterpret_cast<IMP>(v3k_perform_shortcut), "v@:@@@?");
 }
 @end
+
+extern "C" char *v3k_take_import_request(void) {
+    const std::lock_guard lock(launch_request_mutex);
+    if (import_requests.empty())
+        return nullptr;
+    char *copy = strdup(import_requests.front().c_str());
+    import_requests.erase(import_requests.begin());
+    return copy;
+}
 
 extern "C" char *v3k_take_launch_request(void) {
     const std::lock_guard lock(launch_request_mutex);

@@ -94,6 +94,81 @@
 	<key>NSMotionUsageDescription</key>
 	<string>Some PS Vita games are controlled by tilting.</string>
 
+	<!-- "Open in Vita3K" for games, packages and firmware (Alternate: Vita3K never takes over zips) -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>PS Vita content</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.vita3k.vpk</string>
+				<string>org.vita3k.pkg</string>
+				<string>org.vita3k.pup</string>
+				<string>public.zip-archive</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.vita3k.vpk</string>
+			<key>UTTypeDescription</key>
+			<string>PS Vita homebrew package</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.zip-archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>vpk</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.vita3k.pkg</string>
+			<key>UTTypeDescription</key>
+			<string>PS Vita package</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>pkg</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.vita3k.pup</string>
+			<key>UTTypeDescription</key>
+			<string>PS Vita firmware</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>pup</string>
+					<string>PUP</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+
 	<!-- vita3k://launch/<TITLE ID> starts a game, e.g. from a Home Screen shortcut -->
 	<key>CFBundleURLTypes</key>
 	<array>
