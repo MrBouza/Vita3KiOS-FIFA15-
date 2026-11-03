@@ -34,6 +34,11 @@
 #include <chrono>
 #include <string>
 
+#if defined(VITA3K_PLATFORM_IOS)
+#include <pthread.h>
+#include <sys/qos.h>
+#endif
+
 #include <SDL3/SDL_mutex.h>
 #include <SDL3/SDL_thread.h>
 
@@ -67,6 +72,11 @@ static int SDLCALL thread_function(void *data) {
     ThreadParams params = *static_cast<const ThreadParams *>(data);
     SDL_SignalSemaphore(params.host_may_destroy_params);
     ThreadStatePtr thread = std::move(params.thread);
+#if defined(VITA3K_PLATFORM_IOS)
+    // Guest threads are the game itself: ask iOS for the performance cores instead of letting the
+    // scheduler park them on efficiency cores (default QoS)
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
 #ifdef TRACY_ENABLE
     if (!thread->name.empty()) {
         tracy::SetThreadName(thread->name.c_str());
@@ -232,6 +242,8 @@ void KernelState::process_exit() {
 
     std::unique_lock<std::mutex> lock(mutex);
 #if defined(VITA3K_PLATFORM_IOS)
+    if (threads_left_running)
+        return; // already waited once this shutdown
     // A guest thread stuck in a host call never ends: waiting for it forever left Quit hanging until the
     // app was killed. Give the threads a few seconds, then go back to the library without them.
     if (!thread_deleted_cond.wait_for(lock, std::chrono::seconds(5), [this] { return threads.empty(); })) {
@@ -239,6 +251,7 @@ void KernelState::process_exit() {
         for (const auto &[id, thread] : threads)
             names += fmt::format("{}{} (#{})", names.empty() ? "" : ", ", thread->name, id);
         LOG_ERROR("Shutdown: {} guest thread(s) did not end within 5 seconds, leaving them: {}", threads.size(), names);
+        threads_left_running = true;
         return;
     }
 #else

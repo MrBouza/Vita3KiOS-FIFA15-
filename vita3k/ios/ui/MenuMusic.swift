@@ -481,6 +481,18 @@ final class MenuMusic: ObservableObject {
         center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { if MenuMusic.shared.wanted { MenuMusic.shared.resume() } }
         }
+        // The engine stops by itself whenever the audio session is reconfigured (SDL opening or closing
+        // a game's audio, a route change, a call): start it again if the music should be playing
+        center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                v3k_log_ui("Menu music: audio configuration changed, restarting")
+                if MenuMusic.shared.wanted { MenuMusic.shared.resume() }
+            }
+        }
+        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
+            let ended = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.ended.rawValue
+            MainActor.assumeIsolated { if ended && MenuMusic.shared.wanted { MenuMusic.shared.resume() } }
+        }
     }
 
     private func setUp() {
@@ -531,11 +543,33 @@ final class MenuMusic: ObservableObject {
     }
 
     private func resume() {
-        // Don't talk over the user's own music or podcast
-        guard enabled, !AVAudioSession.sharedInstance().isOtherAudioPlaying else { return }
+        guard enabled else { return }
+        let session = AVAudioSession.sharedInstance()
+        // Stay quiet only while another app plays audio that wants to be heard alone (music, podcast)
+        if session.secondaryAudioShouldBeSilencedHint {
+            v3k_log_ui("Menu music: another app is playing audio, staying quiet")
+            return
+        }
+        // A game's audio may have deactivated the session when it closed
+        do {
+            if session.category != .playback {
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            }
+            try session.setActive(true)
+        } catch {
+            v3k_log_ui("Menu music: audio session error: \(error.localizedDescription)")
+        }
         setUp()
         stopWork?.cancel()
-        if !engine.isRunning { try? engine.start() }
+        if !engine.isRunning {
+            engine.prepare()
+            do {
+                try engine.start()
+                v3k_log_ui("Menu music: playing at \(Int(engine.outputNode.outputFormat(forBus: 0).sampleRate)) Hz")
+            } catch {
+                v3k_log_ui("Menu music: could not start audio: \(error.localizedDescription)")
+            }
+        }
         synth?.fadeIn()
         startTitleUpdates()
     }

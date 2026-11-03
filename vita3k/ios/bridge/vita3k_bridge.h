@@ -97,7 +97,12 @@ char *v3k_controller_binds_json(void);
 bool v3k_set_controller_bind(int slot, int physical_button);
 void v3k_reset_controller_binds(void);
 
+// "Fast CPU": floating-point shortcuts in the recompiler, for games started afterwards
+void v3k_set_fast_cpu(bool enabled);
+
 // ---- Misc ----
+// Writes a line from the Swift UI to vita3k.log
+void v3k_log_ui(const char *message);
 // Path of vita3k.log, for sharing
 const char *v3k_log_path(void);
 

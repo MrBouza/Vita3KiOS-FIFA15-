@@ -123,6 +123,8 @@ struct KernelState {
     KernelObjects objects;
 
     ThreadStatePtrs threads;
+    // iOS: set when shutdown gave up waiting for some guest threads; their memory must not be freed
+    bool threads_left_running = false;
     void *jni_env;
     void *jni_activity;
 

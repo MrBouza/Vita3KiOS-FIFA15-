@@ -69,6 +69,14 @@
 	</array>
 
 	<!-- ProMotion displays: allow frame pacing above 60 Hz -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.games</string>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>GCSupportsGameMode</key>
+	<true/>
+	<key>GCSupportsControllerUserInteraction</key>
+	<true/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<!-- Game controllers can drive the app, not only the touch screen -->

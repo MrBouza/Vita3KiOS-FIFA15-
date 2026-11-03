@@ -551,6 +551,13 @@ void shutdown_app_runtime(EmuEnvState &state) {
     state.renderer->cleanup();
     state.renderer.reset();
 
+    if (state.kernel.threads_left_running) {
+        // Guest threads that never ended may still touch guest memory: leak it rather than free it
+        // under them (a crash on Quit). The next game gets a fresh address range.
+        LOG_WARN("Shutdown: keeping the guest memory of the stuck threads allocated");
+        (void)state.mem.memory.release();
+        state.kernel.threads_left_running = false;
+    }
     deinit_mem(state.mem);
     step_done("cleanup");
     LOG_INFO("Shutdown: done");

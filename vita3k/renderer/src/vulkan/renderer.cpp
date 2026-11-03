@@ -502,6 +502,10 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
 #ifdef __APPLE__
         const VkBool32 full_image_swizzle = VK_TRUE;
         const VkBool32 resume_lost_device = VK_TRUE;
+        // Queue submissions return without waiting for Metal to encode them, so the emulator thread
+        // keeps going while the GPU work is encoded, and Metal compiles shaders on several cores
+        const VkBool32 synchronous_queue_submits = VK_FALSE;
+        const VkBool32 concurrent_compilation = VK_TRUE;
 #ifndef NDEBUG
         const VkBool32 debug = VK_TRUE;
         const int32_t log_level = 4;
@@ -511,6 +515,10 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
                 &full_image_swizzle },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_RESUME_LOST_DEVICE", vk::LayerSettingTypeEXT::eBool32, 1,
                 &resume_lost_device },
+            { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", vk::LayerSettingTypeEXT::eBool32, 1,
+                &synchronous_queue_submits },
+            { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION", vk::LayerSettingTypeEXT::eBool32, 1,
+                &concurrent_compilation },
 #ifndef NDEBUG
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_DEBUG", vk::LayerSettingTypeEXT::eBool32, 1, &debug },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_LOG_LEVEL", vk::LayerSettingTypeEXT::eInt32, 1, &log_level },

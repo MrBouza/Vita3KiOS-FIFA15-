@@ -39,6 +39,8 @@ struct EmulatorSettings: Codable {
     var turboMode: Bool = false
     var pstvMode: Bool = false
     var memoryMapping: Bool = true
+    var fpsHack: Bool = false
+    var asyncShaders: Bool = true
 }
 
 struct StorageInfo: Codable {
@@ -159,6 +161,7 @@ final class LibraryModel: ObservableObject {
     }
 
     func launch(_ app: GameApp) {
+        v3k_set_fast_cpu(UserDefaults.standard.bool(forKey: "v3k.fastCPU"))
         v3k_request_launch(app.titleId)
     }
 

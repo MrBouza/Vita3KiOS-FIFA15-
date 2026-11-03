@@ -228,18 +228,33 @@ struct TouchControlsSection: View {
 
 struct EmulationSections: View {
     @EnvironmentObject var model: LibraryModel
+    @AppStorage("v3k.fastCPU") private var fastCPU = false
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
     private let anisotropy = [1, 2, 4, 8, 16]
     private let filters = ["Nearest", "Bilinear", "Bicubic", "FXAA", "FSR"]
 
     var body: some View {
-        Section("Graphics") {
-            Picker("Resolution", selection: binding(\.resolutionMultiplier) { model.setNumber("resolution-multiplier", $0) }) {
+        Section {
+            Picker("Internal resolution", selection: binding(\.resolutionMultiplier) { model.setNumber("resolution-multiplier", $0) }) {
                 ForEach(resolutions, id: \.self) { value in
                     Text(label(for: value)).tag(value)
                 }
             }
+            Toggle(isOn: binding(\.fpsHack) { model.setBool("fps-hack", $0) }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("60 FPS mode")
+                    Text("Runs games that are locked to 30 FPS at 60. Works in many games; in some, the whole game speeds up 2×, so turn it off for those (or per game). A game's 60 FPS patch, if it has one, is the safer choice.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Resolution & frame rate")
+        } footer: {
+            Text("Above 1× (native, 960×544) games are rendered sharper but the GPU works harder: 1.5× or 2× suits most iPhones. For a sharper picture at almost no cost, keep 1× and pick the FSR screen filter below. Applies from the next game launch; you can also set it per game.")
+        }
+
+        Section("Graphics") {
             Picker("Screen filter", selection: binding(\.screenFilter) { model.setString("screen-filter", $0) }) {
                 ForEach(filters, id: \.self) { Text($0).tag($0) }
             }
@@ -257,6 +272,27 @@ struct EmulationSections: View {
                 }
             }
             Toggle("Stretch to screen", isOn: binding(\.stretchDisplay) { model.setBool("stretch-display", $0) })
+        }
+
+        Section {
+            Toggle(isOn: binding(\.asyncShaders) { model.setBool("async-shaders", $0) }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Compile shaders in the background")
+                    Text("Removes most stutter when new effects appear; objects can pop in for a moment.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle(isOn: $fastCPU) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Fast CPU")
+                    Text("Lets the CPU recompiler take floating-point shortcuts. Faster in CPU-heavy games; turn it off if a game shows physics or animation glitches.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Performance")
+        } footer: {
+            Text("Vita3KiOS also keeps game threads on the fast CPU cores, encodes GPU work in parallel and turns on iOS Game Mode automatically.")
         }
 
         Section("System") {

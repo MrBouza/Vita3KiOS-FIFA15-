@@ -337,6 +337,13 @@ public:
 
 static Dynarmic::ExclusiveMonitor shared_monitor(MAX_CORE_COUNT);
 
+#if defined(VITA3K_PLATFORM_IOS)
+static std::atomic_bool ios_fast_cpu{ false };
+void set_ios_fast_cpu(bool enabled) {
+    ios_fast_cpu = enabled;
+}
+#endif
+
 std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     Dynarmic::A32::UserConfig config{};
     config.arch_version = Dynarmic::A32::ArchVersion::v7;
@@ -352,6 +359,11 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     config.coprocessors[15] = cp15;
     config.processor_id = core_id;
     config.optimizations = cpu_opt ? Dynarmic::all_safe_optimizations : Dynarmic::no_optimizations;
+#if defined(VITA3K_PLATFORM_IOS)
+    if (cpu_opt && ios_fast_cpu)
+        config.optimizations |= Dynarmic::OptimizationFlag::Unsafe_InaccurateNaN | Dynarmic::OptimizationFlag::Unsafe_ReducedErrorFP
+            | Dynarmic::OptimizationFlag::Unsafe_IgnoreStandardFPCRValue;
+#endif
     config.enable_cycle_counting = false;
 #if defined(VITA3K_PLATFORM_IOS)
     // From Tsubomi: Vita3K owns one Dynarmic JIT per guest thread. On iOS 26+ each cache also has a

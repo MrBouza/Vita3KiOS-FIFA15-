@@ -86,4 +86,9 @@ std::size_t ios_jit_code_cache_pool_progress();
 // Prepared code caches currently free in the pool
 std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size);
 #endif
+#if defined(VITA3K_PLATFORM_IOS)
+// "Fast CPU": lets the recompiler take floating-point shortcuts (NaN handling, reciprocal precision,
+// FPCR). Faster, and almost always invisible. Applies to threads created afterwards.
+void set_ios_fast_cpu(bool enabled);
+#endif
 CPUState *get_current_cpu_state();

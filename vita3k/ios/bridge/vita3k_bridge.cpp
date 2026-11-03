@@ -29,6 +29,7 @@
 #include <config/settings.h>
 #include <config/state.h>
 #include <config/version.h>
+#include <cpu/functions.h>
 #include <io/state.h>
 #include <miniz.h>
 #include <packages/functions.h>
@@ -413,11 +414,11 @@ char *v3k_settings_json(void) {
     const std::string json = fmt::format(
         R"({{"resolutionMultiplier":{},"anisotropicFiltering":{},"audioVolume":{},"screenFilter":{},)"
         R"("vSync":{},"cpuOpt":{},"ngsEnable":{},"highAccuracy":{},"stretchDisplay":{},)"
-        R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{}}})",
+        R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{},"fpsHack":{},"asyncShaders":{}}})",
         cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, quoted(cfg.screen_filter),
         b(cfg.v_sync), b(cfg.cpu_opt), b(cfg.ngs_enable), b(cfg.high_accuracy), b(cfg.stretch_the_display_area),
         b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode),
-        b(cfg.memory_mapping != "disabled"));
+        b(cfg.memory_mapping != "disabled"), b(cfg.fps_hack), b(cfg.async_pipeline_compilation));
     return dup_string(json);
 }
 
@@ -475,6 +476,10 @@ bool v3k_set_setting_bool(const char *key, bool value) {
         cfg.turbo_mode = value;
     } else if (k == "pstv-mode") {
         cfg.pstv_mode = value;
+    } else if (k == "fps-hack") {
+        cfg.fps_hack = cfg.current_config.fps_hack = value;
+    } else if (k == "async-shaders") {
+        cfg.async_pipeline_compilation = cfg.current_config.async_pipeline_compilation = value;
     } else if (k == "memory-mapping") {
         cfg.memory_mapping = cfg.current_config.memory_mapping = value ? "double-buffer" : "disabled";
     } else {
@@ -1102,4 +1107,13 @@ bool v3k_delete_mods(const char *title_id) {
     fs::remove_all(mod_folder(*emuenv, title_id, true), ec);
     fs::remove_all(mod_folder(*emuenv, title_id, false), ec);
     return !ec;
+}
+
+void v3k_log_ui(const char *message) {
+    if (message)
+        LOG_INFO("{}", message);
+}
+
+void v3k_set_fast_cpu(bool enabled) {
+    set_ios_fast_cpu(enabled);
 }

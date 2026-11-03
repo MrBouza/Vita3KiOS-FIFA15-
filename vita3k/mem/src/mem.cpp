@@ -461,7 +461,8 @@ void remove_external_mapping(MemState &mem, uint8_t *addr_ptr, uint32_t size) {
     {
         const std::unique_lock<std::mutex> lock(mem.protect_mutex);
         auto prot_it = mem.protect_tree.lower_bound(mapping.address);
-        if (prot_it->first + prot_it->second.size <= mapping.address) {
+        // lower_bound is end() when no segment starts at or below the address: don't dereference it
+        if (prot_it != mem.protect_tree.end() && prot_it->first + prot_it->second.size <= mapping.address) {
             if (prot_it == mem.protect_tree.begin())
                 prot_it = mem.protect_tree.end();
             else

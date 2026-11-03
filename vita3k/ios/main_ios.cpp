@@ -45,6 +45,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -71,6 +72,12 @@ int main(int argc, char *argv[]) {
     (void)argv;
 
     SDL_SetAppMetadata("Vita3K", nullptr, "org.vita3k.ios");
+
+    // MoltenVK reads these when the Vulkan instance is created (the layer settings in renderer.cpp
+    // say the same; this covers builds where that extension is not honoured)
+    setenv("MVK_CONFIG_FULL_IMAGE_VIEW_SWIZZLE", "1", 0);
+    setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 0);
+    setenv("MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION", "1", 0);
 
     const fs::path documents = fs::path(ios::get_documents_path());
     if (!ios::initialize(documents)) {
