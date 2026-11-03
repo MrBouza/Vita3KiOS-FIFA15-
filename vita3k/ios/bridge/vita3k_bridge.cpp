@@ -89,7 +89,7 @@ std::string json_escape(const std::string &value) {
     return out;
 }
 
-std::string quoted(const std::string &value) {
+std::string json_quote(const std::string &value) {
     return "\"" + json_escape(value) + "\"";
 }
 
@@ -287,7 +287,7 @@ char *v3k_apps_json(void) {
         const long long play_time = time != times.end() ? static_cast<long long>(time->second.time_used) : 0;
         const bool custom = emuenv && config::has_custom_config(emuenv->config_path, app.path);
         json += fmt::format(R"({{"titleId":{},"title":{},"version":{},"category":{},"iconPath":{},"path":{},"lastPlayed":{},"playTime":{},"customConfig":{}}})",
-            quoted(app.title_id), quoted(app.title), quoted(app.app_ver), quoted(app.category), quoted(app.icon_path), quoted(app.path), last_played,
+            json_quote(app.title_id), json_quote(app.title), json_quote(app.app_ver), json_quote(app.category), json_quote(app.icon_path), json_quote(app.path), last_played,
             play_time, custom ? "true" : "false");
     }
     json += "]";
@@ -342,8 +342,8 @@ char *v3k_storage_info_json(void) {
         available = ec ? 0 : space.available;
     }
     return dup_string(fmt::format(R"({{"path":{},"custom":{},"freeBytes":{},"totalBytes":{},"note":{}}})",
-        quoted(emuenv->vita_fs_path.string()), ios::using_custom_storage() ? "true" : "false",
-        available, total, quoted(ios::storage_note())));
+        json_quote(emuenv->vita_fs_path.string()), ios::using_custom_storage() ? "true" : "false",
+        available, total, json_quote(ios::storage_note())));
 }
 
 bool v3k_set_storage_folder(const char *folder, char **message) {
@@ -438,7 +438,7 @@ char *v3k_settings_json(void) {
         R"({{"resolutionMultiplier":{},"anisotropicFiltering":{},"audioVolume":{},"screenFilter":{},)"
         R"("vSync":{},"cpuOpt":{},"ngsEnable":{},"highAccuracy":{},"stretchDisplay":{},)"
         R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{},"fpsHack":{},"asyncShaders":{}}})",
-        cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, quoted(cfg.screen_filter),
+        cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, json_quote(cfg.screen_filter),
         b(cfg.v_sync), b(cfg.cpu_opt), b(cfg.ngs_enable), b(cfg.high_accuracy), b(cfg.stretch_the_display_area),
         b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode),
         b(cfg.memory_mapping != "disabled"), b(cfg.fps_hack), b(cfg.async_pipeline_compilation));
@@ -628,7 +628,7 @@ char *v3k_take_crash_report(void) {
     const std::string report = ios::crash::take_previous_report();
     if (report.empty())
         return nullptr;
-    return dup_string(fmt::format(R"({{"report":{},"log":{}}})", quoted(report), quoted(ios::crash::previous_log_path())));
+    return dup_string(fmt::format(R"({{"report":{},"log":{}}})", json_quote(report), json_quote(ios::crash::previous_log_path())));
 }
 
 // ---- Shader cache ----
@@ -664,7 +664,7 @@ char *v3k_game_settings_json(const char *title_id) {
         R"({{"custom":{},"resolutionMultiplier":{},"anisotropicFiltering":{},"screenFilter":{},"memoryMapping":{},)"
         R"("highAccuracy":{},"textureCache":{},"cpuOpt":{},"vSync":{},"fpsHack":{},"disableSurfaceSync":{},)"
         R"("stretchDisplay":{},"asyncShaders":{},"shaderCache":{}}})",
-        b(custom), cc.resolution_multiplier, cc.anisotropic_filtering, quoted(cc.screen_filter), b(cc.memory_mapping != "disabled"),
+        b(custom), cc.resolution_multiplier, cc.anisotropic_filtering, json_quote(cc.screen_filter), b(cc.memory_mapping != "disabled"),
         b(cc.high_accuracy), b(cc.texture_cache), b(cc.cpu_opt), b(cc.v_sync), b(cc.fps_hack), b(cc.disable_surface_sync),
         b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache)));
 }
@@ -912,8 +912,8 @@ char *v3k_patches_json(const char *title_id) {
         if (std::find(entry.title_ids.begin(), entry.title_ids.end(), id) == entry.title_ids.end())
             continue;
         json += fmt::format(R"({}{{"key":{},"name":{},"author":{},"note":{},"version":{},"appVersion":{},"enabled":{},"versionMatches":{}}})",
-            first ? "" : ",", quoted(entry.key()), quoted(entry.name.empty() ? entry.title : entry.name), quoted(entry.author),
-            quoted(entry.note), quoted(entry.patch_ver), quoted(entry.app_ver), enabled.contains(entry.key()) ? "true" : "false",
+            first ? "" : ",", json_quote(entry.key()), json_quote(entry.name.empty() ? entry.title : entry.name), json_quote(entry.author),
+            json_quote(entry.note), json_quote(entry.patch_ver), json_quote(entry.app_ver), enabled.contains(entry.key()) ? "true" : "false",
             version_matches(entry.app_ver, game_version) ? "true" : "false");
         first = false;
     }
@@ -971,16 +971,16 @@ char *v3k_all_patches_json(void) {
         }
         std::string id_list;
         for (const auto &id : ids)
-            id_list += (id_list.empty() ? "" : ",") + quoted(id);
+            id_list += (id_list.empty() ? "" : ",") + json_quote(id);
         std::string patches;
         for (const auto *entry : group) {
             patches += fmt::format(R"({}{{"key":{},"name":{},"author":{},"note":{},"version":{},"appVersion":{},"enabled":{},"versionMatches":{}}})",
-                patches.empty() ? "" : ",", quoted(entry->key()), quoted(entry->name), quoted(entry->author), quoted(entry->note),
-                quoted(entry->patch_ver), quoted(entry->app_ver), enabled.contains(entry->key()) ? "true" : "false",
+                patches.empty() ? "" : ",", json_quote(entry->key()), json_quote(entry->name), json_quote(entry->author), json_quote(entry->note),
+                json_quote(entry->patch_ver), json_quote(entry->app_ver), enabled.contains(entry->key()) ? "true" : "false",
                 owned && version_matches(entry->app_ver, owned->app_ver) ? "true" : "false");
         }
         json += fmt::format(R"({}{{"title":{},"titleIds":[{}],"installedTitleId":{},"installedVersion":{},"patches":[{}]}})",
-            first_group ? "" : ",", quoted(title), id_list, quoted(owned ? owned->title_id : ""), quoted(owned ? owned->app_ver : ""), patches);
+            first_group ? "" : ",", json_quote(title), id_list, json_quote(owned ? owned->title_id : ""), json_quote(owned ? owned->app_ver : ""), patches);
         first_group = false;
     }
     json += "]";
@@ -1003,8 +1003,8 @@ char *v3k_cheats_json(const char *title_id) {
     std::string json = "[";
     for (const auto &cheat : ios::cheats::list(emuenv->patch_path, title_id)) {
         json += fmt::format(R"({}{{"key":{},"name":{},"author":{},"file":{},"gameVersion":{},"supported":{},"enabled":{},"versionMatches":{}}})",
-            json.size() > 1 ? "," : "", quoted(cheat.key), quoted(cheat.name), quoted(cheat.author), quoted(cheat.file),
-            quoted(cheat.game_version), cheat.supported ? "true" : "false", cheat.enabled ? "true" : "false",
+            json.size() > 1 ? "," : "", json_quote(cheat.key), json_quote(cheat.name), json_quote(cheat.author), json_quote(cheat.file),
+            json_quote(cheat.game_version), cheat.supported ? "true" : "false", cheat.enabled ? "true" : "false",
             version_matches(cheat.game_version, game_version) ? "true" : "false");
     }
     json += "]";
@@ -1048,7 +1048,7 @@ char *v3k_mod_info_json(const char *title_id) {
             files += it->is_regular_file(ec) ? 1 : 0;
     }
     return dup_string(fmt::format(R"({{"path":{},"files":{},"bytes":{},"enabled":{}}})",
-        quoted(on.string()), files, folder_size(folder), disabled ? "false" : "true"));
+        json_quote(on.string()), files, folder_size(folder), disabled ? "false" : "true"));
 }
 
 bool v3k_import_mod(const char *title_id, const char *zip_path, char **message) {
@@ -1165,7 +1165,7 @@ char *v3k_pkg_info_json(const char *path) {
     std::error_code ec;
     const bool game_installed = fs::exists(emuenv->vita_fs_path / "ux0/app" / info.title_id, ec);
     return dup_string(fmt::format(R"({{"kind":{},"titleId":{},"title":{},"contentId":{},"zrif":{},"gameInstalled":{}}})",
-        quoted(info.kind), quoted(info.title_id), quoted(info.title), quoted(info.content_id), quoted(zrif),
+        json_quote(info.kind), json_quote(info.title_id), json_quote(info.title), json_quote(info.content_id), json_quote(zrif),
         game_installed ? "true" : "false"));
 }
 
@@ -1193,7 +1193,7 @@ char *v3k_game_content_json(const char *title_id) {
             dlc += entry.is_directory(ec) ? 1 : 0;
     }
     return dup_string(fmt::format(R"({{"update":{},"updateBytes":{},"dlc":{},"dlcBytes":{}}})",
-        quoted(update_version), folder_size(patch_dir), dlc, folder_size(addcont_dir)));
+        json_quote(update_version), folder_size(patch_dir), dlc, folder_size(addcont_dir)));
 }
 
 bool v3k_delete_game_content(const char *title_id, bool update) {
