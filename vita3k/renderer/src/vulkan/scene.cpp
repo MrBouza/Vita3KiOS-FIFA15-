@@ -432,6 +432,37 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         ordered_indices = prepare_ordered_mask_indices(context, type, format, indices, count, mem);
         type = SCE_GXM_PRIMITIVE_TRIANGLES;
     }
+#ifdef __APPLE__
+    // Metal has no triangle fans and MoltenVK does not emulate them (portability subset: triangleFans
+    // is false): a fan drawn anyway comes out as long stray slivers. Expand fans into triangle lists
+    // on the CPU: (v0, vk, vk+1) for each k.
+    std::vector<uint8_t> fan_indices;
+    uint32_t fan_max_index = 0;
+    if (type == SCE_GXM_PRIMITIVE_TRIANGLE_FAN && !ordered_indices) {
+        if (count < 3)
+            return;
+        const size_t fan_index_size = (format == SCE_GXM_INDEX_FORMAT_U16) ? 2 : 4;
+        const size_t triangles = count - 2;
+        fan_indices.resize(triangles * 3 * fan_index_size);
+        const auto expand = [&]<typename T>(const T *source) {
+            T *out = reinterpret_cast<T *>(fan_indices.data());
+            for (size_t i = 0; i < count; i++)
+                fan_max_index = std::max<uint32_t>(fan_max_index, source[i]);
+            for (size_t k = 0; k < triangles; k++) {
+                out[k * 3] = source[0];
+                out[k * 3 + 1] = source[k + 1];
+                out[k * 3 + 2] = source[k + 2];
+            }
+        };
+        if (fan_index_size == 2)
+            expand(static_cast<const uint16_t *>(indices_ptr));
+        else
+            expand(static_cast<const uint32_t *>(indices_ptr));
+        count = triangles * 3;
+        type = SCE_GXM_PRIMITIVE_TRIANGLES;
+        LOG_INFO_ONCE("Triangle fans are drawn as triangle lists (Metal has no triangle fans)");
+    }
+#endif
     if (masked_fetch)
         LOG_INFO_ONCE("Using late-tested framebuffer fetch for rejecting GXM masks; programmable blending is ordered per primitive when rasterization-order attachment access is unavailable");
 
@@ -562,7 +593,14 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     const size_t index_size = (format == SCE_GXM_INDEX_FORMAT_U16) ? 2 : 4;
 
     uint32_t max_index = 0;
-    if (use_memory_mapping) {
+#ifdef __APPLE__
+    if (!fan_indices.empty()) {
+        context.index_stream_ring_buffer.allocate(context.prerender_cmd, static_cast<uint32_t>(fan_indices.size()), fan_indices.data());
+        context.render_cmd.bindIndexBuffer(context.index_stream_ring_buffer.handle(), context.index_stream_ring_buffer.data_offset, index_type);
+        max_index = fan_max_index;
+    } else
+#endif
+        if (use_memory_mapping) {
         auto [buffer, offset] = context.state.get_matching_mapping(indices);
         if (context.state.mapping_method == MappingMethod::DoubleBuffer) {
             TrappedBuffer *trapped_buffer = context.state.buffer_trapping.access_buffer(indices.address(), count * index_size, mem);

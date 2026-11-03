@@ -34,6 +34,7 @@
 #include <miniz.h>
 #include <packages/functions.h>
 #include <packages/pkg.h>
+#include <packages/sfo.h>
 #include <patch/patch.h>
 #include <renderer/state.h>
 #include <util/log.h>
@@ -54,6 +55,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -125,6 +127,7 @@ struct InstallOutcome {
     int installed = 0;
     int failed = 0;
     std::string firmware_version;
+    std::vector<std::string> errors; // readable reasons, shown to the user
 };
 
 // Installs one file. Folders are handled by install_path.
@@ -154,6 +157,17 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
     }
     case 3: {
         std::string zrif = zrif_in.empty() ? read_zrif(file) : zrif_in;
+        PkgInfo info;
+        const bool have_info = read_pkg_info(file, info);
+        if (zrif.empty() && have_info) {
+            // Updates use the game's license; a game or DLC may already have its own on the device
+            zrif = find_title_zrif(emuenv.vita_fs_path, info.title_id, info.content_id);
+        }
+        if (have_info && info.kind == "update" && !fs::exists(emuenv.vita_fs_path / "ux0/app" / info.title_id)) {
+            outcome.errors.push_back(fmt::format("{}: install the game ({}) before its update", file.filename().string(), info.title_id));
+            return false;
+        }
+        LOG_INFO("Installing {} ({} {}), license {}", file.filename().string(), info.kind, info.title_id, zrif.empty() ? "not found" : "found");
         return install_pkg(file, emuenv, zrif, [&](float p) { report(p); });
     }
     default:
@@ -402,9 +416,11 @@ bool v3k_install(const char *path, const char *zrif, v3k_progress_fn progress, v
             if (!text.empty())
                 text += " ";
             text += outcome.installed == 0 && outcome.failed == 1
-                ? "Installation failed. Check that the file is valid, and that a .pkg has its zRIF license."
+                ? (outcome.errors.empty() ? "Installation failed. Check that the file is valid, and that a game or DLC .pkg has its zRIF license." : "")
                 : fmt::format("{} item(s) failed.", outcome.failed);
         }
+        for (const auto &error : outcome.errors)
+            text += (text.empty() ? "" : "\n") + error;
         if (text.empty())
             text = "Nothing to install was found there.";
         *message = dup_string(text);
@@ -1138,4 +1154,54 @@ char *v3k_perf_json(void) {
         emuenv->fps, emuenv->avg_fps, emuenv->min_fps, emuenv->max_fps, emuenv->ms_per_frame, stats.cpu_percent,
         stats.memory_used, stats.memory_available, cc.resolution_multiplier,
         static_cast<int>(960 * cc.resolution_multiplier), static_cast<int>(544 * cc.resolution_multiplier), compiled));
+}
+
+char *v3k_pkg_info_json(const char *path) {
+    auto *emuenv = ios::get_emuenv();
+    PkgInfo info;
+    if (!emuenv || !path || !read_pkg_info(fs::path(path), info))
+        return nullptr;
+    const std::string zrif = find_title_zrif(emuenv->vita_fs_path, info.title_id, info.content_id);
+    std::error_code ec;
+    const bool game_installed = fs::exists(emuenv->vita_fs_path / "ux0/app" / info.title_id, ec);
+    return dup_string(fmt::format(R"({{"kind":{},"titleId":{},"title":{},"contentId":{},"zrif":{},"gameInstalled":{}}})",
+        quoted(info.kind), quoted(info.title_id), quoted(info.title), quoted(info.content_id), quoted(zrif),
+        game_installed ? "true" : "false"));
+}
+
+char *v3k_game_content_json(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return dup_string("{}");
+    std::error_code ec;
+    const auto patch_dir = emuenv->vita_fs_path / "ux0/patch" / title_id;
+    std::string update_version;
+    if (fs::exists(patch_dir / "sce_sys/param.sfo", ec)) {
+        std::vector<uint8_t> content;
+        if (fs_utils::read_data(patch_dir / "sce_sys/param.sfo", content)) {
+            SfoFile sfo_file;
+            if (sfo::load(sfo_file, content))
+                sfo::get_data_by_key(update_version, sfo_file, "APP_VER");
+        }
+        if (update_version.empty())
+            update_version = "installed";
+    }
+    int dlc = 0;
+    const auto addcont_dir = emuenv->vita_fs_path / "ux0/addcont" / title_id;
+    if (fs::is_directory(addcont_dir, ec)) {
+        for (const auto &entry : fs::directory_iterator(addcont_dir, ec))
+            dlc += entry.is_directory(ec) ? 1 : 0;
+    }
+    return dup_string(fmt::format(R"({{"update":{},"updateBytes":{},"dlc":{},"dlcBytes":{}}})",
+        quoted(update_version), folder_size(patch_dir), dlc, folder_size(addcont_dir)));
+}
+
+bool v3k_delete_game_content(const char *title_id, bool update) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return false;
+    std::error_code ec;
+    fs::remove_all(emuenv->vita_fs_path / "ux0" / (update ? "patch" : "addcont") / title_id, ec);
+    LOG_INFO("Deleted the {} of {}: {}", update ? "update" : "DLC", title_id, ec ? ec.message() : "ok");
+    return !ec;
 }

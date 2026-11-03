@@ -49,6 +49,13 @@ struct GameCheat: Codable, Identifiable {
     var id: String { key }
 }
 
+struct GameContent: Codable {
+    var update = ""
+    var updateBytes: Double = 0
+    var dlc = 0
+    var dlcBytes: Double = 0
+}
+
 struct ModInfo: Codable {
     var path = ""
     var files = 0
@@ -80,6 +87,7 @@ struct GameSettingsView: View {
     @State private var cheatsDownloaded = false
     @State private var showUnsupportedCheats = false
     @State private var mod = ModInfo()
+    @State private var content = GameContent()
     @State private var confirmDeleteMods = false
     @State private var confirmDeleteSave = false
     @State private var confirmDeleteGame = false
@@ -93,6 +101,7 @@ struct GameSettingsView: View {
             Form {
                 header
                 settingsSection
+                contentSection
                 patchesSection
                 cheatsSection
                 modsSection
@@ -264,6 +273,33 @@ struct GameSettingsView: View {
         }
     }
 
+    private var contentSection: some View {
+        Section {
+            LabeledContent("Update", value: content.update.isEmpty ? "None" : "v\(content.update) · \(size(content.updateBytes))")
+            LabeledContent("DLC", value: content.dlc == 0 ? "None" : "\(content.dlc) · \(size(content.dlcBytes))")
+            if !content.update.isEmpty {
+                Button("Delete update", role: .destructive) {
+                    _ = v3k_delete_game_content(app.titleId, true)
+                    load()
+                }
+            }
+            if content.dlc > 0 {
+                Button("Delete all DLC", role: .destructive) {
+                    _ = v3k_delete_game_content(app.titleId, false)
+                    load()
+                }
+            }
+        } header: {
+            Text("Updates & DLC")
+        } footer: {
+            Text("Install updates and DLC like games: + › Files, as .pkg, .vpk, .zip or a dumped folder. Updates don't need a zRIF: they use the game's license.")
+        }
+    }
+
+    private func size(_ bytes: Double) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
     private var downloadButton: some View {
         Button {
             downloadPatches()
@@ -402,6 +438,10 @@ struct GameSettingsView: View {
         if let json = takeString(v3k_cheats_json(app.titleId)), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode([GameCheat].self, from: data) {
             cheats = decoded
+        }
+        if let json = takeString(v3k_game_content_json(app.titleId)), let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(GameContent.self, from: data) {
+            content = decoded
         }
         if let json = takeString(v3k_mod_info_json(app.titleId)), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(ModInfo.self, from: data) {

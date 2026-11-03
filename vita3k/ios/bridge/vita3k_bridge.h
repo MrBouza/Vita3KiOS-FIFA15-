@@ -76,6 +76,10 @@ int v3k_install_kind(const char *path);
 // On return *message (if not NULL) holds a human-readable summary to free with v3k_free_string.
 bool v3k_install(const char *path, const char *zrif, v3k_progress_fn progress, void *context, char **message);
 
+// What a .pkg is, without installing it: JSON {"kind": "game"|"update"|"dlc"|"theme"|"unknown",
+// "titleId","title","contentId","zrif" (a license already on the device, or ""), "gameInstalled"}
+char *v3k_pkg_info_json(const char *path);
+
 // Reads the zRIF stored next to a package (GAME.pkg -> GAME.zrif), or NULL
 char *v3k_zrif_next_to(const char *pkg_path);
 
@@ -119,6 +123,11 @@ void v3k_request_launch(const char *title_id);
 // JSON {"report","log"} describing how the previous session ended, or NULL if it ended normally.
 // Returned once per launch.
 char *v3k_take_crash_report(void);
+
+// ---- Updates and DLC of an installed game ----
+// JSON {"update": installed update version or "", "updateBytes", "dlc": number of DLC, "dlcBytes"}
+char *v3k_game_content_json(const char *title_id);
+bool v3k_delete_game_content(const char *title_id, bool update);
 
 // ---- Shader cache ----
 double v3k_shader_cache_bytes(const char *title_id);

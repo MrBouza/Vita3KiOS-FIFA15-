@@ -68,11 +68,23 @@ struct CrashReport: Codable, Identifiable {
     var id: String { report }
 }
 
+struct PackageInfo: Decodable {
+    let kind: String
+    let titleId: String
+    let title: String
+    let contentId: String
+    let zrif: String
+    let gameInstalled: Bool
+}
+
 /// One file or folder waiting to be installed
 struct PendingImport: Identifiable {
     let id = UUID()
     let url: URL
     var zrif: String = ""
+    /// For a .pkg: "game", "update", "dlc", "theme" or "unknown"
+    var packageKind = ""
+    var packageTitle = ""
 
     var name: String { url.lastPathComponent }
     var kind: Int32 { v3k_install_kind(url.path) }
@@ -268,6 +280,13 @@ final class LibraryModel: ObservableObject {
                 if let stored = takeString(v3k_zrif_next_to(url.path)) {
                     item.zrif = stored
                 }
+                // Updates use the installed game's license; games and DLC may already have theirs
+                if let json = takeString(v3k_pkg_info_json(url.path)), let data = json.data(using: .utf8),
+                   let info = try? JSONDecoder().decode(PackageInfo.self, from: data) {
+                    item.packageKind = info.kind
+                    item.packageTitle = info.title
+                    if item.zrif.isEmpty { item.zrif = info.zrif }
+                }
                 if accessing { url.stopAccessingSecurityScopedResource() }
             }
             queue.append(item)
@@ -286,7 +305,8 @@ final class LibraryModel: ObservableObject {
     private func processNext() {
         guard !installing, packageNeedingLicense == nil, !queue.isEmpty else { return }
         let item = queue.removeFirst()
-        if item.isPackage && item.zrif.isEmpty {
+        // An update never needs a key of its own (it uses the game's), and themes have none
+        if item.isPackage && item.zrif.isEmpty && item.packageKind != "update" && item.packageKind != "theme" {
             packageNeedingLicense = item
             return
         }

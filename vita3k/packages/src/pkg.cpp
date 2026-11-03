@@ -40,6 +40,9 @@
 #include <util/bytes.h>
 #include <util/log.h>
 
+#include <cstring>
+#include <fstream>
+
 // Credits to mmozeiko https://github.com/mmozeiko/pkg2zip
 
 static void ctr_init(uint8_t *counter, uint8_t *iv, uint64_t n) {
@@ -399,4 +402,93 @@ std::string find_pkg_zrif(const fs::path &pkg_path, const fs::path &vita_fs_path
         return {};
 
     return rif2zrif(binfile);
+}
+
+bool read_pkg_info(const fs::path &pkg_path, PkgInfo &info) {
+    FILE *infile = FOPEN(pkg_path.c_str(), "rb");
+    if (!infile)
+        return false;
+    PkgHeader pkg_header{};
+    if (fread(&pkg_header, sizeof(PkgHeader), 1, infile) != 1 || byte_swap(pkg_header.magic) != 0x7F504b47) {
+        fclose(infile);
+        return false;
+    }
+    info.content_id = std::string(pkg_header.content_id, strnlen(pkg_header.content_id, sizeof(pkg_header.content_id)));
+    if (info.content_id.size() >= 16)
+        info.title_id = info.content_id.substr(7, 9);
+
+    uint32_t info_offset = byte_swap(pkg_header.info_offset);
+    uint32_t content_type = 0, sfo_offset = 0, sfo_size = 0;
+    for (uint32_t i = 0; i < byte_swap(pkg_header.info_count) && i < 64; i++) {
+        uint32_t block[4]{};
+        fseek(infile, info_offset, SEEK_SET);
+        if (fread(block, sizeof(block), 1, infile) != 1)
+            break;
+        const auto type = byte_swap(block[0]);
+        const auto size = byte_swap(block[1]);
+        if (type == 2)
+            content_type = byte_swap(block[2]);
+        else if (type == 14) {
+            sfo_offset = byte_swap(block[2]);
+            sfo_size = byte_swap(block[3]);
+        }
+        info_offset += 2 * sizeof(uint32_t) + size;
+    }
+
+    std::string category;
+    if (sfo_size > 0 && sfo_size < 1024 * 1024) {
+        std::vector<uint8_t> sfo_buffer(sfo_size);
+        fseek(infile, sfo_offset, SEEK_SET);
+        if (fread(sfo_buffer.data(), sfo_buffer.size(), 1, infile) == 1) {
+            SfoFile sfo_file;
+            if (sfo::load(sfo_file, sfo_buffer)) {
+                sfo::get_data_by_key(category, sfo_file, "CATEGORY");
+                sfo::get_data_by_key(info.title, sfo_file, "TITLE");
+                std::string sfo_title_id;
+                if (sfo::get_data_by_key(sfo_title_id, sfo_file, "TITLE_ID") && !sfo_title_id.empty())
+                    info.title_id = sfo_title_id;
+            }
+        }
+    }
+    fclose(infile);
+
+    switch (content_type) {
+    case 0x15: info.kind = category.starts_with("gp") ? "update" : "game"; break;
+    case 0x16: info.kind = "dlc"; break;
+    case 0x1F: info.kind = "theme"; break;
+    default: info.kind = "unknown"; break;
+    }
+    return true;
+}
+
+std::string find_title_zrif(const fs::path &vita_fs_path, const std::string &title_id, const std::string &content_id) {
+    if (title_id.empty())
+        return {};
+    const auto license_dir = vita_fs_path / "ux0/license" / title_id;
+    const auto read_rif = [](const fs::path &path) -> std::string {
+        std::ifstream binfile(path, std::ios::in | std::ios::binary | std::ios::ate);
+        if (!binfile)
+            return {};
+        return rif2zrif(binfile);
+    };
+    std::error_code ec;
+    if (!content_id.empty()) {
+        const auto exact = license_dir / (content_id + ".rif");
+        if (fs::exists(exact, ec))
+            return read_rif(exact);
+    }
+    if (fs::is_directory(license_dir, ec)) {
+        for (const auto &entry : fs::directory_iterator(license_dir, ec)) {
+            if (entry.path().extension() == ".rif") {
+                LOG_INFO("Using the license of {} from {}", title_id, entry.path().filename().string());
+                return read_rif(entry.path());
+            }
+        }
+    }
+    const auto work_bin = vita_fs_path / "ux0/app" / title_id / "sce_sys/package/work.bin";
+    if (fs::exists(work_bin, ec)) {
+        LOG_INFO("Using the work.bin license of the installed {}", title_id);
+        return read_rif(work_bin);
+    }
+    return {};
 }

@@ -83,4 +83,18 @@ struct PkgEntry {
 
 bool install_pkg(const fs::path &pkg_path, EmuEnvState &emuenv, std::string &p_zRIF, const std::function<void(float)> &progress_callback = nullptr);
 std::string find_pkg_zrif(const fs::path &pkg_path, const fs::path &vita_fs_path);
+
+// What a .pkg contains, read from its header and param.sfo without decrypting anything
+struct PkgInfo {
+    std::string kind; // "game", "update", "dlc", "theme"
+    std::string title_id;
+    std::string title;
+    std::string content_id;
+};
+bool read_pkg_info(const fs::path &pkg_path, PkgInfo &info);
+
+// A license already on the device for a title, as a zRIF: <content_id>.rif, any license of the title,
+// or the work.bin of an installed NoNpDrm dump. Updates are decrypted with the game's own license, so
+// this is all an update needs.
+std::string find_title_zrif(const fs::path &vita_fs_path, const std::string &title_id, const std::string &content_id);
 bool decrypt_install_nonpdrm(EmuEnvState &emuenv, const fs::path &drmlicpath, const fs::path &title_path, const std::function<void(float)> &progress_callback = nullptr);

@@ -240,7 +240,7 @@ struct LibraryView: View {
                     zrifInput = ""
                 }
             } message: {
-                Text("\(model.packageNeedingLicense?.name ?? "This package") needs its zRIF license key. You can also put it in a .zrif file next to the .pkg.")
+                Text(licenseMessage)
             }
             .alert(model.lastMessage ?? "", isPresented: Binding(get: { model.lastMessage != nil && model.packageNeedingLicense == nil }, set: { if !$0 { model.lastMessage = nil } })) {
                 Button("OK", role: .cancel) { model.lastMessage = nil }
@@ -248,6 +248,13 @@ struct LibraryView: View {
         }
         .tint(Theme.accent)
         .id(themeName) // redraw everything in the new colours when the theme changes
+    }
+
+    private var licenseMessage: String {
+        guard let item = model.packageNeedingLicense else { return "" }
+        let what = item.packageTitle.isEmpty ? item.name : item.packageTitle
+        let kind = item.packageKind == "dlc" ? "This DLC" : "This game"
+        return "\(what)\n\(kind) needs its zRIF license key (updates don't need one). You can also put it in a .zrif file next to the .pkg."
     }
 
     private func openImporter(_ types: [UTType]) {
