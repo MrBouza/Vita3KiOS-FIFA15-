@@ -5,7 +5,7 @@
 # tool (AltStore, SideStore, ...) re-signs with the user's certificate.
 
 set(VITA3K_IOS_BUNDLE_ID "org.vita3k.ios" CACHE STRING "Bundle identifier of the iOS app")
-set(VITA3K_IOS_VERSION "0.1.0" CACHE STRING "Marketing version of the iOS app")
+set(VITA3K_IOS_VERSION "1.0.0" CACHE STRING "Marketing version of the iOS app")
 
 set_target_properties(vita3k PROPERTIES
 	MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist.in"
