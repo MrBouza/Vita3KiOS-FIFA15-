@@ -395,6 +395,7 @@ static Dynarmic::ExclusiveMonitor shared_monitor(MAX_CORE_COUNT);
 static std::atomic_bool ios_fast_cpu{ false };
 void set_ios_fast_cpu(bool enabled) {
     ios_fast_cpu = enabled;
+    LOG_INFO("Fast CPU (floating-point shortcuts): {}", enabled ? "on" : "off");
 }
 #endif
 

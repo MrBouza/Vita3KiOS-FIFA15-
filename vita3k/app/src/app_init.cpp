@@ -618,6 +618,10 @@ bool late_init(EmuEnvState &state) {
 void apply_renderer_config(EmuEnvState &emuenv) {
     auto &r = *emuenv.renderer;
     const auto &cc = emuenv.cfg.current_config;
+    LOG_INFO("Game settings: resolution {}x, filter {}, memory mapping {}, high accuracy {}, async shaders {}, shader cache {}, "
+             "texture cache {}, surface sync {}, FPS hack {}, CPU optimisations {}",
+        cc.resolution_multiplier, cc.screen_filter, cc.memory_mapping, cc.high_accuracy, cc.async_pipeline_compilation,
+        cc.shader_cache, cc.texture_cache, cc.disable_surface_sync ? "off" : "on", cc.fps_hack, cc.cpu_opt);
 
     r.res_multiplier = cc.resolution_multiplier;
     r.set_vsync_state(cc.v_sync);

@@ -22,6 +22,10 @@ Vita3KiOS runs the full, current Vita3K emulator core (CPU recompiler, GXM→Vul
 - **Save backups**: export a game's save as a .zip, import one back (the current save is kept aside)
 - **Crash reports**: if a session crashes or iOS closes the app, the next launch shows what happened with a one-tap share of the report and log
 - Library sorting by title or recently played, play time per game, log sharing from Settings
+- **Cheats** (VitaCheat .psv, the community database built in) and **mods** (rePatch layout: Vita mods work as they are)
+- **Performance overlay** you configure yourself: FPS, frame time, CPU, memory, thermal state, battery, resolution
+- 60 FPS mode, Fast CPU, upscaling up to 4× with FSR, background shader compilation
+- Animated themes, controller Home/PS button or Select + Start for the in-game menu
 - Works inside LiveContainer; updates through AltStore / SideStore
 - Settings for resolution, filtering, V-Sync, CPU options and audio
 
