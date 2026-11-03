@@ -29,6 +29,10 @@ enum LibraryHost {
         }
         model.reload()
         updateQuickActions()
+        // How the last game ended, when there is something to say (e.g. the GPU kept failing)
+        if let message = takeString(v3k_take_session_message()) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.lastMessage = message }
+        }
         let firstShow = !hasShown
         hasShown = true
         if firstShow {

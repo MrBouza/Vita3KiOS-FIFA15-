@@ -440,6 +440,8 @@ bool ScreenRenderer::acquire_swapchain_image() {
             || acquire_result == vk::Result::eErrorSurfaceLostKHR) {
             need_rebuild = true;
             need_surface_recreate = acquire_result == vk::Result::eErrorSurfaceLostKHR;
+        } else if (acquire_result == vk::Result::eErrorDeviceLost) {
+            count_device_lost("acquiring the next screen image");
         } else {
             LOG_WARN("Failed to get next image. Error: {}", vk::to_string(acquire_result));
         }
@@ -567,6 +569,8 @@ void ScreenRenderer::swap_window() {
         need_rebuild = true;
         need_surface_recreate = result == vk::Result::eErrorSurfaceLostKHR;
     } else if (result != vk::Result::eSuccess) {
+        if (result == vk::Result::eErrorDeviceLost)
+            count_device_lost("presenting");
         LOG_ERROR("Could not present KHR.");
         swapchain_image_idx = ~0;
         current_cmd_buffer = nullptr;

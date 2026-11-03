@@ -742,6 +742,33 @@ char *v3k_game_settings_json(const char *title_id) {
         b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache)));
 }
 
+bool v3k_game_uses_memory_mapping(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = app_for(title_id);
+    if (!emuenv || !app)
+        return false;
+    return effective_config(*emuenv, app->path).memory_mapping != "disabled";
+}
+
+namespace {
+std::mutex session_message_mutex;
+std::string session_message;
+} // namespace
+
+void v3k_set_session_message(const char *message) {
+    const std::lock_guard lock(session_message_mutex);
+    session_message = message ? message : "";
+}
+
+char *v3k_take_session_message(void) {
+    const std::lock_guard lock(session_message_mutex);
+    if (session_message.empty())
+        return nullptr;
+    char *out = dup_string(session_message);
+    session_message.clear();
+    return out;
+}
+
 bool v3k_set_game_setting(const char *title_id, const char *key, const char *value) {
     auto *emuenv = ios::get_emuenv();
     const auto app = app_for(title_id);

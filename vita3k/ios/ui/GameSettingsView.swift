@@ -75,6 +75,7 @@ struct GameSettingsView: View {
     @EnvironmentObject var model: LibraryModel
     @Environment(\.dismiss) private var dismiss
 
+    @State private var preciseMath = false
     @State private var showingShortcutHelp = false
     @State private var settings = GameSettings()
     @State private var patches: [GamePatch] = []
@@ -240,6 +241,16 @@ struct GameSettingsView: View {
                 toggle("FPS hack", \.fpsHack, "fps-hack", "Makes some 30 FPS games run at 60. Can speed up game logic.")
                 toggle("Disable surface sync", \.disableSurfaceSync, "disable-surface-sync", "Faster in some games, breaks effects in others.")
                 toggle("Stretch to screen", \.stretchDisplay, "stretch-display", nil)
+            }
+            Toggle(isOn: Binding(get: { preciseMath }, set: { on in
+                preciseMath = on
+                UserDefaults.standard.set(on, forKey: "v3k.preciseMath.\(app.titleId)")
+            })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Precise shader math")
+                    Text("Turns off Metal's fast math for this game. Try it when lighting or effects look too bright or flicker; a little slower.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         } header: {
             Text("Settings")
@@ -440,6 +451,7 @@ struct GameSettingsView: View {
     // MARK: Helpers
 
     private func load() {
+        preciseMath = UserDefaults.standard.bool(forKey: "v3k.preciseMath.\(app.titleId)")
         if let json = takeString(v3k_game_settings_json(app.titleId)), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(GameSettings.self, from: data) {
             settings = decoded

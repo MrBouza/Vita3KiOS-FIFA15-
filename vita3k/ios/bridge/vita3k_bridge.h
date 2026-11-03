@@ -154,6 +154,11 @@ char *v3k_game_settings_json(const char *title_id);
 // "memory-mapping", "high-accuracy", "texture-cache", "cpu-opt", "v-sync", "fps-hack",
 // "disable-surface-sync", "stretch-display", "async-shaders", "shader-cache"
 bool v3k_set_game_setting(const char *title_id, const char *key, const char *value);
+// Whether the game runs with GPU memory mapping (its own setting, else the global one)
+bool v3k_game_uses_memory_mapping(const char *title_id);
+// A message for the library about how the last game session ended (NULL if none; free the string)
+char *v3k_take_session_message(void);
+void v3k_set_session_message(const char *message);
 bool v3k_reset_game_settings(const char *title_id);
 
 // ---- Save data backups ----

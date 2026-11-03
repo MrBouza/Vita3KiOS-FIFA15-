@@ -18,6 +18,7 @@
 #include "vkutil/vkutil.h"
 
 #include "util/fs.h"
+#include "util/log.h"
 
 namespace vkutil {
 
@@ -43,8 +44,18 @@ void end_single_time_command(vk::Device device, vk::Queue queue, vk::CommandPool
 
     vk::SubmitInfo submit_info{};
     submit_info.setCommandBuffers(cmd_buffer);
+#ifdef __APPLE__
+    // MoltenVK: a lost device makes these throw; the renderer counts and handles it (device_lost.h)
+    try {
+        queue.submit(submit_info);
+        queue.waitIdle();
+    } catch (const vk::DeviceLostError &) {
+        LOG_ERROR("GPU error (device lost) during a one-time command");
+    }
+#else
     queue.submit(submit_info);
     queue.waitIdle();
+#endif
 
     device.freeCommandBuffers(cmd_pool, cmd_buffer);
 }

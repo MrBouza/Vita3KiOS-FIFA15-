@@ -23,6 +23,8 @@
 #include <renderer/functions.h>
 #include <renderer/types.h>
 #include <renderer/vulkan/functions.h>
+
+#include <cstdlib>
 #include <renderer/vulkan/state.h>
 
 #include <config/state.h>
@@ -506,6 +508,13 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         // keeps going while the GPU work is encoded, and Metal compiles shaders on several cores
         const VkBool32 synchronous_queue_submits = VK_FALSE;
         const VkBool32 concurrent_compilation = VK_TRUE;
+        // Metal fast math is on by default; a game can ask for precise math (per-game setting on iOS,
+        // passed as V3K_PRECISE_SHADER_MATH) when it relies on exact results, e.g. for its lighting
+        const char *precise_env = getenv("V3K_PRECISE_SHADER_MATH");
+        const bool precise_math = precise_env && precise_env[0] == '1';
+        const int32_t fast_math = precise_math ? 0 : 1;
+        if (precise_math)
+            LOG_INFO("Precise shader math (Metal fast math off)");
 #ifndef NDEBUG
         const VkBool32 debug = VK_TRUE;
         const int32_t log_level = 4;
@@ -519,6 +528,8 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
                 &synchronous_queue_submits },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION", vk::LayerSettingTypeEXT::eBool32, 1,
                 &concurrent_compilation },
+            { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_FAST_MATH_ENABLED", vk::LayerSettingTypeEXT::eInt32, 1,
+                &fast_math },
 #ifndef NDEBUG
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_DEBUG", vk::LayerSettingTypeEXT::eBool32, 1, &debug },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_LOG_LEVEL", vk::LayerSettingTypeEXT::eInt32, 1, &log_level },

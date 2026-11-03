@@ -194,6 +194,8 @@ final class LibraryModel: ObservableObject {
             UserDefaults.standard.set(true, forKey: "v3k.hud.enabled")
             settings.performanceOverlay = false
         }
+        // Per-game "Precise shader math" (read by the renderer when the game starts)
+        setenv("V3K_PRECISE_SHADER_MATH", UserDefaults.standard.bool(forKey: "v3k.preciseMath.\(app.titleId)") ? "1" : "0", 1)
         v3k_request_launch(app.titleId)
     }
 

@@ -37,6 +37,7 @@
 #include <kernel/state.h>
 #include <kernel/thread/thread_state.h>
 #include <mem/functions.h>
+#include <renderer/vulkan/device_lost.h>
 #include <sdl-frontend/session.h>
 #include <util/log.h>
 
@@ -216,11 +217,29 @@ int main(int argc, char *argv[]) {
                 ios::cheats::frame(*emuenv);
                 ios::extras::frame(*emuenv); },
         };
+        // The GPU failing over and over (MoltenVK device lost) ends the game instead of freezing it
+        renderer::vulkan::device_lost_count() = 0;
+        renderer::vulkan::on_persistent_device_lost() = +[] { v3k_pad_request_exit(); };
+        const bool mapping_was_on = v3k_game_uses_memory_mapping(title_id.c_str());
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
         session_over = true;
         watchdog.join();
+        renderer::vulkan::on_persistent_device_lost() = nullptr;
+        const uint32_t gpu_errors = renderer::vulkan::device_lost_count();
         ios::crash::session_ended();
         v3k_pad_clear_quit_request();
         LOG_INFO("{} exited with code {}, {} free JIT caches", title_id, result, ios::jit_pool_available());
+        if (gpu_errors >= renderer::vulkan::PERSISTENT_DEVICE_LOST_ERRORS) {
+            // GPU memory mapping lets shaders read game memory directly, which is the usual way a
+            // Vita game can fault the GPU: turn it off for this game and say so
+            std::string message = fmt::format("The GPU stopped responding while {} was running, so the game was closed.", title_id);
+            if (mapping_was_on && v3k_set_game_setting(title_id.c_str(), "memory-mapping", "false")) {
+                LOG_INFO("Turned off GPU memory mapping for {} after repeated GPU errors", title_id);
+                message += " GPU memory mapping is now off for this game (Game settings), which usually avoids this. Start it again to try.";
+            } else {
+                message += " Try a lower resolution, or send the log from Settings › About.";
+            }
+            v3k_set_session_message(message.c_str());
+        }
     }
 }

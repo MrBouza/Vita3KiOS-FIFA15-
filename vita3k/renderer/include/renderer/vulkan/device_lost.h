@@ -32,11 +32,27 @@ namespace renderer::vulkan {
 // renderer.cpp) the device keeps working, but vulkan-hpp turns the error into an exception, and the
 // uncaught exception ended the whole app (Uncharted: Golden Abyss on an A15). On Apple, log it and
 // carry on as if the call had finished: at worst one frame is wrong. Elsewhere it stays fatal.
-inline uint32_t count_device_lost(const char *where) {
+// Device-lost errors in the current game session, and what to do when they keep coming (MoltenVK
+// then fails every call: the game would only show a frozen picture). Set by the iOS app.
+inline std::atomic<uint32_t> &device_lost_count() {
     static std::atomic<uint32_t> count{ 0 };
-    const uint32_t n = ++count;
+    return count;
+}
+inline std::atomic<void (*)()> &on_persistent_device_lost() {
+    static std::atomic<void (*)()> callback{ nullptr };
+    return callback;
+}
+constexpr uint32_t PERSISTENT_DEVICE_LOST_ERRORS = 20;
+
+inline uint32_t count_device_lost(const char *where) {
+    const uint32_t n = ++device_lost_count();
     if (n <= 5 || (n & (n - 1)) == 0)
         LOG_ERROR("GPU error (device lost) during {}; continuing ({} so far)", where, n);
+    if (n == PERSISTENT_DEVICE_LOST_ERRORS) {
+        LOG_ERROR("The GPU keeps failing: ending the game");
+        if (auto callback = on_persistent_device_lost().load())
+            callback();
+    }
     return n;
 }
 
