@@ -179,4 +179,45 @@ bool is_jit_enabled() {
     return (flags & CS_DEBUGGED) != 0;
 }
 
+bool download(const std::string &url, std::string &data, std::string &error) {
+    @autoreleasepool {
+        NSURL *nsurl = [NSURL URLWithString:[NSString stringWithUTF8String:url.c_str()]];
+        if (!nsurl) {
+            error = "invalid URL";
+            return false;
+        }
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:nsurl
+                                                               cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
+                                                           timeoutInterval:30];
+        [request setValue:@"Vita3KiOS" forHTTPHeaderField:@"User-Agent"];
+
+        __block NSData *body = nil;
+        __block NSInteger status = 0;
+        __block NSString *failure = nil;
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request
+                                                                     completionHandler:^(NSData *received, NSURLResponse *response, NSError *taskError) {
+            if (taskError)
+                failure = taskError.localizedDescription;
+            if ([response isKindOfClass:[NSHTTPURLResponse class]])
+                status = ((NSHTTPURLResponse *)response).statusCode;
+            body = received;
+            dispatch_semaphore_signal(done);
+        }];
+        [task resume];
+        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+
+        if (failure) {
+            error = failure.UTF8String;
+            return false;
+        }
+        if (status / 100 != 2 || !body) {
+            error = "server answered HTTP " + std::to_string(status);
+            return false;
+        }
+        data.assign(static_cast<const char *>(body.bytes), body.length);
+        return true;
+    }
+}
+
 } // namespace ios

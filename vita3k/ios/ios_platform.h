@@ -53,4 +53,8 @@ bool app_in_background();
 std::string configure_audio_session();
 void set_pending_launch(const std::string &title_id);
 
+// HTTPS GET through NSURLSession (system certificates and proxies; the bundled OpenSSL has no CA list
+// on iOS, so curl can't verify servers). Blocking: call off the main thread. Follows redirects.
+bool download(const std::string &url, std::string &data, std::string &error);
+
 } // namespace ios

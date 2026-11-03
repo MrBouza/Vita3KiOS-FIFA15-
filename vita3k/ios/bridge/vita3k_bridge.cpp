@@ -34,7 +34,6 @@
 #include <packages/pkg.h>
 #include <patch/patch.h>
 #include <util/log.h>
-#include <util/net_utils.h>
 #include <util/string_utils.h>
 
 #include <fmt/format.h>
@@ -809,10 +808,12 @@ bool v3k_download_patches(char **message) {
     };
     if (!emuenv)
         return result(false, "The emulator is not ready.");
-    const std::string xml = net_utils::get_web_response(PATCHLIST_XML_URL);
+    std::string xml, error;
+    if (!ios::download(PATCHLIST_XML_URL, xml, error) || xml.empty()) {
+        LOG_ERROR("Patch list download failed: {}", error);
+        return result(false, "Could not download the patch list (" + error + "). Check your connection and try again.");
+    }
     PatchEntries entries;
-    if (xml.empty())
-        return result(false, "Could not download the patch list. Check your connection and try again.");
     if (!parse_patch_entries(xml, entries))
         return result(false, "The downloaded patch list is not valid.");
     std::error_code ec;
