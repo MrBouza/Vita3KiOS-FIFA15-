@@ -247,7 +247,7 @@ static constexpr const char *DEFAULT_GAME_FIXES = R"(PCSA00011 surface-sync=on |
 PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
 PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
 PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
-PCSE00084 memory-mapping=on surface-sync=off async-shaders=off v-sync=on fast-cpu=off | Memory mapping on (faces and bodies), surface sync off (black field, crash), shaders compiled before drawing (no missing players), Fast CPU off
+PCSE00084 memory-mapping=on surface-sync=off async-shaders=on fast-cpu=off | Memory mapping on (faces and bodies), surface sync off (black field, crash), background shaders on (with them off the GPU hung and the phone froze), Fast CPU off
 )";
 
 bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix) {
@@ -346,16 +346,15 @@ static void apply_builtin_game_fixes(EmuEnvState &emuenv, const std::string &app
     }
     // Madden NFL 13: players are skinned on the GPU; without memory mapping that data never reaches
     // the draws, so faces break up and bodies go missing. Surface sync stays off: with it the game
-    // crashed at boot (iPhone 16 Pro, memory access outside guest memory).
-    // With surface sync the field also went black. Pipelines are compiled before drawing (not in the
-    // background) so players and the field never go missing while 300+ shaders compile; the shader
-    // cache makes later matches smooth. V-Sync stays on.
+    // crashed at boot (iPhone 16 Pro, memory access outside guest memory), and the field went black.
+    // Shaders compile in the background: compiled before drawing, the GPU hung right after boot
+    // (the whole phone froze for 5 seconds, then device lost). The shader cache fills in the players
+    // after the first match.
     if (app_path == "PCSE00084") {
         cc.memory_mapping = "double-buffer";
         cc.disable_surface_sync = true;
-        cc.async_pipeline_compilation = false;
-        cc.v_sync = true;
-        LOG_INFO("Game fix for {}: GPU memory mapping on, surface sync off, shaders compiled before drawing, V-Sync on", app_path);
+        cc.async_pipeline_compilation = true;
+        LOG_INFO("Game fix for {}: GPU memory mapping on, surface sync off, shaders in the background", app_path);
     }
 
     // The downloadable list (Settings › Game fixes) has the last word: fixes found after a release
@@ -373,10 +372,27 @@ static void apply_builtin_game_fixes(EmuEnvState &emuenv, const std::string &app
 }
 #endif
 
+#if defined(VITA3K_PLATFORM_IOS)
+// Settings that make a game hang the GPU (and freeze the whole phone with it) are never used, even
+// when the game has settings of its own: the setting screen keeps the choice, the session overrides it
+static void apply_required_game_settings(EmuEnvState &emuenv, const std::string &app_path) {
+    auto &cc = emuenv.cfg.current_config;
+    // Madden NFL 13 with shaders compiled before drawing: GPU hang 5 s after boot, then device lost
+    if (app_path == "PCSE00084" && !cc.async_pipeline_compilation) {
+        cc.async_pipeline_compilation = true;
+        LOG_WARN("{}: shaders compile in the background for this game (compiled before drawing, it hangs the GPU on iOS)", app_path);
+    }
+    // FSR cannot run on iOS (the screen is not an RGBA8 storage image): use the default filter
+    if (cc.screen_filter == "FSR")
+        cc.screen_filter = "Bilinear";
+}
+#endif
+
 void set_current_config(EmuEnvState &emuenv, const std::string &app_path) {
     config::set_current_config(emuenv.cfg, emuenv.config_path, app_path);
 #if defined(VITA3K_PLATFORM_IOS)
     apply_builtin_game_fixes(emuenv, app_path);
+    apply_required_game_settings(emuenv, app_path);
 #endif
     set_backend_renderer(emuenv, emuenv.cfg.current_config.backend_renderer);
     emuenv.audio.set_global_volume(emuenv.cfg.current_config.audio_volume / 100.f);

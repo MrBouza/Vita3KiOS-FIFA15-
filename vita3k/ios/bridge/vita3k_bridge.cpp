@@ -774,6 +774,14 @@ char *v3k_game_settings_json(const char *title_id) {
         b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache)));
 }
 
+bool v3k_game_uses_async_shaders(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = app_for(title_id);
+    if (!emuenv || !app)
+        return true;
+    return effective_config(*emuenv, app->path).async_pipeline_compilation;
+}
+
 bool v3k_game_uses_memory_mapping(const char *title_id) {
     auto *emuenv = ios::get_emuenv();
     const auto app = app_for(title_id);
@@ -1390,7 +1398,38 @@ char *v3k_game_fix_json(const char *title_id) {
     std::string settings;
     for (const auto &[key, value] : fix.settings)
         settings += (settings.empty() ? "" : ", ") + key + " " + value;
-    return dup_string(fmt::format(R"({{"note":{},"settings":{}}})", json_quote(fix.note), json_quote(settings)));
+    // Whether the game's settings already are the recommended ones (so the screen can say "applied")
+    bool matches = true;
+    if (const auto app = app_for(title_id)) {
+        const Config::CurrentConfig cc = effective_config(*emuenv, app->path);
+        for (const auto &[key, value] : fix.settings) {
+            const bool on = value == "on" || value == "true" || value == "1" || value == "yes";
+            if (key == "memory-mapping")
+                matches &= (cc.memory_mapping != "disabled") == on;
+            else if (key == "surface-sync")
+                matches &= !cc.disable_surface_sync == on;
+            else if (key == "async-shaders")
+                matches &= cc.async_pipeline_compilation == on;
+            else if (key == "high-accuracy")
+                matches &= cc.high_accuracy == on;
+            else if (key == "texture-cache")
+                matches &= cc.texture_cache == on;
+            else if (key == "shader-cache")
+                matches &= cc.shader_cache == on;
+            else if (key == "fps-hack")
+                matches &= cc.fps_hack == on;
+            else if (key == "cpu-opt")
+                matches &= cc.cpu_opt == on;
+            else if (key == "v-sync")
+                matches &= cc.v_sync == on;
+            else if (key == "stretch")
+                matches &= cc.stretch_the_display_area == on;
+            else if (key == "screen-filter")
+                matches &= cc.screen_filter == value;
+        }
+    } else
+        matches = false;
+    return dup_string(fmt::format(R"({{"note":{},"settings":{},"matches":{}}})", json_quote(fix.note), json_quote(settings), matches ? "true" : "false"));
 }
 
 bool v3k_apply_game_fix(const char *title_id) {

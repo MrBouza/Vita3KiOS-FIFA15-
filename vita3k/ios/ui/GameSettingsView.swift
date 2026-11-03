@@ -200,11 +200,12 @@ struct GameSettingsView: View {
             }
             if let fix = gameFix {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label(settings.custom ? "Recommended settings available" : "Recommended settings applied", systemImage: "wand.and.stars")
+                    let applied = !settings.custom || fix.matches == true
+                    Label(applied ? "Recommended settings applied" : "Recommended settings available", systemImage: "wand.and.stars")
                         .font(.subheadline.weight(.semibold))
                     Text(fix.note.isEmpty ? fix.settings : "\(fix.note) (\(fix.settings))")
                         .font(.caption).foregroundStyle(.secondary)
-                    if settings.custom {
+                    if !applied {
                         Text("This game has settings of its own, so they're not used automatically.")
                             .font(.caption).foregroundStyle(.secondary)
                         Button("Use recommended settings") {
@@ -716,4 +717,5 @@ struct AllPatchesView: View {
 struct GameFixInfo: Decodable {
     let note: String
     let settings: String
+    var matches: Bool? = nil
 }

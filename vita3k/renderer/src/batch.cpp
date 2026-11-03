@@ -33,6 +33,8 @@
 #include <memory>
 #include <thread>
 
+#include <chrono>
+
 #ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>
 
@@ -208,6 +210,9 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
 
         const int total = static_cast<int>(state.precompile_queue.size());
         state.precompile_total = total;
+        // Progress frames at most 30 times a second: one per shader meant hundreds of presents a
+        // second while the game was booting, for a bar nobody can read that fast
+        auto last_progress_frame = std::chrono::steady_clock::time_point{};
 
         for (int i = 0; i < total && !state.render_abort.load(std::memory_order_relaxed); ++i) {
             if (!state.set_current())
@@ -217,9 +222,13 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
             state.precompile_progress = i + 1;
 
             if (progress_overlay) {
-                progress_overlay->set_progress(i + 1, total);
-                state.render_frame(display, gxm, mem);
-                state.swap_window();
+                const auto now = std::chrono::steady_clock::now();
+                if (i + 1 == total || now - last_progress_frame >= std::chrono::milliseconds(33)) {
+                    last_progress_frame = now;
+                    progress_overlay->set_progress(i + 1, total);
+                    state.render_frame(display, gxm, mem);
+                    state.swap_window();
+                }
             }
         }
 

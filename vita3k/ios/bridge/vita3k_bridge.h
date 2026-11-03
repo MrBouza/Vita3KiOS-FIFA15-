@@ -157,6 +157,7 @@ char *v3k_game_settings_json(const char *title_id);
 // "disable-surface-sync", "stretch-display", "async-shaders", "shader-cache"
 bool v3k_set_game_setting(const char *title_id, const char *key, const char *value);
 // Whether the game runs with GPU memory mapping (its own setting, else the global one)
+bool v3k_game_uses_async_shaders(const char *title_id);
 bool v3k_game_uses_memory_mapping(const char *title_id);
 // A message for the library about how the last game session ended (NULL if none; free the string)
 char *v3k_take_session_message(void);

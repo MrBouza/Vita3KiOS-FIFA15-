@@ -169,7 +169,8 @@ int main(int argc, char *argv[]) {
                     last_memory_log = now;
                 }
                 const uint64_t quit_at = v3k_pad_quit_requested_ms();
-                if (quit_at && SDL_GetTicks() - quit_at > 20000) {
+                const uint64_t now_ms = v3k_pad_now_ms();
+                if (quit_at && now_ms > quit_at && now_ms - quit_at > 20000) {
                     LOG_CRITICAL("Watchdog: the game did not close 20 seconds after Quit, closing Vita3K");
                     // Which guest threads were still alive tells us what blocked the shutdown
                     std::string threads;
@@ -224,6 +225,7 @@ int main(int argc, char *argv[]) {
         renderer::vulkan::device_lost_count() = 0;
         renderer::vulkan::on_persistent_device_lost() = +[] { v3k_pad_request_exit(); };
         const bool mapping_was_on = v3k_game_uses_memory_mapping(title_id.c_str());
+        const bool async_was_on = v3k_game_uses_async_shaders(title_id.c_str());
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
         session_over = true;
         watchdog.join();
@@ -236,7 +238,13 @@ int main(int argc, char *argv[]) {
             // GPU memory mapping lets shaders read game memory directly, which is the usual way a
             // Vita game can fault the GPU: turn it off for this game and say so
             std::string message = fmt::format("The GPU stopped responding while {} was running, so the game was closed.", title_id);
-            if (mapping_was_on && v3k_set_game_setting(title_id.c_str(), "memory-mapping", "false")) {
+            // Compiling shaders before drawing is the other usual cause (it hung Madden NFL 13), and the
+            // cheaper one to give up; memory mapping stays on for games whose fix needs it
+            if (!async_was_on && v3k_set_game_setting(title_id.c_str(), "async-shaders", "true")) {
+                LOG_INFO("Turned on background shader compilation for {} after repeated GPU errors", title_id);
+                message += " Shaders now compile in the background for this game (Game settings), which usually avoids this. Start it again to try.";
+            } else if (mapping_was_on && v3k_game_fix_flag(title_id.c_str(), "memory-mapping") != 1
+                && v3k_set_game_setting(title_id.c_str(), "memory-mapping", "false")) {
                 LOG_INFO("Turned off GPU memory mapping for {} after repeated GPU errors", title_id);
                 message += " GPU memory mapping is now off for this game (Game settings), which usually avoids this. Start it again to try.";
             } else {

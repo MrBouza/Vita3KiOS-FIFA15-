@@ -38,6 +38,8 @@ void v3k_pad_release_all(void);
 void v3k_pad_request_exit(void);
 // SDL ticks (ms) when the running game was asked to quit, 0 if it wasn't
 unsigned long long v3k_pad_quit_requested_ms(void);
+// The clock v3k_pad_quit_requested_ms() uses (steady clock, milliseconds)
+unsigned long long v3k_pad_now_ms(void);
 void v3k_pad_clear_quit_request(void);
 
 #ifdef __cplusplus

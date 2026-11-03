@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <mutex>
 
 namespace {
@@ -97,8 +98,19 @@ void v3k_pad_release_all(void) {
         SDL_SetJoystickVirtualAxis(pad, axis, 0);
 }
 
+// Milliseconds on the steady clock. Not SDL_GetTicks(): SDL's tick count restarts when SDL is
+// shut down and started again, which made a fresh quit look 20 seconds old to the watchdog
+static unsigned long long steady_ms() {
+    const auto since_start = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<unsigned long long>(std::chrono::duration_cast<std::chrono::milliseconds>(since_start).count());
+}
+
+unsigned long long v3k_pad_now_ms(void) {
+    return steady_ms();
+}
+
 void v3k_pad_request_exit(void) {
-    quit_requested_ms = SDL_GetTicks();
+    quit_requested_ms = steady_ms();
     SDL_Event event{};
     event.type = SDL_EVENT_QUIT;
     SDL_PushEvent(&event);
