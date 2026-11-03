@@ -19,8 +19,8 @@
 
 #include <renderer/state.h>
 #include <renderer/types.h>
-#include <renderer/vulkan/device_lost.h>
 
+#include <renderer/vulkan/device_lost.h>
 #include <renderer/vulkan/overlay_renderer.h>
 #include <renderer/vulkan/pipeline_cache.h>
 #include <renderer/vulkan/screen_renderer.h>

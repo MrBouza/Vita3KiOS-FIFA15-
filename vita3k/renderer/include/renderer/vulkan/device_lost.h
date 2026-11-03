@@ -17,9 +17,9 @@
 
 #pragma once
 
+// vkutil configures vulkan.hpp (designated initializers): include it, never vulkan.hpp directly
 #include <util/log.h>
-
-#include <vulkan/vulkan.hpp>
+#include <vkutil/vkutil.h>
 
 #include <atomic>
 #include <cstdint>
