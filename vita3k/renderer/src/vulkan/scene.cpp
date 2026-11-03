@@ -100,23 +100,6 @@ void mid_scene_flush(VKContext &context, const SceGxmNotification notification) 
     }
 }
 
-#ifdef __APPLE__
-// restride vertex attribute binding strides to multiple of 4
-// needed for metal because it only allows multiples of 4.
-void restride_stream(const uint8_t *&stream, uint32_t &size, uint32_t stride) {
-    const uint32_t new_stride = align(stride, 4);
-    const uint32_t nb_vertex_input = ((size + stride - 1) / stride);
-
-    uint8_t *new_data = new uint8_t[nb_vertex_input * new_stride];
-    for (uint32_t i = 0; i < nb_vertex_input; i++) {
-        memcpy(new_data + new_stride * i, stream + stride * i, stride);
-    }
-
-    stream = new_data;
-    size = nb_vertex_input * new_stride;
-}
-#endif
-
 // when needed, how many descriptor of the given size we allocate for each frame at once
 static constexpr uint32_t DESCRIPTOR_PACK_SIZE = 64;
 
@@ -293,10 +276,13 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
         if (state.vertex_streams[i].data) {
             bool read_from_mapping = context.state.features.enable_memory_mapping;
 #ifdef __APPLE__
-            // Vulkan allows any stride and offset, but Metal only allows multiples of 4: copy those streams
-            const bool restride = vertex_program.streams[i].stride % 4 != 0;
-            if (restride || (state.vertex_streams[i].data.address() & 3) != 0)
+            // Metal needs 4-byte aligned strides, offsets and attributes: streams that break this are
+            // copied in a repacked layout (see metal_stream_layout), unaligned ones copied as they are
+            const MetalStreamLayout metal_layout = metal_stream_layout(vertex_program, i);
+            if (metal_layout.repack || (state.vertex_streams[i].data.address() & 3) != 0)
                 read_from_mapping = false;
+            if (metal_layout.repack)
+                LOG_INFO_ONCE("Repacking vertex streams with unaligned attributes for Metal (stride {} -> {})", metal_layout.src_stride, metal_layout.stride);
 #endif
             if (read_from_mapping) {
                 auto [buffer, offset] = context.state.get_matching_mapping(state.vertex_streams[i].data.cast<void>());
@@ -307,18 +293,15 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
                 const uint8_t *stream = state.vertex_streams[i].data.get(mem);
                 uint32_t stream_size = state.vertex_streams[i].size;
 #ifdef __APPLE__
-                if (restride) {
-                    restride_stream(stream, stream_size, vertex_program.streams[i].stride);
+                std::vector<uint8_t> repacked;
+                if (metal_layout.repack) {
+                    repacked = metal_repack_stream(metal_layout, stream, stream_size);
+                    stream = repacked.data();
+                    stream_size = static_cast<uint32_t>(repacked.size());
                 }
 #endif
                 context.vertex_stream_ring_buffer.allocate(context.prerender_cmd, stream_size, stream);
                 context.vertex_stream_offsets[i] = context.vertex_stream_ring_buffer.data_offset;
-
-#ifdef __APPLE__
-                if (restride) {
-                    delete[] stream;
-                }
-#endif
             }
 
             state.vertex_streams[i].data = nullptr;
