@@ -34,7 +34,9 @@
 | 🚀 **Performance options** | 60 FPS mode, Fast CPU, upscaling up to 4× with FSR, background shader compilation and a shader cache kept between sessions. |
 | 📊 **Performance overlay** | Pick what to show: FPS, frame time, CPU, memory, thermals, battery, resolution. Place it where you like. |
 | 🎨 **Looks the part** | Eight animated themes that respond to tilt, original menu music made on the device, and touch-control themes (PlayStation, Xbox-style letters, Nintendo-style, Neon, Minimal). |
-| 🕹 **Controllers** | Any MFi, Xbox, PlayStation or Switch controller. Remap buttons, swap ✕/○, and touch controls hide when a controller connects. |
+| 🕹 **Controls your way** | Drag and pinch the touch controls into your own layout, use the rear touchpad, and tilt the iPhone for motion games. Any MFi, Xbox, PlayStation or Switch controller works too, with remapping and a ✕/○ swap. |
+| 📸 **Game menu** | Screenshots straight to Photos, rear touchpad, layout editor, show/hide controls, quit. Open it with ✕ on screen, Home/PS on a controller, or by holding Select + Start. |
+| 📱 **Feels native** | Put any game on your Home Screen (`vita3k://launch/<TITLE ID>` links), long-press the app icon for recent games, and use "Open in Vita3K" from Files or Safari. |
 | 💾 **External storage** | Keep games on a USB-C SSD, thumb drive or SD reader. |
 | 🩺 **Crash reports** | If a game crashes, the next launch shows what happened, with the report and log one tap away. |
 
@@ -75,12 +77,12 @@ The status pill turns green (**JIT ready**) once Vita3K has set up its JIT memor
 ## Getting started
 
 1. **Firmware.** Download the Vita firmware (`PSVUPDAT.PUP`) and fonts (`PSP2UPDAT.PUP`) from PlayStation's site. Tap **+** → **Files** and pick them.
-2. **Games.** Use the same **+** button for `.vpk`, `.pkg`, `.zip` or a dumped game folder. You can also drop files into **Files → On My iPhone → Vita3K → Import**.
+2. **Games.** Use the same **+** button for `.vpk`, `.pkg`, `.zip` or a dumped game folder. You can also share a file to Vita3K (**Open in Vita3K** in Files or Safari), or drop files into **Files → On My iPhone → Vita3K → Import**.
 3. **Updates & DLC.** Install the game first, then its update and DLC `.pkg`s, one at a time or together in a zip or folder. Vita3K sorts them so the game always goes in first.
 
 **zRIF licences.** Game and DLC `.pkg`s need their zRIF. Vita3K asks for it, or you can put a `.zrif` text file with the same name next to the `.pkg`. Updates use the base game's licence and don't ask.
 
-Long-press a game for its settings, patches, cheats, mods, updates & DLC, and save backups.
+Long-press a game for its settings, patches, cheats, mods, updates & DLC, and save backups. **Add to Home Screen…** in the same sheet copies a launch link and walks you through making a Home Screen icon with Shortcuts.
 
 ### Patches, cheats and mods
 
@@ -98,6 +100,7 @@ Go to **Settings → Storage → Choose folder or drive…** to keep games, save
 - **60 FPS mode** and **60 FPS patches** double the frame rate of 30 FPS games when the patch list has one for your game. Use one or the other, not both.
 - **Fast CPU** trades some floating-point accuracy for speed. It helps CPU-heavy games, but switch it off if a game misbehaves.
 - **Upscaling** costs GPU time. Try 2× with FSR on Pro models, and keep an eye on the thermals line in the overlay.
+- **Low Power Mode** and a hot iPhone slow games down a lot. The library tells you when either is the case.
 - **First runs** stutter while shaders compile. The cache is saved, so the second session is smoother.
 
 ## Known issues
