@@ -344,7 +344,7 @@ void ScreenRenderer::destroy_swapchain() {
 }
 
 void ScreenRenderer::cleanup() {
-    state.device.waitIdle();
+    tolerate_device_lost("a GPU idle wait", [&] { state.device.waitIdle(); });
 
     filter.reset();
 
@@ -453,7 +453,7 @@ bool ScreenRenderer::acquire_swapchain_image() {
         need_rebuild = !surface_matches_window_size();
 
     // wait for the previous frame using this image to finish
-    auto result = state.device.waitForFences(fences[swapchain_image_idx], VK_TRUE, next_image_timeout);
+    auto result = tolerate_device_lost("the swapchain fence wait", [&] { return state.device.waitForFences(fences[swapchain_image_idx], VK_TRUE, next_image_timeout); });
     if (result != vk::Result::eSuccess) {
         LOG_ERROR("Could not wait for fences.");
         return false;
@@ -558,7 +558,7 @@ void ScreenRenderer::swap_window() {
     vk::Result result;
     {
         std::lock_guard<std::mutex> lock(state.queue_mutex);
-        state.general_queue.submit(submit_info, fences[swapchain_image_idx]);
+        tolerate_device_lost("the screen submit", [&] { state.general_queue.submit(submit_info, fences[swapchain_image_idx]); });
         result = state.general_queue.presentKHR(&present_info);
     }
     if (result == vk::Result::eSuboptimalKHR) {
@@ -719,7 +719,7 @@ bool ScreenRenderer::rebuild_swapchain_if_visible() {
     if (!window_has_drawable_size(state))
         return false;
 
-    state.device.waitIdle();
+    tolerate_device_lost("a GPU idle wait", [&] { state.device.waitIdle(); });
     destroy_swapchain();
 
 #ifdef __ANDROID__

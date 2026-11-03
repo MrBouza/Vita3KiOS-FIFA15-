@@ -1261,13 +1261,13 @@ bool VKSurfaceCache::check_for_surface(MemState &mem, Address source_address, Ca
         submit_info.setCommandBuffers(surface_cmd);
         {
             std::lock_guard<std::mutex> lock(state.queue_mutex);
-            state.general_queue.submit(submit_info, fence);
+            tolerate_device_lost("a surface copy submit", [&] { state.general_queue.submit(submit_info, fence); });
         }
 
         // now we need to wait for the fence, then destroy it along with the command buffer
         // to prevent memory leaks
         CallbackRequestFunction vk_callback = [&state = this->state, fence, surface_cmd]() {
-            auto result = state.device.waitForFences(fence, vk::True, std::numeric_limits<uint64_t>::max());
+            auto result = tolerate_device_lost("a surface copy wait", [&] { return state.device.waitForFences(fence, vk::True, std::numeric_limits<uint64_t>::max()); });
             if (result != vk::Result::eSuccess)
                 LOG_ERROR("Could not wait for fences.");
 

@@ -384,7 +384,7 @@ void OverlayRenderer::destroy() {
         return;
 
     vk::Device device = m_state->device;
-    device.waitIdle();
+    tolerate_device_lost("a GPU idle wait", [&] { device.waitIdle(); });
 
     destroy_pipeline();
 

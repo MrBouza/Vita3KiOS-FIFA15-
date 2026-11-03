@@ -46,7 +46,7 @@ void VKContext::wait_thread_function(const MemState &mem) {
     auto wait_for_fences = [&]() {
         while (!fences.empty()) {
             // timeout so we can check for shutdown
-            auto result = state.device.waitForFences(fences, VK_TRUE, 100'000'000ULL);
+            auto result = tolerate_device_lost("a GPU fence wait", [&] { return state.device.waitForFences(fences, VK_TRUE, 100'000'000ULL); });
             if (result == vk::Result::eSuccess) {
                 // don't reset them
                 fences.clear();
@@ -663,7 +663,7 @@ void VKContext::stop_recording(const SceGxmNotification &notif1, const SceGxmNot
 
     {
         std::lock_guard<std::mutex> lock(state.queue_mutex);
-        state.general_queue.submit(submit_info, fence);
+        tolerate_device_lost("a GPU submit", [&] { state.general_queue.submit(submit_info, fence); });
     }
     cmdbuffers_to_submit.clear();
     state.frame().rendered_fences.push_back(fence);
@@ -762,7 +762,7 @@ void new_frame(VKContext &context) {
                 return context.last_frame_waited >= previous_frame_timestamp;
             });
         } else {
-            auto result = device.waitForFences(frame.rendered_fences, VK_TRUE, std::numeric_limits<uint64_t>::max());
+            auto result = tolerate_device_lost("a frame fence wait", [&] { return device.waitForFences(frame.rendered_fences, VK_TRUE, std::numeric_limits<uint64_t>::max()); });
             if (result != vk::Result::eSuccess) {
                 LOG_ERROR("Could not wait for fences.");
                 assert(false);

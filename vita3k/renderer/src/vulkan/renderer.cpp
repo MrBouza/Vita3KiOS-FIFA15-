@@ -1077,7 +1077,7 @@ void VKState::cleanup() {
         descriptor.descriptors_idx = 0;
     };
 
-    device.waitIdle();
+    tolerate_device_lost("a GPU idle wait", [&] { device.waitIdle(); });
 
     request_queue.abort();
 
@@ -1602,7 +1602,7 @@ void VKState::unmap_memory(MemState &mem, Ptr<void> address) {
     }
 
     // we need to wait in case the buffer is being used
-    device.waitIdle();
+    tolerate_device_lost("a GPU idle wait", [&] { device.waitIdle(); });
 
     switch (mapping_method) {
     case MappingMethod::ExernalHost:
