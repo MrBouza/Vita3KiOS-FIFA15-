@@ -432,7 +432,10 @@ struct AboutSection: View {
                     Label("Share previous session's log", systemImage: "clock.arrow.circlepath")
                 }
             }
-            Text("Attach the log when reporting a problem. It's also in the app's folder in the Files app.")
+            Link(destination: URL(string: "https://discord.gg/pZyQDPHKF")!) {
+                Label("Join the Discord", systemImage: "bubble.left.and.bubble.right")
+            }
+            Text("Attach the log when reporting a problem, on the Discord for example. It's also in the app's folder in the Files app.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

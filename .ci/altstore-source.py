@@ -18,12 +18,17 @@ if len(sys.argv) > 7 and os.path.exists(sys.argv[7]):
 
 raw = f"https://raw.githubusercontent.com/{repo}/main/dist/altstore"
 description = (
-    "Vita3KiOS is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n\n"
-    "- Install games from .vpk, .zip, .pkg (with zRIF) or a dumped folder\n"
+    "Vita3KiOS is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n"
+    "\n"
+    "- Install games, updates and DLC from .vpk, .zip, .pkg or a dumped folder\n"
     "- JIT through StikDebug, works in LiveContainer\n"
-    "- On-screen controls with themes, controller support and button remapping\n"
-    "- External storage: keep your games on a USB drive, SSD or SD card\n\n"
-    "You need your own PS Vita firmware and games."
+    "- Per-game settings, community patches, cheats and mods\n"
+    "- On-screen controls you can rearrange, controller support and button remapping\n"
+    "- External storage: keep your games on a USB drive, SSD or SD card\n"
+    "\n"
+    "You need your own PS Vita firmware and games.\n"
+    "\n"
+    "Discord (help and bug reports): https://discord.gg/pZyQDPHKF"
 )
 
 if os.path.exists(source_path):

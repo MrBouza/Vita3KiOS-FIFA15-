@@ -14,6 +14,7 @@
   <a href="../../actions/workflows/ios.yml"><img src="https://img.shields.io/github/actions/workflow/status/oledz-i/Vita3KiOS/ios.yml?branch=main&label=build" alt="Build status"></a>
   <img src="https://img.shields.io/badge/iOS-17.4%2B-0a84ff" alt="iOS 17.4+">
   <img src="https://img.shields.io/badge/license-GPL--2.0--or--later-lightgrey" alt="GPL-2.0-or-later">
+  <a href="https://discord.gg/pZyQDPHKF"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join the Discord"></a>
   <a href="https://ko-fi.com/Oledz"><img src="https://img.shields.io/badge/Ko--fi-support%20Vita3KiOS-ff5e5b?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
 </p>
 
@@ -110,7 +111,7 @@ Go to **Settings → Storage → Choose folder or drive…** to keep games, save
 - Some games are affected by upstream Vulkan renderer bugs. For example, *Minecraft* v1.00 plays audio over a black screen.
 - iOS can close the app under heavy memory pressure. Close other apps before demanding games.
 
-Send `vita3k.log` (**Settings → About → Share log**) when you report a problem.
+Send `vita3k.log` (**Settings → About → Share log**) when you report a problem, on the [Discord](https://discord.gg/pZyQDPHKF) or in [Issues](../../issues).
 
 ## Building
 
@@ -129,6 +130,8 @@ VCPKG_ROOT=/path/to/vcpkg bash .ci/build-ios.sh artifacts
 The iOS code lives in `vita3k/ios/`: the app target, SwiftUI frontend, C bridge to the core, and JIT. The dynarmic JIT patch is in `vita3k/ios/patches/` and is applied at configure time.
 
 ## Support
+
+**Need help or found a bug?** Join the **[Discord](https://discord.gg/pZyQDPHKF)**. When reporting a problem, say which game and where it broke, and attach the crash report and `vita3k.log` (**Settings → About → Share log**).
 
 If Vita3KiOS is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-fi.com/Oledz)**. Thank you!
 
