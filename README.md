@@ -1,79 +1,118 @@
-# Vita3KiOS
+<p align="center">
+  <img src="dist/altstore/icon.png" width="128" alt="Vita3KiOS icon">
+</p>
 
-An experimental PlayStation Vita emulator for iPhone and iPad, built on [Vita3K](https://github.com/Vita3K/Vita3K).
+<h1 align="center">Vita3KiOS</h1>
 
-Vita3KiOS runs the full, current Vita3K emulator core (CPU recompiler, GXM→Vulkan renderer via MoltenVK, kernel and module HLE) inside a native iOS app with a SwiftUI library. The iOS JIT support comes from [Tsubomi](https://github.com/125hz/Tsubomi) by 125hz.
+<p align="center">
+  <b>A PlayStation Vita emulator for iPhone and iPad, built on <a href="https://github.com/Vita3K/Vita3K">Vita3K</a>.</b><br>
+  The full Vita3K core in a native iOS app, with JIT on iOS 26.
+</p>
 
-> **Status: early.** Games boot and run with JIT on iOS 26 (tested on iPhone 16 Pro through LiveContainer + StikDebug). Game compatibility follows upstream Vita3K: check the [compatibility list](https://vita3k.org/compatibility.html). See [ROADMAP-iOS.md](ROADMAP-iOS.md).
+<p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/oledz-i/Vita3KiOS?include_prereleases&label=release&color=6c5ce7" alt="Latest release"></a>
+  <a href="../../actions/workflows/ios.yml"><img src="https://img.shields.io/github/actions/workflow/status/oledz-i/Vita3KiOS/ios.yml?branch=main&label=build" alt="Build status"></a>
+  <img src="https://img.shields.io/badge/iOS-17.4%2B-0a84ff" alt="iOS 17.4+">
+  <img src="https://img.shields.io/badge/license-GPL--2.0--or--later-lightgrey" alt="GPL-2.0-or-later">
+</p>
 
-## Features
+<p align="center">
+  <img src="dist/readme/preview.jpg" alt="Vita3KiOS interface preview" width="100%">
+  <br><sub><i>Interface preview. The games shown are placeholders, not real titles.</i></sub>
+</p>
 
-- Full Vita3K core, kept in sync with upstream
-- SwiftUI library with game icons, search, firmware/font/JIT status
-- Import firmware (`.PUP`), games as `.vpk`, `.zip`, `.pkg` (with zRIF) or dumped game folders, from the Files picker or the `Import` folder
-- iOS 26 JIT through StikDebug's `universal.js` (from Tsubomi), classic debugger JIT on iOS 17.4–18
-- Keep your games on an external drive (USB-C SSD, thumb drive, microSD reader) or any folder: **Settings → Storage**
-- On-screen touch controls with themes (PlayStation colours, Xbox-style and Nintendo-style A/B/X/Y, Neon, Minimal), adjustable opacity and size, hidden automatically when a controller connects
-- Button mapping for controllers, including a one-tap ✕/○ swap
-- Eight UI themes, and original menu music composed on the device: endless songs in six styles
-- **Per-game settings**: resolution, filters, accuracy, FPS hack and more for each game (long-press a game → *Game settings, patches & saves*)
-- **Game patches** from the community [vita3k-patches](https://github.com/Vita3K/vita3k-patches) list (60 FPS, resolution and bug fixes), toggled per game
-- **Shader cache** kept between sessions and saved when the app goes to the background, so the second launch of a game is smooth; per-game cache size and reset
-- **Save backups**: export a game's save as a .zip, import one back (the current save is kept aside)
-- **Crash reports**: if a session crashes or iOS closes the app, the next launch shows what happened with a one-tap share of the report and log
-- Library sorting by title or recently played, play time per game, log sharing from Settings
-- **Cheats** (VitaCheat .psv, the community database built in) and **mods** (rePatch layout: Vita mods work as they are)
-- **Performance overlay** you configure yourself: FPS, frame time, CPU, memory, thermal state, battery, resolution
-- 60 FPS mode, Fast CPU, upscaling up to 4× with FSR, background shader compilation
-- Animated themes, controller Home/PS button or Select + Start for the in-game menu
-- Works inside LiveContainer; updates through AltStore / SideStore
-- Settings for resolution, filtering, V-Sync, CPU options and audio
+---
+
+## Highlights
+
+|  |  |
+|---|---|
+| 🎮 **Full Vita3K core** | The same CPU recompiler, GXM → Vulkan renderer (via MoltenVK) and HLE as desktop Vita3K, kept in sync with upstream. |
+| ⚡ **JIT on iOS 26** | Through StikDebug's `universal.js` (from Tsubomi). JIT memory is set up in one batched step, so launch takes about two seconds. |
+| 📦 **Installs everything** | `.pkg`, `.vpk`, `.zip` and dumped folders, including **updates and DLC**. A zip full of `.pkg`s installs in the right order: game → update → DLC. Updates don't ask for a zRIF. |
+| 🛠 **Per-game everything** | Settings, community **patches**, **cheats** (VitaCheat database built in), **mods** (rePatch layout), updates & DLC, and save backups, all from one sheet. |
+| 🚀 **Performance options** | 60 FPS mode, Fast CPU, upscaling up to 4× with FSR, background shader compilation and a shader cache kept between sessions. |
+| 📊 **Performance overlay** | Pick what to show: FPS, frame time, CPU, memory, thermals, battery, resolution. Place it where you like. |
+| 🎨 **Looks the part** | Eight animated themes that respond to tilt, original menu music made on the device, and touch-control themes (PlayStation, Xbox-style letters, Nintendo-style, Neon, Minimal). |
+| 🕹 **Controllers** | Any MFi, Xbox, PlayStation or Switch controller. Remap buttons, swap ✕/○, and touch controls hide when a controller connects. |
+| 💾 **External storage** | Keep games on a USB-C SSD, thumb drive or SD reader. |
+| 🩺 **Crash reports** | If a game crashes, the next launch shows what happened, with the report and log one tap away. |
 
 ## Requirements
 
-- iPhone or iPad with an A12 chip or newer, on **iOS 17.4 or later**
+- iPhone or iPad with an **A12 chip or newer**, on **iOS 17.4 or later**
 - A way to sideload an unsigned `.ipa`: AltStore, SideStore, LiveContainer or TrollStore
 - [StikDebug](https://github.com/StephenDev0/StikDebug) for JIT
 - Your own PS Vita firmware and game dumps
 
 ## Install
 
-- **AltStore / SideStore (updates in-app):** add this source:
-  `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json`
-- **LiveContainer, TrollStore or another signer:** download `Vita3KiOS-<version>.ipa` from [Releases](../../releases/latest).
-- **Test builds** of every commit: the newest successful run of the [iOS workflow](../../actions/workflows/ios.yml) → **Artifacts** (needs a GitHub login).
+**AltStore / SideStore** (in-app updates). Add this source:
 
-New versions install over old ones and keep your data (bundle ID `org.vita3k.ios`).
+```
+https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json
+```
+
+**LiveContainer, TrollStore or another signer.** Download `Vita3KiOS-<version>.ipa` from [Releases](../../releases/latest).
+
+**Test builds.** Every commit is built: open the newest successful run of the [iOS workflow](../../actions/workflows/ios.yml) → **Artifacts** (you need to be signed in to GitHub).
+
+New versions install over old ones and keep your games and saves.
 
 ## Enabling JIT
 
-Vita3K translates game code at runtime, so it needs JIT. Without it, games won't start, and the app tells you so.
+Vita3K translates game code while it runs, so it needs JIT. Without JIT, games won't start, and the app tells you so.
 
-**iOS 26 on an A15/M2 or newer chip (iPhone 13 and later)** needs StikDebug's `universal.js` script:
+**iOS 26 on A15/M2 or newer (iPhone 13 and later).** You need StikDebug's `universal.js` script:
 
 - **LiveContainer:** long-press Vita3K → Settings → turn on **Launch with JIT** and set **JIT Launch Script** to `universal.js`. In LiveContainer's settings, choose StikDebug as the JIT enabler.
-- **Installed directly:** in StikDebug, assign `universal.js` to Vita3K and enable JIT for it.
+- **Installed directly:** in StikDebug, assign `universal.js` to Vita3K and enable JIT.
 
-When Vita3K opens, it prepares its JIT memory while StikDebug is attached (a "Setting up JIT" screen). The status pill turns green (**JIT ready**) when it's done.
+The status pill turns green (**JIT ready**) once Vita3K has set up its JIT memory.
 
-**iOS 17.4–18, or older chips:** enabling JIT in StikDebug (or LiveContainer's "Launch with JIT") is enough.
+**iOS 17.4–18, or older chips.** Enabling JIT in StikDebug, or LiveContainer's "Launch with JIT", is enough.
 
-## Adding firmware and games
+## Getting started
 
-1. Download the PS Vita firmware (`PSVUPDAT.PUP`) and font package (`PSP2UPDAT.PUP`) from PlayStation's site.
-2. In Vita3K, tap **+** → **Files** and pick them. Then add your games the same way, or with **+** → **Game folder** for a dumped folder.
-   - `.pkg` files need their zRIF license. Vita3K asks for it, or reads a `.zrif` text file with the same name next to the `.pkg`.
-3. Alternatively, copy files into **Files → On My iPhone → Vita3K → Import** and reopen the app.
+1. **Firmware.** Download the Vita firmware (`PSVUPDAT.PUP`) and fonts (`PSP2UPDAT.PUP`) from PlayStation's site. Tap **+** → **Files** and pick them.
+2. **Games.** Use the same **+** button for `.vpk`, `.pkg`, `.zip` or a dumped game folder. You can also drop files into **Files → On My iPhone → Vita3K → Import**.
+3. **Updates & DLC.** Install the game first, then its update and DLC `.pkg`s, one at a time or together in a zip or folder. Vita3K sorts them so the game always goes in first.
 
-Data lives in the app's Documents folder (`vita/` holds the Vita file system, `vita3k.log` is the log). Send the log when reporting a problem.
+**zRIF licences.** Game and DLC `.pkg`s need their zRIF. Vita3K asks for it, or you can put a `.zrif` text file with the same name next to the `.pkg`. Updates use the base game's licence and don't ask.
+
+Long-press a game for its settings, patches, cheats, mods, updates & DLC, and save backups.
+
+### Patches, cheats and mods
+
+- **Patches** come from the community [vita3k-patches](https://github.com/Vita3K/vita3k-patches) list: 60 FPS, resolution and bug-fix patches. Download the list once (**Settings → Patches**, or from any game's sheet), then switch each patch on or off. Patches apply the next time the game starts. Each game shows only the patches that exist for it.
+- **Cheats** use the VitaCheat `.psv` format. The community database is built in, and you can import your own.
+- **Mods** use the rePatch layout (`ux0:rePatch/<TITLEID>`), so most Vita mods work unchanged. Install them from a `.zip` in the game's sheet.
 
 ### External storage
 
-**Settings → Storage → Choose folder or drive…** lets you keep games, saves and firmware on an external drive or any other folder the Files app can reach. Vita3K copies your firmware there and remembers the location across launches. If the drive isn't connected when Vita3K starts, it falls back to the device's storage and tells you. If you already have a desktop Vita3K folder (with `ux0` inside), copy it to the drive and pick it directly.
+Go to **Settings → Storage → Choose folder or drive…** to keep games, saves and firmware on an external drive or any folder the Files app can reach. If you already have a desktop Vita3K folder (with `ux0` inside), copy it over and pick it. If the drive isn't connected at launch, Vita3K falls back to the device's storage and tells you.
+
+## Performance tips
+
+- **Start with the defaults.** Most games run best at native resolution with background shader compilation on.
+- **60 FPS mode** and **60 FPS patches** double the frame rate of 30 FPS games when the patch list has one for your game. Use one or the other, not both.
+- **Fast CPU** trades some floating-point accuracy for speed. It helps CPU-heavy games, but switch it off if a game misbehaves.
+- **Upscaling** costs GPU time. Try 2× with FSR on Pro models, and keep an eye on the thermals line in the overlay.
+- **First runs** stutter while shaders compile. The cache is saved, so the second session is smoother.
+
+## Known issues
+
+- Compatibility follows upstream Vita3K. Check the [compatibility list](https://vita3k.org/compatibility.html) first.
+- Some games are affected by upstream Vulkan renderer bugs. For example, *Minecraft* v1.00 plays audio over a black screen.
+- iOS can close the app under heavy memory pressure. Close other apps before demanding games.
+
+Send `vita3k.log` (**Settings → About → Share log**) when you report a problem.
 
 ## Building
 
-Builds run on GitHub Actions (`.github/workflows/ios.yml`): CMake generates an Xcode project, `xcodebuild` builds it unsigned, and the app is packaged as an IPA. To build locally on a Mac with Xcode 26 and a bootstrapped [vcpkg](https://github.com/microsoft/vcpkg):
+CI builds every push on GitHub Actions ([`ios.yml`](.github/workflows/ios.yml)). CMake generates an Xcode project, `xcodebuild` builds it unsigned, and the app is packaged as an IPA. Repeat builds take about 6 minutes, because vcpkg packages, CMake checks and compiled objects are cached.
+
+To build locally on a Mac with Xcode 26 and a bootstrapped [vcpkg](https://github.com/microsoft/vcpkg):
 
 ```sh
 git clone --recursive https://github.com/oledz-i/Vita3KiOS
@@ -81,20 +120,18 @@ cd Vita3KiOS
 VCPKG_ROOT=/path/to/vcpkg bash .ci/build-ios.sh artifacts
 ```
 
-Repeat builds take about 6 minutes: CI caches vcpkg packages, CMake's feature checks and compiled objects (ccache).
+**Releasing.** Actions → iOS → *Run workflow* with a version number, or push a `v1.2.3` tag. The IPA is attached to a GitHub Release and the AltStore / SideStore source is updated automatically.
 
-**Releasing:** Actions → iOS → *Run workflow* with a version number (or push a `v1.2.3` tag). The IPA is attached to a GitHub Release and the AltStore / SideStore source is updated automatically.
-
-The iOS code lives in `vita3k/ios/` (app target, SwiftUI frontend, C bridge to the core, JIT), with the dynarmic JIT patch in `vita3k/ios/patches/` (applied automatically at configure time).
+The iOS code lives in `vita3k/ios/`: the app target, SwiftUI frontend, C bridge to the core, and JIT. The dynarmic JIT patch is in `vita3k/ios/patches/` and is applied at configure time.
 
 ## Credits
 
 - **[Vita3K](https://github.com/Vita3K/Vita3K)** and its contributors: the emulator this app is built on. Please support the upstream project.
-- **[Tsubomi](https://github.com/125hz/Tsubomi)** by **125hz**: the iOS 26 JIT implementation (`vita3k/ios/patches/0001-oaknut-ios-rwx-jit.patch` and the JIT region pool), guest memory pre-reservation, the iOS audio session setup and the high-density game window.
+- **[Tsubomi](https://github.com/125hz/Tsubomi)** by **125hz**: the iOS 26 JIT implementation and JIT region pool, guest memory pre-reservation, the iOS audio session setup and the high-density game window.
 - **[dynarmic](https://github.com/merryhime/dynarmic)** and **oaknut** by merryhime, **[MoltenVK](https://github.com/KhronosGroup/MoltenVK)**, **[SDL](https://github.com/libsdl-org/SDL)**, and the other libraries in `external/`.
 
 ## Legal
 
-Vita3KiOS doesn't include any games, firmware or keys. Only use content you dumped from hardware you own. This project isn't affiliated with Sony.
+Vita3KiOS doesn't include any games, firmware or keys. Only use content you dumped from hardware you own. This project isn't affiliated with or endorsed by Sony Interactive Entertainment. "PlayStation" and "PS Vita" are trademarks of their respective owners.
 
 Licensed under the GNU General Public License v2 or later, like Vita3K. See [COPYING.txt](COPYING.txt).
