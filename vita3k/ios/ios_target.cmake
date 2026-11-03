@@ -11,6 +11,8 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/TouchControls.swift
 	ios/ui/MenuMusic.swift
 	ios/ui/GameSettingsView.swift
+	ios/ui/PerformanceHUD.swift
+	ios/ui/AnimatedBackground.swift
 )
 
 add_executable(vita3k MACOSX_BUNDLE

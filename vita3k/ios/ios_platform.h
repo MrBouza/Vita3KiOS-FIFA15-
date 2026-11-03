@@ -21,6 +21,7 @@
 // Keep this header free of Vita3K includes: Apple's headers define names such as Ptr
 // that clash with Vita3K's own, so the .mm side must never see both.
 
+#include <cstdint>
 #include <string>
 
 namespace ios {
@@ -56,5 +57,18 @@ void set_pending_launch(const std::string &title_id);
 // HTTPS GET through NSURLSession (system certificates and proxies; the bundled OpenSSL has no CA list
 // on iOS, so curl can't verify servers). Blocking: call off the main thread. Follows redirects.
 bool download(const std::string &url, std::string &data, std::string &error);
+
+// Live process numbers for the performance overlay: CPU use of all threads (100 = one core),
+// memory the app uses as iOS counts it, and memory left before iOS would close the app
+struct ProcessStats {
+    double cpu_percent = 0;
+    uint64_t memory_used = 0;
+    uint64_t memory_available = 0;
+};
+ProcessStats process_stats();
+
+// Capacity and free space of the volume holding a path, as the Settings app reports them: free
+// space includes what iOS frees up automatically ("available for important usage")
+bool volume_capacity(const std::string &path, uint64_t &total, uint64_t &available);
 
 } // namespace ios

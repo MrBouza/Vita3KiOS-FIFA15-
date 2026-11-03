@@ -13,6 +13,7 @@ enum LibraryHost {
     static let model = LibraryModel()
 
     static func show() {
+        BackgroundMotion.shared.setActive(true)
         if window == nil {
             let newWindow: UIWindow
             if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
@@ -59,6 +60,7 @@ enum LibraryHost {
     }
 
     static func hide() {
+        BackgroundMotion.shared.setActive(false)
         // The game is about to start: the menu music fades out and stops
         MenuMusic.shared.libraryHidden()
         window?.isHidden = true

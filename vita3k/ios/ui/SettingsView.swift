@@ -50,6 +50,7 @@ struct SettingsView: View {
 
 struct AppearanceSection: View {
     @AppStorage("v3k.theme") private var themeName = AppTheme.midnight.rawValue
+    @AppStorage("v3k.animatedBackground") private var animatedBackground = true
 
     var body: some View {
         Section("Appearance") {
@@ -61,6 +62,13 @@ struct AppearanceSection: View {
                 }
             }
             .padding(.vertical, 4)
+            Toggle(isOn: $animatedBackground) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Animated background")
+                    Text("Moving light and particles for each theme, with a little tilt. Off when Reduce Motion is on.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
@@ -145,7 +153,8 @@ struct StorageSection: View {
         Section {
             LabeledContent("Location", value: locationName)
             if model.storage.totalBytes > 0 {
-                LabeledContent("Space", value: model.storage.freeText)
+                LabeledContent("Free", value: model.storage.freeText)
+                LabeledContent("Used", value: model.storage.usedText)
             }
             if !model.storage.note.isEmpty {
                 Label(model.storage.note, systemImage: "exclamationmark.triangle.fill")
@@ -298,7 +307,11 @@ struct EmulationSections: View {
         Section("System") {
             Toggle("CPU optimisations", isOn: binding(\.cpuOpt) { model.setBool("cpu-opt", $0) })
             Toggle("PS TV mode", isOn: binding(\.pstvMode) { model.setBool("pstv-mode", $0) })
-            Toggle("FPS counter", isOn: binding(\.performanceOverlay) { model.setBool("performance-overlay", $0) })
+            NavigationLink {
+                PerformanceOverlaySettings()
+            } label: {
+                LabeledContent("Performance overlay", value: UserDefaults.standard.bool(forKey: "v3k.hud.enabled") ? "On" : "Off")
+            }
         }
 
         Section("Game audio") {
@@ -485,5 +498,57 @@ struct ControllerMappingView: View {
         if let data = json.data(using: .utf8), let decoded = try? JSONDecoder().decode([Int32].self, from: data), decoded.count >= 15 {
             binds = decoded
         }
+    }
+}
+
+// MARK: - Performance overlay
+
+struct PerformanceOverlaySettings: View {
+    @AppStorage("v3k.hud.enabled") private var enabled = false
+    @AppStorage("v3k.hud.position") private var position = 0
+    @AppStorage("v3k.hud.size") private var size = 1
+    @AppStorage("v3k.hud.opacity") private var opacity = 0.35
+    @State private var refresh = false
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Show performance overlay", isOn: $enabled)
+            } footer: {
+                Text("A small see-through panel over the game. It applies the next time a game starts.")
+            }
+            if enabled {
+                Section("Show") {
+                    ForEach(HUDSettings.items) { item in
+                        Toggle(isOn: Binding(
+                            get: { _ = refresh; return HUDSettings.isOn(item.key) },
+                            set: { UserDefaults.standard.set($0, forKey: "v3k.hud.\(item.key)"); refresh.toggle() }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title)
+                                Text(item.detail).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                Section {
+                    Picker("Position", selection: $position) {
+                        ForEach(HUDSettings.positions.indices, id: \.self) { Text(HUDSettings.positions[$0]).tag($0) }
+                    }
+                    Picker("Text size", selection: $size) {
+                        ForEach(HUDSettings.sizes.indices, id: \.self) { Text(HUDSettings.sizes[$0]).tag($0) }
+                    }
+                    VStack(alignment: .leading) {
+                        Text("Background: \(Int(opacity * 100))%")
+                        Slider(value: $opacity, in: 0...0.8, step: 0.05)
+                    }
+                } header: {
+                    Text("Layout")
+                } footer: {
+                    Text("Thermal state is what iOS reports (it doesn't give apps a temperature). When it reaches Serious, iOS slows the chip down, and frame rates drop.")
+                }
+            }
+        }
+        .navigationTitle("Performance overlay")
     }
 }

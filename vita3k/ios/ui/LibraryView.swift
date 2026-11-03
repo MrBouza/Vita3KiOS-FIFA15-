@@ -44,6 +44,7 @@ enum AppTheme: String, CaseIterable, Identifiable {
     }
 
     var accent: Color { Self.rgb(palette.0) }
+    var backgroundColors: [Color] { [Self.rgb(palette.2), Self.rgb(palette.3), .black] }
     var accent2: Color { Self.rgb(palette.1) }
     var background: LinearGradient {
         LinearGradient(colors: [Self.rgb(palette.2), Self.rgb(palette.3), .black], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -95,7 +96,7 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Theme.background.ignoresSafeArea()
+                AnimatedBackground().ignoresSafeArea()
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {

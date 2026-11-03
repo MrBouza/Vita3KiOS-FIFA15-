@@ -21,6 +21,8 @@
 
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
+#include <os/proc.h>
+#include <mach/mach.h>
 #import <UIKit/UIKit.h>
 
 #include <atomic>
@@ -216,6 +218,47 @@ bool download(const std::string &url, std::string &data, std::string &error) {
             return false;
         }
         data.assign(static_cast<const char *>(body.bytes), body.length);
+        return true;
+    }
+}
+
+ProcessStats process_stats() {
+    ProcessStats stats;
+    task_vm_info_data_t vm_info{};
+    mach_msg_type_number_t vm_count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&vm_info), &vm_count) == KERN_SUCCESS)
+        stats.memory_used = vm_info.phys_footprint;
+    stats.memory_available = os_proc_available_memory();
+
+    thread_act_array_t threads = nullptr;
+    mach_msg_type_number_t thread_count = 0;
+    if (task_threads(mach_task_self(), &threads, &thread_count) == KERN_SUCCESS) {
+        for (mach_msg_type_number_t i = 0; i < thread_count; i++) {
+            thread_basic_info_data_t info{};
+            mach_msg_type_number_t info_count = THREAD_BASIC_INFO_COUNT;
+            if (thread_info(threads[i], THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&info), &info_count) == KERN_SUCCESS
+                && !(info.flags & TH_FLAGS_IDLE))
+                stats.cpu_percent += info.cpu_usage * 100.0 / TH_USAGE_SCALE;
+            mach_port_deallocate(mach_task_self(), threads[i]);
+        }
+        vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(threads), thread_count * sizeof(thread_t));
+    }
+    return stats;
+}
+
+bool volume_capacity(const std::string &path, uint64_t &total, uint64_t &available) {
+    @autoreleasepool {
+        NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.c_str()]];
+        NSArray *keys = @[ NSURLVolumeTotalCapacityKey, NSURLVolumeAvailableCapacityForImportantUsageKey, NSURLVolumeAvailableCapacityKey ];
+        NSDictionary *values = [url resourceValuesForKeys:keys error:nil];
+        NSNumber *capacity = values[NSURLVolumeTotalCapacityKey];
+        // External drives don't report "important usage": use their plain free space
+        NSNumber *important = values[NSURLVolumeAvailableCapacityForImportantUsageKey];
+        NSNumber *plain = values[NSURLVolumeAvailableCapacityKey];
+        if (!capacity)
+            return false;
+        total = capacity.unsignedLongLongValue;
+        available = (important && important.unsignedLongLongValue > 0) ? important.unsignedLongLongValue : plain.unsignedLongLongValue;
         return true;
     }
 }

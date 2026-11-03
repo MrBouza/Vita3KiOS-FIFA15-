@@ -100,6 +100,11 @@ void v3k_reset_controller_binds(void);
 // "Fast CPU": floating-point shortcuts in the recompiler, for games started afterwards
 void v3k_set_fast_cpu(bool enabled);
 
+// ---- Performance overlay ----
+// JSON {"fps","avgFps","minFps","maxFps","frameMs","cpu","memoryUsed","memoryAvailable","resolutionScale",
+// "width","height","shadersCompiled"}. cpu is the app's CPU use (100 = one core).
+char *v3k_perf_json(void);
+
 // ---- Misc ----
 // Writes a line from the Swift UI to vita3k.log
 void v3k_log_ui(const char *message);

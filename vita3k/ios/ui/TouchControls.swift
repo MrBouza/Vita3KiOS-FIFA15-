@@ -257,6 +257,8 @@ final class ControlsOverlayView: UIView {
     private var shortcutTimer: Timer?
     private var shortcutHeldSince: Date?
     private weak var menuAlert: UIAlertController?
+    // Settings › Performance overlay; stays visible when the controls are hidden
+    private let hud: PerformanceHUDView? = HUDSettings.enabled ? PerformanceHUDView(frame: .zero) : nil
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -274,6 +276,7 @@ final class ControlsOverlayView: UIView {
         hideButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
         addSubview(hideButton)
+        if let hud { addSubview(hud) }
 
         // Controller theme
         let theme = ControllerTheme.current
@@ -402,6 +405,21 @@ final class ControlsOverlayView: UIView {
         hideButton.frame = CGRect(x: area.midX + 8, y: area.minY, width: 36, height: 36)
         exitButton.layer.cornerRadius = 18
         hideButton.layer.cornerRadius = 18
+
+        if let hud {
+            let size = hud.sizeThatFits(bounds.size)
+            // Below the shoulder buttons at the top, above the screen edge at the bottom
+            let top = l.frame.maxY + 8
+            let bottom = area.maxY - size.height
+            let origin: CGPoint
+            switch hud.corner {
+            case 1: origin = CGPoint(x: area.maxX - size.width, y: top)
+            case 2: origin = CGPoint(x: area.minX, y: bottom)
+            case 3: origin = CGPoint(x: area.maxX - size.width, y: bottom)
+            default: origin = CGPoint(x: area.minX, y: top)
+            }
+            hud.frame = CGRect(origin: origin, size: size)
+        }
     }
 
     private func layoutDiamond(top: UIView, right: UIView, bottom: UIView, left: UIView, in rect: CGRect, unit: CGFloat) {

@@ -53,6 +53,13 @@ struct StorageInfo: Codable {
     var freeText: String {
         ByteCountFormatter.string(fromByteCount: Int64(freeBytes), countStyle: .file) + " free"
     }
+
+    /// "81 GB of 128 GB used", like Settings › General › iPhone Storage
+    var usedText: String {
+        let used = totalBytes > freeBytes ? totalBytes - freeBytes : 0
+        return ByteCountFormatter.string(fromByteCount: Int64(used), countStyle: .file) + " of "
+            + ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file) + " used"
+    }
 }
 
 struct CrashReport: Codable, Identifiable {
@@ -168,6 +175,12 @@ final class LibraryModel: ObservableObject {
 
     func launch(_ app: GameApp) {
         v3k_set_fast_cpu(UserDefaults.standard.bool(forKey: "v3k.fastCPU"))
+        // The overlay is drawn by the app now (PerformanceHUD.swift): keep the core's own one off
+        if settings.performanceOverlay {
+            _ = v3k_set_setting_bool("performance-overlay", false)
+            UserDefaults.standard.set(true, forKey: "v3k.hud.enabled")
+            settings.performanceOverlay = false
+        }
         v3k_request_launch(app.titleId)
     }
 

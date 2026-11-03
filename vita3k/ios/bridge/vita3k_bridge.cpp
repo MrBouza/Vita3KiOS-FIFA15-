@@ -35,6 +35,7 @@
 #include <packages/functions.h>
 #include <packages/pkg.h>
 #include <patch/patch.h>
+#include <renderer/state.h>
 #include <util/log.h>
 #include <util/string_utils.h>
 
@@ -318,11 +319,17 @@ char *v3k_storage_info_json(void) {
     auto *emuenv = ios::get_emuenv();
     if (!emuenv)
         return dup_string("{}");
-    std::error_code ec;
-    const auto space = fs::space(emuenv->vita_fs_path, ec);
+    // Same numbers as Settings > General > iPhone Storage: free space counts what iOS frees up by itself
+    uint64_t total = 0, available = 0;
+    if (!ios::volume_capacity(emuenv->vita_fs_path.string(), total, available)) {
+        std::error_code ec;
+        const auto space = fs::space(emuenv->vita_fs_path, ec);
+        total = ec ? 0 : space.capacity;
+        available = ec ? 0 : space.available;
+    }
     return dup_string(fmt::format(R"({{"path":{},"custom":{},"freeBytes":{},"totalBytes":{},"note":{}}})",
         quoted(emuenv->vita_fs_path.string()), ios::using_custom_storage() ? "true" : "false",
-        ec ? 0 : space.available, ec ? 0 : space.capacity, quoted(ios::storage_note())));
+        available, total, quoted(ios::storage_note())));
 }
 
 bool v3k_set_storage_folder(const char *folder, char **message) {
@@ -1116,4 +1123,19 @@ void v3k_log_ui(const char *message) {
 
 void v3k_set_fast_cpu(bool enabled) {
     set_ios_fast_cpu(enabled);
+}
+
+char *v3k_perf_json(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return dup_string("{}");
+    const auto stats = ios::process_stats();
+    const auto &cc = emuenv->cfg.current_config;
+    const uint32_t compiled = emuenv->renderer ? emuenv->renderer->shaders_count_compiled : 0;
+    return dup_string(fmt::format(
+        R"({{"fps":{},"avgFps":{},"minFps":{},"maxFps":{},"frameMs":{},"cpu":{:.0f},"memoryUsed":{},"memoryAvailable":{},)"
+        R"("resolutionScale":{},"width":{},"height":{},"shadersCompiled":{}}})",
+        emuenv->fps, emuenv->avg_fps, emuenv->min_fps, emuenv->max_fps, emuenv->ms_per_frame, stats.cpu_percent,
+        stats.memory_used, stats.memory_available, cc.resolution_multiplier,
+        static_cast<int>(960 * cc.resolution_multiplier), static_cast<int>(544 * cc.resolution_multiplier), compiled));
 }
