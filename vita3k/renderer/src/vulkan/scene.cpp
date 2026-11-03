@@ -329,9 +329,14 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
             bool read_from_mapping = context.state.features.enable_memory_mapping;
 #ifdef __APPLE__
             // Vulkan allows any stride and offset, but Metal only allows multiples of 4: copy those streams
-            const bool restride = vertex_program.streams[i].stride % 4 != 0;
-            if (restride || (state.vertex_streams[i].data.address() & 3) != 0)
+            // Odd strides are copied with the stride rounded up to 4; when their attributes sit at
+            // unaligned offsets too, the copy gives each attribute an aligned slot (metal_stream_layout)
+            const MetalStreamLayout metal_layout = metal_stream_layout(vertex_program, i);
+            const bool restride = vertex_program.streams[i].stride % 4 != 0 && !metal_layout.repack;
+            if (restride || metal_layout.repack || (state.vertex_streams[i].data.address() & 3) != 0)
                 read_from_mapping = false;
+            if (metal_layout.repack)
+                LOG_INFO_ONCE("Realigning vertex attributes of odd-stride streams for Metal (stride {} -> {})", metal_layout.src_stride, metal_layout.stride);
 #endif
             if (read_from_mapping) {
                 auto [buffer, offset] = context.state.get_matching_mapping(state.vertex_streams[i].data.cast<void>());
@@ -342,7 +347,12 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
                 const uint8_t *stream = state.vertex_streams[i].data.get(mem);
                 uint32_t stream_size = state.vertex_streams[i].size;
 #ifdef __APPLE__
-                if (restride) {
+                std::vector<uint8_t> repacked;
+                if (metal_layout.repack) {
+                    repacked = metal_repack_stream(metal_layout, stream, stream_size);
+                    stream = repacked.data();
+                    stream_size = static_cast<uint32_t>(repacked.size());
+                } else if (restride) {
                     restride_stream(stream, stream_size, vertex_program.streams[i].stride);
                 }
 #endif

@@ -17,6 +17,8 @@
 
 #include <renderer/vulkan/pipeline_cache.h>
 
+#include <renderer/vulkan/functions.h>
+
 #include <renderer/vulkan/gxm_to_vulkan.h>
 #include <renderer/vulkan/state.h>
 #include <renderer/vulkan/types.h>
@@ -37,6 +39,9 @@
 #include <xxhash.h>
 
 #include <algorithm>
+#include <array>
+#include <cstring>
+#include <optional>
 
 namespace renderer::vulkan {
 
@@ -749,6 +754,106 @@ vk::RenderPass PipelineCache::retrieve_render_pass(vk::Format format, bool force
     return render_passes_map[format];
 }
 
+#ifdef __APPLE__
+// Bytes an attribute really reads: matrices are read as whole vec4s, and regformat attributes
+// follow the shader's own type
+static uint32_t metal_attribute_read_size(const SceGxmVertexAttribute &attribute, const VertexProgram *vkvert) {
+    const auto widen = [](uint32_t components) {
+        if (components > 4)
+            return (components + 3) & ~3u;
+        return components;
+    };
+    uint32_t size = gxm::attribute_format_size(static_cast<SceGxmAttributeFormat>(attribute.format)) * widen(attribute.componentCount);
+    if (vkvert && vkvert->attribute_infos.contains(attribute.regIndex)) {
+        const shader::usse::AttributeInformation &info = vkvert->attribute_infos.at(attribute.regIndex);
+        if (info.regformat) {
+            uint32_t components = info.component_count;
+            uint32_t element = 4;
+            switch (info.gxm_type) {
+            case SCE_GXM_PARAMETER_TYPE_C10:
+                components = (components * 10 + 7) / 8;
+                element = 1;
+                break;
+            case SCE_GXM_PARAMETER_TYPE_U8:
+            case SCE_GXM_PARAMETER_TYPE_S8:
+                element = 1;
+                break;
+            case SCE_GXM_PARAMETER_TYPE_U16:
+            case SCE_GXM_PARAMETER_TYPE_S16:
+            case SCE_GXM_PARAMETER_TYPE_F16:
+                element = 2;
+                break;
+            default:
+                break;
+            }
+            size = std::max(size, element * widen(components));
+        }
+    }
+    return std::max(size, 1u);
+}
+
+MetalStreamLayout metal_stream_layout(const SceGxmVertexProgram &program, uint32_t stream_index) {
+    MetalStreamLayout layout;
+    const SceGxmVertexStream &stream = program.streams[stream_index];
+    layout.src_stride = stream.stride;
+    layout.stride = align(stream.stride, 4);
+    const VertexProgram *vkvert = program.renderer_data.get();
+
+    // Only streams whose stride is not a multiple of 4 are rebuilt: they are copied on the CPU for
+    // every draw anyway (Metal strides must be multiples of 4). Their attributes also get aligned
+    // offsets there. Streams with a valid stride keep reading the game's memory directly, as before
+    // (copying all of them made Persona 4 Golden's 3D scenes disappear).
+    if (stream.stride % 4 == 0)
+        return layout;
+    bool misaligned = false;
+    for (uint32_t i = 0; i < program.attributes.size(); i++) {
+        const SceGxmVertexAttribute &attribute = program.attributes[i];
+        if (attribute.streamIndex == stream_index && attribute.offset % 4 != 0)
+            misaligned = true;
+    }
+    if (!misaligned)
+        return layout; // plain restride: same layout, stride rounded up to 4
+
+    layout.repack = true;
+    uint32_t cursor = 0;
+    for (uint32_t i = 0; i < program.attributes.size(); i++) {
+        const SceGxmVertexAttribute &attribute = program.attributes[i];
+        if (attribute.streamIndex != stream_index)
+            continue;
+        const uint32_t read = metal_attribute_read_size(attribute, vkvert);
+        layout.slots.push_back({ i, attribute.offset, read, cursor });
+        cursor += align(read, 4);
+    }
+    // A zero stride repeats one vertex (constant attributes): keep it that way
+    layout.stride = stream.stride == 0 ? 0 : std::max(cursor, 4u);
+    return layout;
+}
+
+uint32_t metal_attribute_offset(const MetalStreamLayout &layout, uint32_t attribute_index, uint32_t original_offset) {
+    for (const MetalVertexSlot &slot : layout.slots)
+        if (slot.attribute == attribute_index)
+            return slot.dst_offset;
+    return original_offset;
+}
+
+std::vector<uint8_t> metal_repack_stream(const MetalStreamLayout &layout, const uint8_t *data, uint32_t size) {
+    const uint32_t vertices = layout.src_stride == 0 ? 1 : (size + layout.src_stride - 1) / layout.src_stride;
+    const uint32_t out_stride = layout.stride == 0 ? (layout.slots.empty() ? 4 : layout.slots.back().dst_offset + align(layout.slots.back().size, 4)) : layout.stride;
+    std::vector<uint8_t> out(static_cast<size_t>(vertices) * out_stride, 0);
+    for (uint32_t v = 0; v < vertices; v++) {
+        const uint64_t base = static_cast<uint64_t>(v) * layout.src_stride;
+        for (const MetalVertexSlot &slot : layout.slots) {
+            const uint64_t from = base + slot.src_offset;
+            if (from >= size)
+                continue;
+            const uint32_t bytes = static_cast<uint32_t>(std::min<uint64_t>(slot.size, size - from));
+            memcpy(out.data() + static_cast<size_t>(v) * out_stride + slot.dst_offset, data + from, bytes);
+        }
+    }
+    return out;
+}
+#endif
+
 vk::PipelineVertexInputStateCreateInfo PipelineCache::get_vertex_input_state(const SceGxmVertexProgram &vertex_program, MemState &mem) {
     // pointer to these objects are returned (so it needs to be static)
     // and each thread needs one (hence the thread_local)
@@ -762,11 +867,22 @@ vk::PipelineVertexInputStateCreateInfo PipelineCache::get_vertex_input_state(con
 
     uint32_t used_streams = 0;
 
-    for (const SceGxmVertexAttribute &attribute : vertex_program.attributes) {
+#ifdef __APPLE__
+    std::array<std::optional<MetalStreamLayout>, SCE_GXM_MAX_VERTEX_STREAMS> metal_layouts;
+#endif
+    for (uint32_t attribute_index = 0; attribute_index < vertex_program.attributes.size(); attribute_index++) {
+        const SceGxmVertexAttribute &attribute = vertex_program.attributes[attribute_index];
         if (!vkvert->attribute_infos.contains(attribute.regIndex))
             continue;
 
         used_streams |= (1 << attribute.streamIndex);
+        uint32_t attribute_offset = attribute.offset;
+#ifdef __APPLE__
+        auto &metal_layout = metal_layouts[attribute.streamIndex];
+        if (!metal_layout)
+            metal_layout = metal_stream_layout(vertex_program, attribute.streamIndex);
+        attribute_offset = metal_attribute_offset(*metal_layout, attribute_index, attribute.offset);
+#endif
 
         SceGxmAttributeFormat attribute_format = attribute.format;
         shader::usse::AttributeInformation info = vkvert->attribute_infos.at(attribute.regIndex);
@@ -835,7 +951,7 @@ vk::PipelineVertexInputStateCreateInfo PipelineCache::get_vertex_input_state(con
                 .location = info.location + i,
                 .binding = attribute.streamIndex,
                 .format = format,
-                .offset = attribute.offset + i * array_element_size });
+                .offset = attribute_offset + i * array_element_size });
         }
     }
 
@@ -848,7 +964,7 @@ vk::PipelineVertexInputStateCreateInfo PipelineCache::get_vertex_input_state(con
         const bool is_instanced = gxm::is_stream_instancing(static_cast<SceGxmIndexSource>(stream.indexSource));
 
 #ifdef __APPLE__
-        const uint32_t stride = align(stream.stride, 4);
+        const uint32_t stride = metal_stream_layout(vertex_program, stream_index).stride;
 #else
         const uint32_t stride = stream.stride;
 #endif
