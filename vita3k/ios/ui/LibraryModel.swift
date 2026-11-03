@@ -42,6 +42,7 @@ struct EmulatorSettings: Codable {
     var fpsHack: Bool = false
     var asyncShaders: Bool = true
     var motion: Bool = true
+    var surfaceSync: Bool = false
 }
 
 struct StorageInfo: Codable {

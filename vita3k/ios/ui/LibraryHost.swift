@@ -35,6 +35,13 @@ enum LibraryHost {
         }
         let firstShow = !hasShown
         hasShown = true
+        if firstShow && !UserDefaults.standard.bool(forKey: "v3k.surfaceSyncDefaulted") {
+            // Surface sync is on by default on iOS (many games need it for bloom, reflections and
+            // lighting); this switches it on once for existing installs too. Settings › Graphics.
+            UserDefaults.standard.set(true, forKey: "v3k.surfaceSyncDefaulted")
+            model.setBool("surface-sync", true)
+            model.reload()
+        }
         if firstShow {
             NotificationCenter.default.addObserver(forName: Notification.Name("V3KLaunchRequest"), object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { takeLaunchRequest() }

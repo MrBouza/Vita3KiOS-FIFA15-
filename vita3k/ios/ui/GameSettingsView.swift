@@ -239,7 +239,18 @@ struct GameSettingsView: View {
                 toggle("CPU optimisations", \.cpuOpt, "cpu-opt", nil)
                 toggle("V-Sync", \.vSync, "v-sync", nil)
                 toggle("FPS hack", \.fpsHack, "fps-hack", "Makes some 30 FPS games run at 60. Can speed up game logic.")
-                toggle("Disable surface sync", \.disableSurfaceSync, "disable-surface-sync", "Faster in some games, breaks effects in others.")
+                Toggle(isOn: Binding(get: { !settings.disableSurfaceSync }, set: { on in
+                    settings.disableSurfaceSync = !on
+                    store("disable-surface-sync", on ? "false" : "true")
+                })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Surface sync")
+                        Text(settings.memoryMapping
+                             ? "Lets the game read back what it has drawn (bloom, reflections, lighting). Slower when on."
+                             : "Needs GPU memory mapping (above).")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 toggle("Stretch to screen", \.stretchDisplay, "stretch-display", nil)
             }
             Toggle(isOn: Binding(get: { preciseMath }, set: { on in

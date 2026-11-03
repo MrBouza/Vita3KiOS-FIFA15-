@@ -307,6 +307,15 @@ struct EmulationSections: View {
                 }
             }
             Toggle("Stretch to screen", isOn: binding(\.stretchDisplay) { model.setBool("stretch-display", $0) })
+            Toggle(isOn: binding(\.surfaceSync) { model.setBool("surface-sync", $0) }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Surface sync")
+                    Text(model.settings.memoryMapping
+                         ? "Lets games read back what they have drawn: needed for bloom, reflections, screen effects and correct lighting in many games (Gravity Rush, for one). Costs some speed, more at higher resolutions."
+                         : "Needs GPU memory mapping, which is off: turn that on for surface sync to work.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
 
         Section {
