@@ -347,7 +347,23 @@ void PipelineCache::read_pipeline_cache() {
     };
 
     state.device.destroyPipelineCache(pipeline_cache);
-    pipeline_cache = state.device.createPipelineCache(cache_info);
+    try {
+        pipeline_cache = state.device.createPipelineCache(cache_info);
+    } catch (const vk::SystemError &e) {
+        // A damaged cache file (for example saved after the GPU failed) must never stop the game
+        // from starting: drop it and start with an empty cache, the pipelines get rebuilt
+        LOG_WARN("Pipeline cache could not be loaded ({}), deleting it and starting fresh", e.what());
+        for (auto it = pipelines.begin(); it != pipelines.end();) {
+            if (it->second == nullptr)
+                it = pipelines.erase(it);
+            else
+                ++it;
+        }
+        std::error_code ec;
+        fs::remove(path, ec);
+        pipeline_cache = state.device.createPipelineCache(vk::PipelineCacheCreateInfo{});
+        return;
+    }
     LOG_INFO("Pipeline cache read and loaded");
 }
 
@@ -361,7 +377,19 @@ void PipelineCache::save_pipeline_cache() {
     }
     renderer::save_shaders_cache_hashs(state, shader_cache_copy);
 
-    const std::vector<uint8_t> pipeline_data = state.device.getPipelineCacheData(pipeline_cache);
+    // After the GPU failed (device lost) the driver's cache data can be garbage: keep the last good file
+    if (device_lost_count() > 0) {
+        LOG_WARN("Not saving the pipeline cache: the GPU failed during this session");
+        return;
+    }
+
+    std::vector<uint8_t> pipeline_data;
+    try {
+        pipeline_data = state.device.getPipelineCacheData(pipeline_cache);
+    } catch (const vk::SystemError &e) {
+        LOG_WARN("Not saving the pipeline cache: {}", e.what());
+        return;
+    }
     if (pipeline_data.empty())
         // No pipeline was created
         return;
@@ -369,7 +397,11 @@ void PipelineCache::save_pipeline_cache() {
     const std::string pipeline_cache_name = fmt::format("pipeline-cache-vk{}.dat", shader::CURRENT_VERSION);
     const fs::path path = state.shaders_path / pipeline_cache_name;
 
-    std::ofstream pipeline_cache_file(path, std::ios::out | std::ios::binary | std::ios::trunc);
+    // Written to a temporary file first and then moved over the old one, so a crash or the app
+    // being closed mid-write never leaves a half-written cache behind
+    fs::path tmp_path = path;
+    tmp_path += ".tmp";
+    std::ofstream pipeline_cache_file(tmp_path, std::ios::out | std::ios::binary | std::ios::trunc);
     if (!pipeline_cache_file.is_open())
         return;
 
@@ -388,6 +420,14 @@ void PipelineCache::save_pipeline_cache() {
     // then save the cache
     pipeline_cache_file.write(reinterpret_cast<const char *>(pipeline_data.data()), pipeline_data.size());
     pipeline_cache_file.close();
+    std::error_code ec;
+    if (pipeline_cache_file)
+        fs::rename(tmp_path, path, ec);
+    if (!pipeline_cache_file || ec) {
+        LOG_WARN("Pipeline cache could not be saved");
+        fs::remove(tmp_path, ec);
+        return;
+    }
     LOG_INFO("Pipeline cache saved");
 }
 
