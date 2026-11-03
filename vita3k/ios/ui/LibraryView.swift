@@ -523,6 +523,13 @@ struct CrashReportView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Close").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
                 }
                 .padding()
             }

@@ -87,12 +87,19 @@ enum TouchMapping {
     }
 }
 
+/// The colour mixed towards black, for button fills that stay readable on bright backgrounds
+func darkened(_ color: UIColor, by brightness: CGFloat) -> UIColor {
+    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+    color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    return UIColor(red: red * brightness, green: green * brightness, blue: blue * brightness, alpha: alpha)
+}
+
 final class PadButtonView: UIView {
     let button: Int32
     private let label = UILabel()
     private let feedback = UIImpactFeedbackGenerator(style: .light)
 
-    private var baseFill = UIColor.white.withAlphaComponent(0.14)
+    private var baseFill = UIColor.black.withAlphaComponent(0.5)
     private var pressedFill = UIColor.white.withAlphaComponent(0.45)
     private let haptics = UserDefaults.standard.object(forKey: "v3k.touchHaptics") as? Bool ?? true
 
@@ -102,6 +109,11 @@ final class PadButtonView: UIView {
         label.text = title
         label.font = .systemFont(ofSize: fontSize, weight: .bold)
         label.textAlignment = .center
+        // A soft dark halo keeps the symbol readable over bright scenes
+        label.layer.shadowColor = UIColor.black.cgColor
+        label.layer.shadowOpacity = 0.7
+        label.layer.shadowRadius = 2
+        label.layer.shadowOffset = .zero
         addSubview(label)
         style(color: tint, theme: ControllerTheme.current, faceButton: false)
         layer.borderWidth = 1.5
@@ -111,15 +123,16 @@ final class PadButtonView: UIView {
     func style(title: String? = nil, color: UIColor, theme: ControllerTheme, faceButton: Bool) {
         if let title { label.text = title }
         label.textColor = color
+        // Dark fills on every theme: the controls stay visible over bright scenes (skies, menus)
         if theme.coloredFill && faceButton {
-            baseFill = color.withAlphaComponent(0.28)
-            pressedFill = color.withAlphaComponent(0.6)
+            baseFill = darkened(color, by: 0.3).withAlphaComponent(0.6)
+            pressedFill = color.withAlphaComponent(0.7)
         } else {
-            baseFill = theme.filled ? UIColor.white.withAlphaComponent(0.14) : .clear
-            pressedFill = color.withAlphaComponent(0.45)
+            baseFill = UIColor.black.withAlphaComponent(theme.filled ? 0.5 : 0.3)
+            pressedFill = color.withAlphaComponent(0.5)
         }
         backgroundColor = baseFill
-        layer.borderColor = color.withAlphaComponent(theme == .neon ? 0.9 : 0.35).cgColor
+        layer.borderColor = color.withAlphaComponent(theme == .neon ? 0.9 : 0.55).cgColor
         if theme == .neon {
             layer.shadowColor = color.cgColor
             layer.shadowRadius = 6
@@ -156,10 +169,12 @@ final class StickView: UIView {
         self.xAxis = xAxis
         self.yAxis = yAxis
         super.init(frame: .zero)
-        backgroundColor = UIColor.white.withAlphaComponent(0.10)
-        layer.borderColor = UIColor.white.withAlphaComponent(0.30).cgColor
+        backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        layer.borderColor = UIColor.white.withAlphaComponent(0.45).cgColor
         layer.borderWidth = 1.5
-        knob.backgroundColor = UIColor.white.withAlphaComponent(0.45)
+        knob.backgroundColor = UIColor.white.withAlphaComponent(0.55)
+        knob.layer.borderColor = UIColor.black.withAlphaComponent(0.4).cgColor
+        knob.layer.borderWidth = 1
         knob.isUserInteractionEnabled = false
         addSubview(knob)
     }
@@ -250,11 +265,13 @@ final class ControlsOverlayView: UIView {
         controls.forEach { addSubview($0) }
 
         exitButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        exitButton.tintColor = UIColor.white.withAlphaComponent(0.7)
+        exitButton.tintColor = UIColor.white.withAlphaComponent(0.85)
+        exitButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         exitButton.addTarget(self, action: #selector(exitTapped), for: .touchUpInside)
         addSubview(exitButton)
 
-        hideButton.tintColor = UIColor.white.withAlphaComponent(0.7)
+        hideButton.tintColor = UIColor.white.withAlphaComponent(0.85)
+        hideButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
         addSubview(hideButton)
 
@@ -383,6 +400,8 @@ final class ControlsOverlayView: UIView {
         // Quit and show/hide, top centre
         exitButton.frame = CGRect(x: area.midX - 44, y: area.minY, width: 36, height: 36)
         hideButton.frame = CGRect(x: area.midX + 8, y: area.minY, width: 36, height: 36)
+        exitButton.layer.cornerRadius = 18
+        hideButton.layer.cornerRadius = 18
     }
 
     private func layoutDiamond(top: UIView, right: UIView, bottom: UIView, left: UIView, in rect: CGRect, unit: CGFloat) {

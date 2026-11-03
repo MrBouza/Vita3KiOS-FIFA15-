@@ -31,6 +31,10 @@
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
 #include <oaknut/code_block.hpp>
 #include <spdlog/spdlog.h>
+
+#include <chrono>
+#include <mach/mach.h>
+#include <sys/mman.h>
 #endif
 
 #include <atomic>
@@ -70,10 +74,60 @@ void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t
 
 } // namespace
 
+// Prepares every missing region with a single request to the JIT script: one large RX mapping,
+// one writable alias, then cut into cache_size pieces for the pool. StikDebug pauses the app for each
+// request, so 32 separate requests froze the app for ~3.5 s at launch. Returns false (and leaves the
+// pool untouched) if the script refuses the large request, so the one-by-one path can take over.
+static bool prewarm_ios_jit_pool_in_one_request(std::size_t target_count, std::size_t cache_size) {
+    using namespace oaknut::detail;
+    const std::size_t have = matching_region_count(cache_size);
+    if (have >= target_count || !is_process_traced())
+        return have >= target_count;
+    const std::size_t count = target_count - have;
+    const std::size_t total = count * cache_size;
+
+    const auto started = std::chrono::steady_clock::now();
+    void *mapping = mmap(nullptr, total, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
+    if (mapping == MAP_FAILED)
+        return false;
+    auto *rx = static_cast<std::uint32_t *>(prepare_universal_jit_region(mapping, total));
+    if (!rx) {
+        munmap(mapping, total);
+        LOG_WARN("iOS JIT: the script did not prepare a {} MiB region in one request, preparing regions one by one", total / (1024 * 1024));
+        return false;
+    }
+    vm_prot_t current_protection = 0, maximum_protection = 0;
+    vm_address_t writable = 0;
+    if (vm_remap(mach_task_self(), &writable, total, 0, VM_FLAGS_ANYWHERE | VM_FLAGS_RANDOM_ADDR, mach_task_self(),
+            reinterpret_cast<vm_address_t>(rx), false, &current_protection, &maximum_protection, VM_INHERIT_NONE)
+            != KERN_SUCCESS
+        || vm_protect(mach_task_self(), writable, total, false, VM_PROT_READ | VM_PROT_WRITE) != KERN_SUCCESS) {
+        LOG_WARN("iOS JIT: could not map the batched region writable, preparing regions one by one");
+        return false;
+    }
+    auto *rw = reinterpret_cast<std::uint32_t *>(writable);
+    const std::size_t words = cache_size / sizeof(std::uint32_t);
+    auto &pool = jit_region_pool();
+    for (std::size_t i = 0; i < count; i++) {
+        std::size_t available;
+        {
+            const std::lock_guard lock(pool.mutex);
+            pool.regions.push_back(PreparedJitRegion{ rx + i * words, rw + i * words, cache_size });
+            available = have + i + 1;
+        }
+        log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent::Prewarm, cache_size, available);
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    LOG_INFO("iOS JIT: prepared {} regions ({} MiB) in one request, {} ms", count, total / (1024 * 1024), ms);
+    return true;
+}
+
 std::size_t prewarm_ios_jit_code_cache_pool(std::size_t target_count, std::size_t cache_size) {
     oaknut::set_jit_region_pool_log_callback(&log_ios_jit_region_pool_event);
     LOG_INFO("iOS JIT region pool prewarm starting: target={} size={} bytes ({} MiB each)",
         target_count, cache_size, cache_size / (1024 * 1024));
+    prewarm_ios_jit_pool_in_one_request(target_count, cache_size);
+    // Anything still missing (or everything, if the batched request was refused) one region at a time
     const std::size_t available = oaknut::prewarm_jit_region_pool(cache_size, target_count);
     LOG_INFO("iOS JIT region pool prewarm complete: target={} available={} size={} bytes",
         target_count, available, cache_size);

@@ -49,6 +49,7 @@ std::array<char, 1024> g_marker_path{};
 std::array<char, 256> g_current_game{};
 std::string g_folder;
 std::string g_previous_report;
+std::string g_unreported_end;
 std::mutex g_mutex;
 
 std::string read_file(const fs::path &path) {
@@ -138,11 +139,10 @@ void init(const std::string &folder) {
         std::string state, game;
         std::getline(file, state);
         std::getline(file, game);
-        // A game closed from the app switcher while in the background is not a crash
-        if (state != "background")
-            text = "The last session of " + (game.empty() ? std::string("a game") : game)
-                + " ended without a crash report. iOS most likely closed Vita3KiOS because it used too much memory "
-                  "(try a lower resolution), or the app was closed from the app switcher while the game was open.\n";
+        // No crash was recorded: the app was closed from the app switcher, or iOS closed it (memory).
+        // That isn't worth interrupting anyone for: it is only written to the log.
+        g_unreported_end = "The last session of " + (game.empty() ? std::string("a game") : game)
+            + " ended without a crash (closed from the app switcher, or by iOS, e.g. for memory; state: " + state + ")";
     }
     g_previous_report = text;
 
@@ -218,6 +218,10 @@ void write_note(const std::string &text) {
 
 std::string take_previous_report() {
     const std::lock_guard<std::mutex> guard(g_mutex);
+    if (!g_unreported_end.empty()) {
+        LOG_INFO("{}", g_unreported_end);
+        g_unreported_end.clear();
+    }
     std::string report;
     report.swap(g_previous_report);
     return report;

@@ -35,19 +35,28 @@ enum LibraryHost {
         UIView.animate(withDuration: firstShow ? 0.35 : 0.2, delay: 0, options: [.curveEaseOut]) {
             window?.alpha = 1
         }
-        MenuMusic.shared.libraryShown()
-        if firstShow {
-            // Start preparing JIT once the library is on screen, so opening the app feels instant
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if v3k_jit_can_request() {
-                    v3k_jit_request()
-                    model.reload()
-                }
+        if firstShow && v3k_jit_can_request() {
+            // Prepare JIT right away (StikDebug briefly pauses the app while it works), and start the
+            // menu music only once that's done, so the music doesn't stutter as it begins
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                v3k_jit_request()
+                model.reload()
+                startMusicWhenJITIsReady()
             }
+        } else {
+            MenuMusic.shared.libraryShown()
         }
     }
 
     private static var hasShown = false
+
+    private static func startMusicWhenJITIsReady() {
+        if v3k_jit_preparing() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { startMusicWhenJITIsReady() }
+        } else if window?.isHidden == false {
+            MenuMusic.shared.libraryShown()
+        }
+    }
 
     static func hide() {
         // The game is about to start: the menu music fades out and stops

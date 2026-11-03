@@ -149,6 +149,12 @@ final class LibraryModel: ObservableObject {
 
     /// Picks up the report of a crash in the previous session (once per launch)
     func checkForCrashReport() {
+        // Wait until JIT setup is done: StikDebug pauses the app while it works, which made the
+        // report hard to close
+        if v3k_jit_preparing() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.checkForCrashReport() }
+            return
+        }
         if let json = takeString(v3k_take_crash_report()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(CrashReport.self, from: data) {
             crashReport = decoded
