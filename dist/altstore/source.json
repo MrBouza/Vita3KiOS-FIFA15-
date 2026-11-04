@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.1.0",
+          "buildVersion": "76",
+          "date": "2026-11-04T09:46:28Z",
+          "localizedDescription": "## Vita3KiOS 1.1.0\n\n**New**\n- Pause button, and Pause/Resume in the game menu. The game menu pauses the game while it is open.\n- Memory mapping choice: Double buffer, Native buffer or Off (Settings › Graphics and per game).\n- Portrait mode: games start in landscape and turn upright once they are on screen.\n- Keep the phone cool (Settings › Performance, on by default).\n- Darker touch controls.\n\n**Fixes**\n- No crash after leaving the app for a while: nothing is drawn while paused or in the background.\n- Games no longer freeze when the phone is turned, and Quit no longer hangs or writes false crash reports.\n- Fewer GPU failures at boot. A damaged shader cache no longer stops a game from starting.\n- Textures and buffers no longer go stale with Native buffer (stray shapes, missing stadium stands in Madden NFL 13).\n- Textures cut from game-drawn images are read from the right place.\n- No crash when Metal cannot build a shader (One Piece Burning Blood).\n- Dead or Alive 5 Plus and other thread-heavy games: room for 64 game threads.\n- Madden NFL 13: surface sync works with Native buffer (recommended settings). No crash with surface sync and high accuracy.\n\n**Smoother**\n- Shader cache saves run in the background instead of hitching a frame.\n- Bigger texture cache, so fewer reloads.\n- Faster shader cache loading.\n- Lower GPU overhead per frame.\n\nKnown issue: Madden NFL 13 player faces still render deformed.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.0/Vita3KiOS-1.1.0.ipa",
+          "size": 16532038,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.0.0",
           "buildVersion": "46",
           "date": "2026-11-03T12:40:34Z",
@@ -37,11 +46,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.0.0",
-      "versionDate": "2026-11-03T12:40:34Z",
-      "versionDescription": "The first release of Vita3KiOS: the full [Vita3K](https://github.com/Vita3K/Vita3K) PlayStation Vita emulator as a native iPhone and iPad app.\n\n## Highlights\n- **Full Vita3K core**: CPU recompiler, GXM → Vulkan renderer (MoltenVK), HLE, kept in sync with upstream\n- **JIT on iOS 26** through StikDebug's `universal.js` (from [Tsubomi](https://github.com/125hz/Tsubomi)), set up in one batched step\n- **Install anything**: `.pkg`, `.vpk`, `.zip` and dumped folders, including **updates and DLC**. Zips of `.pkg`s install in order (game → update → DLC); updates never ask for a zRIF\n- **Per-game sheet**: settings, community patches (60 FPS, resolution, fixes), cheats (VitaCheat database built in), rePatch mods, updates & DLC, save backups\n- **Performance**: 60 FPS mode, Fast CPU, upscaling up to 4× with FSR, background shader compilation, a shader cache kept between sessions, game threads on the performance cores\n- **Performance overlay** you configure: FPS, frame time, CPU, memory, thermals, battery, resolution\n- **Game menu**: screenshots to Photos, rear touchpad, show/hide controls, quit (✕ on screen, Home/PS on a controller, or hold Select + Start)\n- **Touch controls**: drag and pinch them into your own layout; themes (PlayStation, Xbox and Nintendo-style letters, Neon, Minimal)\n- **Controllers**: MFi, Xbox, PlayStation and Switch, with remapping and a ✕/○ swap\n- **Motion controls** that follow the landscape screen\n- **iOS integration**: Home Screen launch links (`vita3k://launch/<TITLE ID>`), recent games on the app icon, \"Open in Vita3K\" from Files and Safari, external drives for storage\n- **Crash reports** with the log one tap away; animated themes and original menu music\n\n## Requirements\niOS 17.4 or later on an A12 chip or newer, StikDebug for JIT, and your own firmware and game dumps. Game compatibility follows upstream Vita3K: see the [compatibility list](https://vita3k.org/compatibility.html).\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.0.0.ipa` below.\n\nBuild 46, commit ed16fba.",
-      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.0.0/Vita3KiOS-1.0.0.ipa",
-      "size": 16450403
+      "version": "1.1.0",
+      "versionDate": "2026-11-04T09:46:28Z",
+      "versionDescription": "## Vita3KiOS 1.1.0\n\n**New**\n- Pause button, and Pause/Resume in the game menu. The game menu pauses the game while it is open.\n- Memory mapping choice: Double buffer, Native buffer or Off (Settings › Graphics and per game).\n- Portrait mode: games start in landscape and turn upright once they are on screen.\n- Keep the phone cool (Settings › Performance, on by default).\n- Darker touch controls.\n\n**Fixes**\n- No crash after leaving the app for a while: nothing is drawn while paused or in the background.\n- Games no longer freeze when the phone is turned, and Quit no longer hangs or writes false crash reports.\n- Fewer GPU failures at boot. A damaged shader cache no longer stops a game from starting.\n- Textures and buffers no longer go stale with Native buffer (stray shapes, missing stadium stands in Madden NFL 13).\n- Textures cut from game-drawn images are read from the right place.\n- No crash when Metal cannot build a shader (One Piece Burning Blood).\n- Dead or Alive 5 Plus and other thread-heavy games: room for 64 game threads.\n- Madden NFL 13: surface sync works with Native buffer (recommended settings). No crash with surface sync and high accuracy.\n\n**Smoother**\n- Shader cache saves run in the background instead of hitching a frame.\n- Bigger texture cache, so fewer reloads.\n- Faster shader cache loading.\n- Lower GPU overhead per frame.\n\nKnown issue: Madden NFL 13 player faces still render deformed.",
+      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.0/Vita3KiOS-1.1.0.ipa",
+      "size": 16532038
     }
   ]
 }
