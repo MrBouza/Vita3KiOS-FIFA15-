@@ -280,11 +280,36 @@ void ScreenRenderer::create_swapchain() {
             .clipped = true,
         };
 
+#ifdef __APPLE__
+        // A swapchain rebuilt after the GPU failed (turning the phone, coming back to the app) threw
+        // vk::DeviceLostError out of the render thread and ended the whole app (Killzone Mercenary).
+        // Count it like any other GPU error and try again on the next frame: repeated errors close the
+        // game cleanly instead.
+        swapchain_images.clear();
+        try {
+            swapchain = state.device.createSwapchainKHR(swapchain_info);
+            swapchain_images = state.device.getSwapchainImagesKHR(swapchain);
+        } catch (const vk::DeviceLostError &) {
+            count_device_lost("creating the screen swapchain");
+        } catch (const vk::SystemError &error) {
+            LOG_ERROR("Could not create the screen swapchain: {}", error.what());
+        }
+        if (swapchain_images.empty()) {
+            if (swapchain) {
+                state.device.destroySwapchainKHR(swapchain);
+                swapchain = nullptr;
+            }
+            return;
+        }
+#else
         swapchain = state.device.createSwapchainKHR(swapchain_info);
+#endif
     }
 
     // Get Swapchain Images
+#ifndef __APPLE__
     swapchain_images = state.device.getSwapchainImagesKHR(swapchain);
+#endif
     swapchain_size = swapchain_images.size();
 
     // Get Image views

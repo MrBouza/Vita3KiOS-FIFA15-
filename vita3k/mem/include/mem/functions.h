@@ -68,6 +68,8 @@ bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcep
 // The last memory access no handler could explain (0 if none): crash reports name it, since the
 // signal that ends the app afterwards no longer carries it. guest_address is 0 when outside guest memory.
 void last_unhandled_access(uintptr_t &host_address, uint32_t &guest_address, bool &write) noexcept;
+// The code that made that access (its PC and return address; 0 where unknown) and the signal's si_code
+void last_unhandled_code(uintptr_t &pc, uintptr_t &lr, int &si_code) noexcept;
 Block alloc_block(MemState &mem, uint32_t size, const char *name, Address start_addr = user_main_memory_start);
 Address alloc_at(MemState &state, Address address, uint32_t size, const char *name);
 Address try_alloc_at(MemState &state, Address address, uint32_t size, const char *name);

@@ -35,6 +35,7 @@
 #include <typeinfo>
 
 #include <cxxabi.h>
+#include <dlfcn.h>
 #include <execinfo.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -219,6 +220,34 @@ void write_signal(int sig, uintptr_t pc, const char *image, uintptr_t offset, ui
         } else {
             safe_write(fd, " (outside guest memory)");
         }
+        // Where the access came from: the backtrace below is the thread that raised the trap
+        uintptr_t fault_pc = 0;
+        uintptr_t fault_lr = 0;
+        int si_code = 0;
+        last_unhandled_code(fault_pc, fault_lr, si_code);
+        const auto write_code = [fd](uintptr_t address) {
+            safe_write_hex(fd, address);
+            Dl_info info{};
+            if (address && dladdr(reinterpret_cast<void *>(address), &info) && info.dli_fname) {
+                safe_write(fd, " in ");
+                safe_write(fd, info.dli_fname);
+                safe_write(fd, " +");
+                safe_write_hex(fd, address - reinterpret_cast<uintptr_t>(info.dli_fbase));
+                if (info.dli_sname) {
+                    safe_write(fd, " (");
+                    safe_write(fd, info.dli_sname);
+                    safe_write(fd, ")");
+                }
+            } else if (address) {
+                safe_write(fd, " (JIT code or unknown)");
+            }
+        };
+        safe_write(fd, "\nFaulting code: ");
+        write_code(fault_pc);
+        safe_write(fd, "\nCalled from: ");
+        write_code(fault_lr);
+        safe_write(fd, "\nsi_code: ");
+        safe_write_hex(fd, static_cast<uintptr_t>(static_cast<unsigned>(si_code)));
     }
     safe_write(fd, "\n\nBacktrace:\n");
     void *frames[64];

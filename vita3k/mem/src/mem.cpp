@@ -50,12 +50,21 @@ constexpr bool PAGE_NAME_TRACKING = true;
 static std::atomic<uintptr_t> g_unhandled_host{ 0 };
 static std::atomic<uint32_t> g_unhandled_guest{ 0 };
 static std::atomic<bool> g_unhandled_write{ false };
+static std::atomic<uintptr_t> g_unhandled_pc{ 0 };
+static std::atomic<uintptr_t> g_unhandled_lr{ 0 };
+static std::atomic<int> g_unhandled_code{ 0 };
 static MemState *g_mem_for_reports = nullptr;
 
 void last_unhandled_access(uintptr_t &host_address, uint32_t &guest_address, bool &write) noexcept {
     host_address = g_unhandled_host.load();
     guest_address = g_unhandled_guest.load();
     write = g_unhandled_write.load();
+}
+
+void last_unhandled_code(uintptr_t &pc, uintptr_t &lr, int &si_code) noexcept {
+    pc = g_unhandled_pc.load();
+    lr = g_unhandled_lr.load();
+    si_code = g_unhandled_code.load();
 }
 
 static AccessViolationHandler access_violation_handler;
@@ -156,6 +165,9 @@ bool init(MemState &state, const bool use_page_table) {
     g_mem_for_reports = &state;
     g_unhandled_host = 0;
     g_unhandled_guest = 0;
+    g_unhandled_pc = 0;
+    g_unhandled_lr = 0;
+    g_unhandled_code = 0;
 
     const Address null_address = alloc_inner(state, 0, state.host_page_size / STANDARD_PAGE_SIZE, "null", true);
     assert(null_address == 0);
@@ -754,8 +766,20 @@ static void signal_handler(int sig, siginfo_t *info, void *uct) noexcept {
     g_unhandled_host = fault;
     g_unhandled_guest = guest;
     g_unhandled_write = is_writing;
-    LOG_CRITICAL("Unhandled {} {} 0x{:X} (guest address 0x{:X}){}", is_executing ? "execution" : (is_writing ? "write" : "read"),
-        "at", fault, guest, guest ? "" : ": outside guest memory");
+    // The code that made the access: the trap raised below reports where it was raised, which is not
+    // always the faulting thread's code (a crash report once showed only the main thread asleep)
+    uintptr_t fault_pc = 0;
+    uintptr_t fault_lr = 0;
+#if defined(__APPLE__) && defined(__aarch64__)
+    fault_pc = static_cast<uintptr_t>(context->uc_mcontext->__ss.__pc);
+    fault_lr = static_cast<uintptr_t>(context->uc_mcontext->__ss.__lr);
+#endif
+    g_unhandled_pc = fault_pc;
+    g_unhandled_lr = fault_lr;
+    g_unhandled_code = info->si_code;
+    LOG_CRITICAL("Unhandled {} {} 0x{:X} (guest address 0x{:X}){} by code at 0x{:X} (called from 0x{:X}), signal {} code {}",
+        is_executing ? "execution" : (is_writing ? "write" : "read"),
+        "at", fault, guest, guest ? "" : ": outside guest memory", fault_pc, fault_lr, sig, info->si_code);
     if (auto logger = spdlog::default_logger())
         logger->flush();
     raise(SIGTRAP);
