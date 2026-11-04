@@ -45,6 +45,12 @@
 
 namespace renderer::vulkan {
 
+// Marks a pipeline the driver refused to build (on iOS: Metal could not compile the converted shader).
+// Its draws are skipped instead of retrying the compile on every draw.
+static vk::Pipeline failed_pipeline() {
+    return std::bit_cast<vk::Pipeline, uint64_t>(~1ULL);
+}
+
 // Size of the record containing what is needed for the pipeline construction (what is after is dynamic state)
 constexpr size_t record_pipeline_len = offsetof(GxmRecordState, vertex_streams);
 
@@ -1048,12 +1054,6 @@ void PipelineCache::compiler_thread(MemState &mem) {
 
         delete request;
     }
-}
-
-// Marks a pipeline the driver refused to build (on iOS: Metal could not compile the converted shader).
-// Its draws are skipped instead of retrying the compile on every draw.
-static vk::Pipeline failed_pipeline() {
-    return std::bit_cast<vk::Pipeline, uint64_t>(~1ULL);
 }
 
 static vk::StencilOpState convert_op_state(const GxmStencilStateOp &state) {
