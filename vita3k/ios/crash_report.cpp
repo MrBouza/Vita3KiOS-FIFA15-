@@ -17,6 +17,8 @@
 
 #include "crash_report.h"
 
+#include <mem/functions.h>
+
 #include <util/log.h>
 
 #include <spdlog/spdlog.h>
@@ -201,6 +203,23 @@ void write_signal(int sig, uintptr_t pc, const char *image, uintptr_t offset, ui
     safe_write_hex(fd, offset);
     safe_write(fd, "\nFault address: ");
     safe_write_hex(fd, fault_addr);
+    // The emulator's own memory handler raises a signal of its own after an access it cannot explain:
+    // name that access, the signal above no longer carries it
+    uintptr_t unhandled_host = 0;
+    uint32_t unhandled_guest = 0;
+    bool unhandled_write = false;
+    last_unhandled_access(unhandled_host, unhandled_guest, unhandled_write);
+    if (unhandled_host) {
+        safe_write(fd, unhandled_write ? "\nUnhandled memory write at " : "\nUnhandled memory read at ");
+        safe_write_hex(fd, unhandled_host);
+        if (unhandled_guest) {
+            safe_write(fd, " (guest address ");
+            safe_write_hex(fd, unhandled_guest);
+            safe_write(fd, ")");
+        } else {
+            safe_write(fd, " (outside guest memory)");
+        }
+    }
     safe_write(fd, "\n\nBacktrace:\n");
     void *frames[64];
     const int count = backtrace(frames, 64);

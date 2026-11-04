@@ -22,6 +22,7 @@
 #include <util/log.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <mutex>
@@ -46,6 +47,17 @@ constexpr bool PAGE_NAME_TRACKING = true;
 #endif
 
 // TODO: support multiple handlers
+static std::atomic<uintptr_t> g_unhandled_host{ 0 };
+static std::atomic<uint32_t> g_unhandled_guest{ 0 };
+static std::atomic<bool> g_unhandled_write{ false };
+static MemState *g_mem_for_reports = nullptr;
+
+void last_unhandled_access(uintptr_t &host_address, uint32_t &guest_address, bool &write) noexcept {
+    host_address = g_unhandled_host.load();
+    guest_address = g_unhandled_guest.load();
+    write = g_unhandled_write.load();
+}
+
 static AccessViolationHandler access_violation_handler;
 static void register_access_violation_handler(const AccessViolationHandler &handler);
 
@@ -141,6 +153,9 @@ bool init(MemState &state, const bool use_page_table) {
         return handle_access_violation(state, addr, write);
     };
     register_access_violation_handler(handler);
+    g_mem_for_reports = &state;
+    g_unhandled_host = 0;
+    g_unhandled_guest = 0;
 
     const Address null_address = alloc_inner(state, 0, state.host_page_size / STANDARD_PAGE_SIZE, "null", true);
     assert(null_address == 0);
@@ -714,7 +729,20 @@ static void signal_handler(int sig, siginfo_t *info, void *uct) noexcept {
         }
     }
 
-    LOG_CRITICAL("Unhandled access to 0x{:X}", reinterpret_cast<uintptr_t>(info->si_addr));
+    const uintptr_t fault = reinterpret_cast<uintptr_t>(info->si_addr);
+    uint32_t guest = 0;
+    if (g_mem_for_reports && g_mem_for_reports->memory) {
+        const uintptr_t base = reinterpret_cast<uintptr_t>(g_mem_for_reports->memory.get());
+        if (fault >= base && fault - base < TOTAL_MEM_SIZE)
+            guest = static_cast<uint32_t>(fault - base);
+    }
+    g_unhandled_host = fault;
+    g_unhandled_guest = guest;
+    g_unhandled_write = is_writing;
+    LOG_CRITICAL("Unhandled {} {} 0x{:X} (guest address 0x{:X}){}", is_executing ? "execution" : (is_writing ? "write" : "read"),
+        "at", fault, guest, guest ? "" : ": outside guest memory");
+    if (auto logger = spdlog::default_logger())
+        logger->flush();
     raise(SIGTRAP);
     return;
 }
