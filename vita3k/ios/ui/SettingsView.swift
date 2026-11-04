@@ -311,20 +311,17 @@ struct EmulationSections: View {
             Toggle("V-Sync", isOn: binding(\.vSync) { model.setBool("v-sync", $0) })
             Toggle("Texture cache", isOn: binding(\.textureCache) { model.setBool("texture-cache", $0) })
             Toggle("High accuracy", isOn: binding(\.highAccuracy) { model.setBool("high-accuracy", $0) })
-            Toggle(isOn: binding(\.memoryMapping) { model.setBool("memory-mapping", $0) }) {
+            Picker(selection: binding(\.mappingMode) { mode in
+                model.settings.memoryMapping = mode != "disabled"
+                model.settings.nativeBuffer = mode == "page-table"
+                model.setString("memory-mapping-mode", mode)
+            }) {
+                ForEach(MemoryMappingMode.allCases) { Text($0.title).tag($0.rawValue) }
+            } label: {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("GPU memory mapping")
-                    Text("Fixes wrong colours and stretched textures. Turn off only if a game breaks.")
+                    Text("Memory mapping")
+                    Text(MemoryMappingMode(rawValue: model.settings.mappingMode)?.detail ?? "")
                         .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if model.settings.memoryMapping {
-                Toggle(isOn: binding(\.nativeBuffer) { model.setBool("native-buffer", $0) }) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Native buffer")
-                        Text("The game's memory and the GPU share the same pages instead of a copy kept in sync. Can fix models and effects the GPU builds itself; the CPU side is a little slower. Better turned on per game.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
                 }
             }
             Toggle("Stretch to screen", isOn: binding(\.stretchDisplay) { model.setBool("stretch-display", $0) })

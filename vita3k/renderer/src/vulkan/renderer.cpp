@@ -1328,9 +1328,9 @@ void VKState::swap_window() {
     // look once a frame if we need to save the pipeline cache
     const auto time_s = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     if (time_s >= pipeline_cache.next_pipeline_cache_save) {
-        pipeline_cache.save_pipeline_cache();
-
+        // cleared first: a save that cannot start yet schedules its own retry
         pipeline_cache.next_pipeline_cache_save = std::numeric_limits<uint64_t>::max();
+        pipeline_cache.save_pipeline_cache(true);
     }
 }
 

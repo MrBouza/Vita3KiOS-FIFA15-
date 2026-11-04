@@ -22,6 +22,7 @@
 #include <vkutil/vkutil.h>
 
 #include <array>
+#include <atomic>
 #include <limits>
 #include <map>
 #include <set>
@@ -115,6 +116,8 @@ private:
 public:
     // if not 0, next time the pipeline cache should be saved (in seconds since epoch)
     uint64_t next_pipeline_cache_save = std::numeric_limits<uint64_t>::max();
+    std::thread cache_save_thread;
+    std::atomic<bool> cache_saving{ false };
 
     // modified by the surface cache, estimates if it is safe to use async pipeline compilation
     // (i.e that it does not causes permanent graphical issues)
@@ -131,11 +134,17 @@ public:
     vk::PipelineLayout pipeline_layouts[17][17] = {};
 
     PipelineCache(VKState &state);
+    ~PipelineCache() {
+        wait_for_cache_save();
+    }
     void init(bool support_rasterized_order_access);
     void cleanup();
 
     void read_pipeline_cache();
-    void save_pipeline_cache();
+    // in_background: the file is written on a thread of its own (no hitch); otherwise right away,
+    // after any background save still running
+    void save_pipeline_cache(bool in_background = false);
+    void wait_for_cache_save();
 
     vk::RenderPass retrieve_render_pass(vk::Format format, bool force_load, bool force_store, bool is_color_transient, bool no_color = false);
     vk::RenderPass retrieve_mask_render_pass();

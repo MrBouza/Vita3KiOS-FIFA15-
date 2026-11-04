@@ -33,6 +33,11 @@
 
 #include <SDL3/SDL_cpuinfo.h>
 
+#if defined(VITA3K_PLATFORM_IOS)
+#include <pthread.h>
+#include <sys/qos.h>
+#endif
+
 // don't use the dispatch version, because we always hash a small amount
 // with a known size
 #define XXH_INLINE_ALL
@@ -373,71 +378,109 @@ void PipelineCache::read_pipeline_cache() {
     LOG_INFO("Pipeline cache read and loaded");
 }
 
-void PipelineCache::save_pipeline_cache() {
-    // first save the shader hashes
-    // do a copy for thread safety
+void PipelineCache::save_pipeline_cache(bool in_background) {
+    // Snapshot what the save needs on the calling (renderer) thread: the shader hashes and the
+    // pipeline hashes. The slow part (asking the driver for its cache data and writing the file,
+    // 10-30 ms on iOS) can then run on a thread of its own instead of hitching a frame.
     std::vector<ShadersHash> shader_cache_copy;
     {
         std::lock_guard<std::mutex> guard(shaders_mutex);
         shader_cache_copy = state.shaders_cache_hashs;
     }
-    renderer::save_shaders_cache_hashs(state, shader_cache_copy);
+    std::vector<uint64_t> pipeline_hashes;
+    pipeline_hashes.reserve(pipelines.size());
+    for (auto &[hash, _] : pipelines)
+        pipeline_hashes.push_back(hash);
 
-    // After the GPU failed (device lost) the driver's cache data can be garbage: keep the last good file
-    if (device_lost_count() > 0) {
-        LOG_WARN("Not saving the pipeline cache: the GPU failed during this session");
-        return;
-    }
+    auto work = [this, shader_cache_copy = std::move(shader_cache_copy), pipeline_hashes = std::move(pipeline_hashes)]() mutable {
+        renderer::save_shaders_cache_hashs(state, shader_cache_copy);
 
-    std::vector<uint8_t> pipeline_data;
-    try {
-        pipeline_data = state.device.getPipelineCacheData(pipeline_cache);
-    } catch (const vk::SystemError &e) {
-        LOG_WARN("Not saving the pipeline cache: {}", e.what());
-        return;
-    }
-    if (pipeline_data.empty())
-        // No pipeline was created
-        return;
+        // After the GPU failed (device lost) the driver's cache data can be garbage: keep the last good file
+        if (device_lost_count() > 0) {
+            LOG_WARN("Not saving the pipeline cache: the GPU failed during this session");
+            return;
+        }
 
-    const std::string pipeline_cache_name = fmt::format("pipeline-cache-vk{}.dat", shader::CURRENT_VERSION);
-    const fs::path path = state.shaders_path / pipeline_cache_name;
+        std::vector<uint8_t> pipeline_data;
+        try {
+            pipeline_data = state.device.getPipelineCacheData(pipeline_cache);
+        } catch (const vk::SystemError &e) {
+            LOG_WARN("Not saving the pipeline cache: {}", e.what());
+            return;
+        }
+        if (pipeline_data.empty())
+            // No pipeline was created
+            return;
 
-    // Written to a temporary file first and then moved over the old one, so a crash or the app
-    // being closed mid-write never leaves a half-written cache behind
-    fs::path tmp_path = path;
-    tmp_path += ".tmp";
-    std::ofstream pipeline_cache_file(tmp_path, std::ios::out | std::ios::binary | std::ios::trunc);
-    if (!pipeline_cache_file.is_open())
-        return;
+        const std::string pipeline_cache_name = fmt::format("pipeline-cache-vk{}.dat", shader::CURRENT_VERSION);
+        const fs::path path = state.shaders_path / pipeline_cache_name;
 
-    LOG_INFO("Saving pipeline cache...");
+        // Written to a temporary file first and then moved over the old one, so a crash or the app
+        // being closed mid-write never leaves a half-written cache behind
+        fs::path tmp_path = path;
+        tmp_path += ".tmp";
+        std::ofstream pipeline_cache_file(tmp_path, std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!pipeline_cache_file.is_open())
+            return;
 
-    // first save the hashes of all pipelines
-    auto write_integer = [&]<typename T>(T val) {
-        pipeline_cache_file.write(reinterpret_cast<const char *>(&val), sizeof(T));
+        LOG_INFO("Saving pipeline cache...");
+
+        // first save the hashes of all pipelines
+        auto write_integer = [&]<typename T>(T val) {
+            pipeline_cache_file.write(reinterpret_cast<const char *>(&val), sizeof(T));
+        };
+        write_integer(pipeline_cache_magic);
+        write_integer(pipeline_hashes.size());
+        for (const uint64_t hash : pipeline_hashes)
+            write_integer(hash);
+
+        // then save the cache
+        pipeline_cache_file.write(reinterpret_cast<const char *>(pipeline_data.data()), pipeline_data.size());
+        pipeline_cache_file.close();
+        std::error_code ec;
+        if (pipeline_cache_file)
+            fs::rename(tmp_path, path, ec);
+        if (!pipeline_cache_file || ec) {
+            LOG_WARN("Pipeline cache could not be saved");
+            fs::remove(tmp_path, ec);
+            return;
+        }
+        LOG_INFO("Pipeline cache saved");
     };
-    write_integer(pipeline_cache_magic);
-    write_integer(pipelines.size());
-    for (auto &[hash, _] : pipelines) {
-        write_integer(hash);
-    }
 
-    // then save the cache
-    pipeline_cache_file.write(reinterpret_cast<const char *>(pipeline_data.data()), pipeline_data.size());
-    pipeline_cache_file.close();
-    std::error_code ec;
-    if (pipeline_cache_file)
-        fs::rename(tmp_path, path, ec);
-    if (!pipeline_cache_file || ec) {
-        LOG_WARN("Pipeline cache could not be saved");
-        fs::remove(tmp_path, ec);
+    if (in_background) {
+        if (cache_saving.load(std::memory_order_acquire)) {
+            // the previous save is still running: try again a little later
+            const auto time_s = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            next_pipeline_cache_save = time_s + 2;
+            return;
+        }
+        if (cache_save_thread.joinable())
+            cache_save_thread.join();
+        cache_saving.store(true, std::memory_order_release);
+        cache_save_thread = std::thread([this, work = std::move(work)]() mutable {
+#if defined(VITA3K_PLATFORM_IOS)
+            pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#endif
+            work();
+            cache_saving.store(false, std::memory_order_release);
+        });
         return;
     }
-    LOG_INFO("Pipeline cache saved");
+
+    wait_for_cache_save();
+    work();
+}
+
+void PipelineCache::wait_for_cache_save() {
+    if (cache_save_thread.joinable())
+        cache_save_thread.join();
 }
 
 void PipelineCache::cleanup() {
+    // a background save still reads the pipeline cache
+    wait_for_cache_save();
+
     // stop threads
     if (use_async_compilation)
         set_async_compilation(false);

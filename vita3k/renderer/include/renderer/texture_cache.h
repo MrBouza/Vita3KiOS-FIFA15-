@@ -43,7 +43,14 @@ struct YUVConversionCache {
 };
 
 enum class Backend : uint32_t;
+#if defined(VITA3K_PLATFORM_IOS)
+// Twice the upstream size: Persona 4 Golden filled 1024 within 15 minutes, and from then on every new
+// texture evicted (and later re-uploaded) another one, a source of hitches and flicker. Entries hold
+// only what the game actually uses.
+static constexpr size_t TextureCacheSize = 2048;
+#else
 static constexpr size_t TextureCacheSize = 1024;
+#endif
 
 typedef std::array<uint32_t, 4> TextureGxmDataRepr;
 struct TextureCacheInfo {

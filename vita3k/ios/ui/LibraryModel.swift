@@ -93,6 +93,7 @@ struct EmulatorSettings: Codable {
     var sysButton: Int = 1
     var sysLang: Int = 1
     var nativeBuffer: Bool = false
+    var mappingMode: String = "double-buffer"
 }
 
 struct StorageInfo: Codable {

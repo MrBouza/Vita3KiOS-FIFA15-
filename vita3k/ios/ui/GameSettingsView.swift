@@ -22,6 +22,7 @@ struct GameSettings: Codable {
     var asyncShaders = true
     var shaderCache = true
     var nativeBuffer = false
+    var mappingMode = "double-buffer"
 }
 
 struct GamePatch: Codable, Identifiable {
@@ -265,9 +266,19 @@ struct GameSettingsView: View {
                 Picker("Anisotropic filtering", selection: bind(\.anisotropicFiltering, "anisotropic-filtering") { String($0) }) {
                     ForEach(anisotropy, id: \.self) { Text("\($0)×").tag($0) }
                 }
-                toggle("GPU memory mapping", \.memoryMapping, "memory-mapping", "Fixes wrong colours. Turn off only if this game breaks with it.")
-                if settings.memoryMapping {
-                    toggle("Native buffer", \.nativeBuffer, "native-buffer", "The game's memory and the GPU share the same pages instead of a copy kept in sync. Can fix models, faces and effects the GPU builds itself (try it for Madden NFL 13); the CPU side is a little slower.")
+                Picker(selection: Binding(get: { settings.mappingMode }, set: { mode in
+                    settings.mappingMode = mode
+                    settings.memoryMapping = mode != "disabled"
+                    settings.nativeBuffer = mode == "page-table"
+                    store("memory-mapping-mode", mode)
+                })) {
+                    ForEach(MemoryMappingMode.allCases) { Text($0.title).tag($0.rawValue) }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Memory mapping")
+                        Text(MemoryMappingMode(rawValue: settings.mappingMode)?.detail ?? "")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 toggle("High accuracy", \.highAccuracy, "high-accuracy", "More accurate blending and effects, slower.")
                 toggle("Texture cache", \.textureCache, "texture-cache", nil)
@@ -722,4 +733,27 @@ struct GameFixInfo: Decodable {
     let note: String
     let settings: String
     var matches: Bool? = nil
+}
+
+/// How the GPU sees the game's memory (Settings › Graphics and per game)
+enum MemoryMappingMode: String, CaseIterable, Identifiable {
+    case doubleBuffer = "double-buffer"
+    case nativeBuffer = "page-table"
+    case off = "disabled"
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .doubleBuffer: return "Double buffer"
+        case .nativeBuffer: return "Native buffer"
+        case .off: return "Off"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .doubleBuffer: return "Default. The GPU reads the game's memory from a copy kept in sync: fastest CPU side, fixes wrong colours and stretched textures."
+        case .nativeBuffer: return "The game and the GPU share the same memory pages: can fix models and effects the GPU builds from game memory (stretched or deformed bodies). The CPU side is a little slower."
+        case .off: return "Data is copied for every draw. Slower; fixes a few games that break with mapping (Persona 4 Golden). Surface sync needs mapping."
+        }
+    }
 }

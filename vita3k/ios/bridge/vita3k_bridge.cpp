@@ -518,6 +518,15 @@ bool v3k_install(const char *path, const char *zrif, v3k_progress_fn progress, v
 
 // Settings saved before FSR left the iOS menu can still say "FSR". The menu has no such entry, so it
 // showed Bilinear while the file (and the log) said FSR; games use Bilinear for it anyway
+// The memory mapping methods offered on iOS (Settings › Graphics › Memory mapping). External host
+// needs 4 KiB host pointer alignment, iOS has 16 KiB, so Vita3K refuses it here; anything unknown
+// becomes the default.
+static std::string mapping_mode(const std::string &mode) {
+    if (mode == "disabled" || mode == "page-table")
+        return mode;
+    return "double-buffer";
+}
+
 static std::string shown_screen_filter(const std::string &filter) {
     return filter == "FSR" ? "Bilinear" : filter;
 }
@@ -532,13 +541,13 @@ char *v3k_settings_json(void) {
         R"({{"resolutionMultiplier":{},"anisotropicFiltering":{},"audioVolume":{},"screenFilter":{},)"
         R"("vSync":{},"cpuOpt":{},"ngsEnable":{},"highAccuracy":{},"stretchDisplay":{},)"
         R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{},"fpsHack":{},"asyncShaders":{},)"
-        R"("motion":{},"surfaceSync":{},"showCompileShaders":{},"shaderCache":{},"importTextures":{},"sysButton":{},"sysLang":{},"nativeBuffer":{}}})",
+        R"("motion":{},"surfaceSync":{},"showCompileShaders":{},"shaderCache":{},"importTextures":{},"sysButton":{},"sysLang":{},"nativeBuffer":{},"mappingMode":{}}})",
         cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, json_quote(shown_screen_filter(cfg.screen_filter)),
         b(cfg.v_sync), b(cfg.cpu_opt), b(cfg.ngs_enable), b(cfg.high_accuracy), b(cfg.stretch_the_display_area),
         b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode),
         b(cfg.memory_mapping != "disabled"), b(cfg.fps_hack), b(cfg.async_pipeline_compilation),
         b(!cfg.disable_motion), b(!cfg.disable_surface_sync), b(cfg.show_compile_shaders), b(cfg.shader_cache),
-        b(cfg.import_textures), cfg.sys_button, cfg.sys_lang, b(cfg.memory_mapping == "page-table"));
+        b(cfg.import_textures), cfg.sys_button, cfg.sys_lang, b(cfg.memory_mapping == "page-table"), json_quote(mapping_mode(cfg.memory_mapping)));
     return dup_string(json);
 }
 
@@ -635,6 +644,10 @@ bool v3k_set_setting_string(const char *key, const char *value) {
     auto &cfg = emuenv->cfg;
     if (std::string(key) == "screen-filter") {
         cfg.screen_filter = cfg.current_config.screen_filter = value;
+        return save_settings(*emuenv);
+    }
+    if (std::string(key) == "memory-mapping-mode") {
+        cfg.memory_mapping = cfg.current_config.memory_mapping = mapping_mode(value);
         return save_settings(*emuenv);
     }
     return false;
@@ -780,10 +793,10 @@ char *v3k_game_settings_json(const char *title_id) {
     return dup_string(fmt::format(
         R"({{"custom":{},"resolutionMultiplier":{},"anisotropicFiltering":{},"screenFilter":{},"memoryMapping":{},)"
         R"("highAccuracy":{},"textureCache":{},"cpuOpt":{},"vSync":{},"fpsHack":{},"disableSurfaceSync":{},)"
-        R"("stretchDisplay":{},"asyncShaders":{},"shaderCache":{},"nativeBuffer":{}}})",
+        R"("stretchDisplay":{},"asyncShaders":{},"shaderCache":{},"nativeBuffer":{},"mappingMode":{}}})",
         b(custom), cc.resolution_multiplier, cc.anisotropic_filtering, json_quote(shown_screen_filter(cc.screen_filter)), b(cc.memory_mapping != "disabled"),
         b(cc.high_accuracy), b(cc.texture_cache), b(cc.cpu_opt), b(cc.v_sync), b(cc.fps_hack), b(cc.disable_surface_sync),
-        b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache), b(cc.memory_mapping == "page-table")));
+        b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache), b(cc.memory_mapping == "page-table"), json_quote(mapping_mode(cc.memory_mapping))));
 }
 
 bool v3k_game_uses_async_shaders(const char *title_id) {
@@ -841,6 +854,8 @@ bool v3k_set_game_setting(const char *title_id, const char *key, const char *val
         cc.memory_mapping = on ? (cc.memory_mapping == "page-table" ? "page-table" : "double-buffer") : "disabled";
     else if (k == "native-buffer")
         cc.memory_mapping = on ? "page-table" : "double-buffer";
+    else if (k == "memory-mapping-mode")
+        cc.memory_mapping = mapping_mode(v);
     else if (k == "high-accuracy")
         cc.high_accuracy = on;
     else if (k == "texture-cache")
