@@ -99,6 +99,13 @@ void State::update_overlays() {
     // Pause overlay
     const bool is_paused = paused.load(std::memory_order_relaxed);
     overlay_manager->set_paused(is_paused);
+#if defined(VITA3K_PLATFORM_IOS)
+    // The iOS app draws its own pause screen (TouchControls.swift). The built-in one, made the moment
+    // a paused frame was drawn, asked for a redraw every 16 ms from its input thread: the GPU never
+    // stopped while paused, and lost the device once the app left the screen.
+    if (overlay_manager->get<overlay::pause_overlay>())
+        overlay_manager->remove<overlay::pause_overlay>();
+#else
     if (is_paused) {
         bool just_created = false;
         auto pause_overlay = overlay_manager->get<overlay::pause_overlay>();
@@ -125,6 +132,7 @@ void State::update_overlays() {
             overlay_manager->remove<overlay::pause_overlay>();
         }
     }
+#endif
 
     // Common dialog
     if (!is_paused) {

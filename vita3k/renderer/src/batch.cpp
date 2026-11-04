@@ -28,6 +28,7 @@
 #include <functional>
 #include <overlay/display_manager.h>
 #include <overlay/shader_precompile_progress.h>
+#include <util/app_activity.h>
 #include <util/log.h>
 #include <util/thermal.h>
 
@@ -224,7 +225,9 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
 
             if (progress_overlay) {
                 const auto now = std::chrono::steady_clock::now();
-                if (i + 1 == total || now - last_progress_frame >= std::chrono::milliseconds(33)) {
+                // (none while the app is off screen: the shaders keep compiling, only the bar waits)
+                if ((i + 1 == total || now - last_progress_frame >= std::chrono::milliseconds(33))
+                    && app_activity::gpu_allowed().load(std::memory_order_relaxed)) {
                     last_progress_frame = now;
                     progress_overlay->set_progress(i + 1, total);
                     state.render_frame(display, gxm, mem);
@@ -276,9 +279,12 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
             break;
 #if defined(VITA3K_PLATFORM_IOS)
         thermal::follow_render_qos(thermal_qos);
-        // Paused (pause button, game menu, app in the background): no GPU work at all. The screen
-        // keeps the last frame, and iOS ends apps that use the GPU from the background.
-        if (state.paused.load(std::memory_order_relaxed) && !state.async_flip_requested.load(std::memory_order_relaxed)) {
+        // Paused (pause button, game menu, app in the background) or the app not on screen: no GPU
+        // work at all, overlay redraws included. Overlays used to get through here while paused, and
+        // a paused game kept the GPU drawing (heat), then lost it once the app left the screen
+        // (iOS refuses GPU work from the background). The screen keeps the last frame.
+        if (state.paused.load(std::memory_order_relaxed) || !app_activity::gpu_allowed().load(std::memory_order_relaxed)) {
+            state.async_flip_requested.store(false, std::memory_order_relaxed);
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }

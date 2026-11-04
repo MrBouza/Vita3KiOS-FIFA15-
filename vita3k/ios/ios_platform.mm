@@ -19,6 +19,7 @@
 
 #include "ios_platform.h"
 
+#include <util/app_activity.h>
 #include <util/thermal.h>
 
 #import <AVFoundation/AVFoundation.h>
@@ -157,12 +158,38 @@ static void update_thermal_state() {
     thermal::phone_is_hot() = state >= NSProcessInfoThermalStateSerious;
 }
 
+static void update_power_state() {
+    thermal::low_power_mode() = NSProcessInfo.processInfo.lowPowerModeEnabled;
+}
+
+static std::atomic<void (*)(bool)> activity_callback{ nullptr };
+
+void set_activity_callback(void (*callback)(bool active)) {
+    activity_callback = callback;
+}
+
+// Straight from UIKit rather than through SDL's events, which reach the game loop a frame later at
+// best: the GPU is blocked before iOS starts refusing GPU work
+static void set_app_active(bool active) {
+    if (app_activity::gpu_allowed().exchange(active) == active)
+        return;
+    if (auto callback = activity_callback.load())
+        callback(active);
+}
+
 void observe_app_state() {
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     thermal::keep_cool() = keep_cool_enabled();
     update_thermal_state();
+    update_power_state();
     [center addObserverForName:NSProcessInfoThermalStateDidChangeNotification object:nil queue:nil
                     usingBlock:^(NSNotification *) { update_thermal_state(); }];
+    [center addObserverForName:NSProcessInfoPowerStateDidChangeNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { update_power_state(); }];
+    [center addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { set_app_active(false); }];
+    [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { set_app_active(true); }];
     [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil
                     usingBlock:^(NSNotification *) { in_background = true; }];
     [center addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:nil

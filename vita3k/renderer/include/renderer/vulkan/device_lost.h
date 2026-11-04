@@ -18,6 +18,7 @@
 #pragma once
 
 // vkutil configures vulkan.hpp (designated initializers): include it, never vulkan.hpp directly
+#include <util/app_activity.h>
 #include <util/log.h>
 #include <vkutil/vkutil.h>
 
@@ -45,6 +46,14 @@ inline std::atomic<void (*)()> &on_persistent_device_lost() {
 constexpr uint32_t PERSISTENT_DEVICE_LOST_ERRORS = 20;
 
 inline uint32_t count_device_lost(const char *where) {
+    // Off screen, iOS refuses GPU work and MoltenVK calls that a lost device: the GPU did not fail,
+    // so it must not end the game or change its settings
+    if (!app_activity::gpu_allowed().load(std::memory_order_relaxed)) {
+        static std::atomic<uint32_t> refused{ 0 };
+        if (refused++ < 5)
+            LOG_WARN("GPU work refused during {} while Vita3K is off screen (not counted as a GPU error)", where);
+        return device_lost_count().load();
+    }
     const uint32_t n = ++device_lost_count();
     if (n <= 5 || (n & (n - 1)) == 0)
         LOG_ERROR("GPU error (device lost) during {}; continuing ({} so far)", where, n);

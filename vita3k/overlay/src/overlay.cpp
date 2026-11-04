@@ -134,7 +134,12 @@ int32_t user_interface::run_input_loop(overlay_input_handler *input, std::functi
 
         refresh();
 
+#if defined(VITA3K_PLATFORM_IOS)
+        // 125 polls a second is plenty for a dialog; a thousand kept a core awake on the phone
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+#else
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+#endif
     }
 
     // Disable pad interception since this user interface has to be interactive.

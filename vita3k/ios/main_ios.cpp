@@ -75,8 +75,19 @@ extern "C" void v3k_set_game_paused(int reason, bool paused) {
         if (reason == 1) {
             g_user_paused = paused;
             LOG_INFO("Game {}", paused ? "paused" : "resumed");
+            // Paused and put down: let the screen dim and lock as usual instead of burning the battery
+            // with the screen on (the game stays paused through the lock)
+            ios::set_screen_always_on(!paused);
         }
     }
+}
+
+// The app left the screen or came back (ios_platform.mm, main thread): the game pauses at once,
+// before iOS starts refusing GPU work. SDL's background event does the same a little later.
+static void on_app_activity(bool active) {
+    LOG_INFO("Vita3K {} the screen{}", active ? "is back on" : "is leaving", active ? "" : ": the game and the GPU pause");
+    if (app::AppSessionController *session = g_session.load())
+        session->set_pause_reason(app::AppSessionPauseReason::Background, !active);
 }
 
 extern "C" bool v3k_game_paused_by_user(void) {
@@ -119,6 +130,7 @@ int main(int argc, char *argv[]) {
     ios::install_fatal_signal_logger();
     ios::crash::install_terminate_handler();
     ios::observe_app_state();
+    ios::set_activity_callback(on_app_activity);
 
     // Activate the audio session before SDL opens the audio device, so the audio unit actually runs
     // (otherwise games that wait on audio playback freeze). From Tsubomi.
@@ -193,14 +205,18 @@ int main(int argc, char *argv[]) {
                     if (stall_logged)
                         LOG_INFO("Watchdog: the game is presenting frames again");
                     stall_logged = false;
-                } else if (!stall_logged && now - last_progress > 8s && !ios::app_in_background()) {
+                } else if (const app::AppSessionController *session = g_session.load();
+                           (session && session->is_paused()) || ios::app_in_background()) {
+                    // Paused or off screen: no frames is expected, not a freeze
+                    last_progress = now;
+                } else if (!stall_logged && now - last_progress > 8s) {
                     LOG_WARN("Watchdog: no new frame for 8 seconds (the game may be frozen). {} MiB of memory left",
                         os_proc_available_memory() / (1024 * 1024));
                     stall_logged = true;
                 }
                 if (now - last_memory_log > 10s) {
-                    LOG_INFO("Watchdog: {} MiB of memory left, {} frames{}", os_proc_available_memory() / (1024 * 1024), last_frames,
-                        thermal::phone_is_hot() ? ", phone hot" : "");
+                    LOG_INFO("Watchdog: {} MiB of memory left, {} frames{}{}", os_proc_available_memory() / (1024 * 1024), last_frames,
+                        thermal::phone_is_hot() ? ", phone hot" : "", thermal::low_power_mode() ? ", Low Power Mode" : "");
                     last_memory_log = now;
                 }
                 const uint64_t quit_at = v3k_pad_quit_requested_ms();
