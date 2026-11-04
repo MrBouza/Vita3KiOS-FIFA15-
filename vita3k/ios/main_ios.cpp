@@ -90,6 +90,12 @@ static void on_app_activity(bool active) {
         session->set_pause_reason(app::AppSessionPauseReason::Background, !active);
 }
 
+// Paused for any reason (pause button, game menu, off screen)
+static bool session_paused() {
+    const app::AppSessionController *session = g_session.load();
+    return session && session->is_paused();
+}
+
 extern "C" bool v3k_game_paused_by_user(void) {
     return g_user_paused.load();
 }
@@ -205,8 +211,7 @@ int main(int argc, char *argv[]) {
                     if (stall_logged)
                         LOG_INFO("Watchdog: the game is presenting frames again");
                     stall_logged = false;
-                } else if (const app::AppSessionController *session = g_session.load();
-                           (session && session->is_paused()) || ios::app_in_background()) {
+                } else if (session_paused() || ios::app_in_background()) {
                     // Paused or off screen: no frames is expected, not a freeze
                     last_progress = now;
                 } else if (!stall_logged && now - last_progress > 8s) {
