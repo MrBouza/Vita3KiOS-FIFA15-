@@ -485,8 +485,10 @@ void PipelineCache::cleanup() {
     if (use_async_compilation)
         set_async_compilation(false);
 
+    // markers are not pipelines: one still "compiling" when the workers stopped, or one that failed
+    const vk::Pipeline still_compiling = std::bit_cast<vk::Pipeline, uint64_t>(~0ULL);
     for (auto &[hash, pipeline] : pipelines) {
-        if (pipeline != failed_pipeline())
+        if (pipeline && pipeline != failed_pipeline() && pipeline != still_compiling)
             state.device.destroy(pipeline);
     }
     pipelines.clear();

@@ -360,8 +360,9 @@ and pushed but **not released**.
      game-fix key `accurate-cpu=on`, on for Madden). Dynarmic runs without the IR optimisations
      ConstProp, GetSetElimination and MiscIROpt; block linking, the return stack buffer and fast
      dispatch stay. The theory is that the CPU-side face animation math is mis-optimised.
-     - If the face is still wrong, remove `accurate-cpu=on` from the Madden lines, which saves
-       speed. The next suspects are uniform buffer bone ranges and vertex formats. Precise shader math
+     - It did not fix the face, so `accurate-cpu=on` was removed from Madden's fix. The mode
+       still exists for other games. The next suspects are uniform buffer bone ranges and vertex
+       formats. Precise shader math
      and high accuracy were tried; the effect on the face was not reported.
    - Earlier: Madden crashes with surface sync on (SIGTRAP from the memory handler). Since 14dc39ed the crash
      report names the faulting address (read/write, guest address or "outside guest memory"). A
