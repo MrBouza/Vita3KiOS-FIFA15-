@@ -33,6 +33,7 @@
 #include "jit/ios_jit.h"
 
 #include <app/session_controller.h>
+#include <cpu/functions.h>
 #include <emuenv/app_launch_request.h>
 #include <emuenv/state.h>
 #include <kernel/state.h>
@@ -270,6 +271,8 @@ int main(int argc, char *argv[]) {
         renderer::vulkan::device_lost_count() = 0;
         renderer::vulkan::on_persistent_device_lost() = +[] { v3k_pad_request_exit(); };
         thermal::keep_cool() = ios::keep_cool_enabled();
+        // Accurate CPU, for games whose fix asks for it (game fixes list: accurate-cpu=on)
+        set_ios_accurate_cpu(v3k_game_fix_flag(title_id.c_str(), "accurate-cpu") == 1);
         const bool mapping_was_on = v3k_game_uses_memory_mapping(title_id.c_str());
         const bool async_was_on = v3k_game_uses_async_shaders(title_id.c_str());
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);

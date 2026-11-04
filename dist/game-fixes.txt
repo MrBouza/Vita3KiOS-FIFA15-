@@ -21,4 +21,4 @@ PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D 
 
 # Madden NFL 13: players are skinned on the GPU (needs memory mapping); surface sync crashed it at
 # boot or blacked out the field; shaders compiled before drawing so nothing goes missing
-PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer with surface sync: the stadium screens and other images the game draws for itself show up (surface sync crashed with double buffer); background shaders; high accuracy off
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off accurate-cpu=on | Accurate CPU for the faces; native buffer with surface sync: the stadium screens and other images the game draws for itself show up (surface sync crashed with double buffer); background shaders; high accuracy off

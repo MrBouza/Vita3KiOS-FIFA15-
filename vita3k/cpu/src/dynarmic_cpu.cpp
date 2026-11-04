@@ -393,6 +393,16 @@ static Dynarmic::ExclusiveMonitor shared_monitor(MAX_CORE_COUNT);
 
 #if defined(VITA3K_PLATFORM_IOS)
 static std::atomic_bool ios_fast_cpu{ false };
+// Accurate CPU (per game): Dynarmic's IR optimisations (constant propagation, get/set elimination,
+// miscellaneous IR passes) are left out; the control-flow ones (block linking, return stack buffer,
+// fast dispatch) stay, so the cost is moderate. For games whose CPU-side math comes out wrong with
+// them (Madden NFL 13's faces, a best guess: the body skins fine, the separately animated face melts).
+static std::atomic_bool ios_accurate_cpu{ false };
+void set_ios_accurate_cpu(bool enabled) {
+    ios_accurate_cpu = enabled;
+    LOG_INFO("Accurate CPU (no IR optimisations): {}", enabled ? "on" : "off");
+}
+
 void set_ios_fast_cpu(bool enabled) {
     ios_fast_cpu = enabled;
     LOG_INFO("Fast CPU (floating-point shortcuts): {}", enabled ? "on" : "off");
@@ -415,6 +425,9 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     config.processor_id = core_id;
     config.optimizations = cpu_opt ? Dynarmic::all_safe_optimizations : Dynarmic::no_optimizations;
 #if defined(VITA3K_PLATFORM_IOS)
+    if (cpu_opt && ios_accurate_cpu)
+        config.optimizations = Dynarmic::OptimizationFlag::BlockLinking | Dynarmic::OptimizationFlag::ReturnStackBuffer
+            | Dynarmic::OptimizationFlag::FastDispatch;
     if (cpu_opt && ios_fast_cpu)
         config.optimizations |= Dynarmic::OptimizationFlag::Unsafe_InaccurateNaN | Dynarmic::OptimizationFlag::Unsafe_ReducedErrorFP
             | Dynarmic::OptimizationFlag::Unsafe_IgnoreStandardFPCRValue;

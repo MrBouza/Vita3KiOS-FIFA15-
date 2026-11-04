@@ -90,5 +90,6 @@ std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size);
 // "Fast CPU": lets the recompiler take floating-point shortcuts (NaN handling, reciprocal precision,
 // FPCR). Faster, and almost always invisible. Applies to threads created afterwards.
 void set_ios_fast_cpu(bool enabled);
+void set_ios_accurate_cpu(bool enabled);
 #endif
 CPUState *get_current_cpu_state();

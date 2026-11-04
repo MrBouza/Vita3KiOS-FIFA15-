@@ -247,7 +247,7 @@ static constexpr const char *DEFAULT_GAME_FIXES = R"(PCSA00011 surface-sync=on |
 PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
 PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
 PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
-PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer with surface sync: the stadium screens and other images the game draws for itself show up (surface sync crashed with double buffer); background shaders; high accuracy off
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off accurate-cpu=on | Accurate CPU for the faces; native buffer with surface sync: the stadium screens and other images the game draws for itself show up (surface sync crashed with double buffer); background shaders; high accuracy off
 )";
 
 bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix) {
@@ -310,6 +310,9 @@ static bool apply_fix_setting(Config::CurrentConfig &cc, const std::string &key,
         cc.fps_hack = on;
     else if (key == "cpu-opt")
         cc.cpu_opt = on;
+    else if (key == "fast-cpu" || key == "accurate-cpu") {
+        // CPU modes, read at launch (v3k_game_fix_flag)
+    }
     else if (key == "v-sync")
         cc.v_sync = on;
     else if (key == "stretch")
