@@ -1,8 +1,8 @@
 # Vita3KiOS: handoff notes
 
 Everything the previous assistant knew about this project, for whoever picks it up next. Current as of
-the commit that raised the JIT pool to 64 (4 Nov 2026). Last published release: **v1.0.0**. Everything after it is built
-and pushed but **not released**.
+the commit that raised the JIT pool to 64 (4 Nov 2026). Last published release: **v1.1.0** (4 Nov 2026, commit `ec155e73`). The release run's
+AltStore push hit a GitHub 500, so `dist/altstore/source.json` was updated by hand (build 76).
 
 ---
 
