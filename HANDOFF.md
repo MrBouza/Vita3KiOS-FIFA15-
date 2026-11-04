@@ -3,6 +3,14 @@
 Everything the previous assistant knew about this project, for whoever picks it up next. Current as of
 the commit that raised the JIT pool to 64 (4 Nov 2026). Last published release: **v1.1.0** (4 Nov 2026, commit `ec155e73`). The release run's
 AltStore push hit a GitHub 500, so `dist/altstore/source.json` was updated by hand (build 76).
+- A later re-run of the release workflow (to change the notes) was cancelled mid-way. Its
+  `gh release upload --clobber` had already deleted the IPA, so the owner re-uploads
+  `Vita3KiOS-1.1.0.ipa` (build 76) by hand. The release notes were also replaced by hand, with no
+  game names in them; the owner asked for that.
+- Lessons for releases:
+  - Assistant sessions may not be able to create or edit releases through the API (403). Change
+    release notes by giving the owner the text, not by re-running the workflow.
+  - Never cancel a release run mid-way.
 
 ---
 
