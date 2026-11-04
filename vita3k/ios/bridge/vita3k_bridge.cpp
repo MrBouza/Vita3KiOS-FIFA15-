@@ -532,13 +532,13 @@ char *v3k_settings_json(void) {
         R"({{"resolutionMultiplier":{},"anisotropicFiltering":{},"audioVolume":{},"screenFilter":{},)"
         R"("vSync":{},"cpuOpt":{},"ngsEnable":{},"highAccuracy":{},"stretchDisplay":{},)"
         R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{},"fpsHack":{},"asyncShaders":{},)"
-        R"("motion":{},"surfaceSync":{},"showCompileShaders":{},"shaderCache":{},"importTextures":{},"sysButton":{},"sysLang":{}}})",
+        R"("motion":{},"surfaceSync":{},"showCompileShaders":{},"shaderCache":{},"importTextures":{},"sysButton":{},"sysLang":{},"nativeBuffer":{}}})",
         cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, json_quote(shown_screen_filter(cfg.screen_filter)),
         b(cfg.v_sync), b(cfg.cpu_opt), b(cfg.ngs_enable), b(cfg.high_accuracy), b(cfg.stretch_the_display_area),
         b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode),
         b(cfg.memory_mapping != "disabled"), b(cfg.fps_hack), b(cfg.async_pipeline_compilation),
         b(!cfg.disable_motion), b(!cfg.disable_surface_sync), b(cfg.show_compile_shaders), b(cfg.shader_cache),
-        b(cfg.import_textures), cfg.sys_button, cfg.sys_lang);
+        b(cfg.import_textures), cfg.sys_button, cfg.sys_lang, b(cfg.memory_mapping == "page-table"));
     return dup_string(json);
 }
 
@@ -615,7 +615,13 @@ bool v3k_set_setting_bool(const char *key, bool value) {
     } else if (k == "motion") {
         cfg.disable_motion = !value;
     } else if (k == "memory-mapping") {
-        cfg.memory_mapping = cfg.current_config.memory_mapping = value ? "double-buffer" : "disabled";
+        // turning mapping on keeps the native buffer if that was chosen
+        const bool native = cfg.memory_mapping == "page-table";
+        cfg.memory_mapping = cfg.current_config.memory_mapping = value ? (native ? "page-table" : "double-buffer") : "disabled";
+    } else if (k == "native-buffer") {
+        // Native buffer: the game's memory and the GPU share the same pages (Vita3K's page-table
+        // mapping), instead of a GPU copy kept in sync (double buffer). Needs memory mapping on.
+        cfg.memory_mapping = cfg.current_config.memory_mapping = value ? "page-table" : "double-buffer";
     } else {
         return false;
     }
@@ -774,10 +780,10 @@ char *v3k_game_settings_json(const char *title_id) {
     return dup_string(fmt::format(
         R"({{"custom":{},"resolutionMultiplier":{},"anisotropicFiltering":{},"screenFilter":{},"memoryMapping":{},)"
         R"("highAccuracy":{},"textureCache":{},"cpuOpt":{},"vSync":{},"fpsHack":{},"disableSurfaceSync":{},)"
-        R"("stretchDisplay":{},"asyncShaders":{},"shaderCache":{}}})",
+        R"("stretchDisplay":{},"asyncShaders":{},"shaderCache":{},"nativeBuffer":{}}})",
         b(custom), cc.resolution_multiplier, cc.anisotropic_filtering, json_quote(shown_screen_filter(cc.screen_filter)), b(cc.memory_mapping != "disabled"),
         b(cc.high_accuracy), b(cc.texture_cache), b(cc.cpu_opt), b(cc.v_sync), b(cc.fps_hack), b(cc.disable_surface_sync),
-        b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache)));
+        b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache), b(cc.memory_mapping == "page-table")));
 }
 
 bool v3k_game_uses_async_shaders(const char *title_id) {
@@ -832,7 +838,9 @@ bool v3k_set_game_setting(const char *title_id, const char *key, const char *val
     else if (k == "screen-filter")
         cc.screen_filter = v;
     else if (k == "memory-mapping")
-        cc.memory_mapping = on ? "double-buffer" : "disabled";
+        cc.memory_mapping = on ? (cc.memory_mapping == "page-table" ? "page-table" : "double-buffer") : "disabled";
+    else if (k == "native-buffer")
+        cc.memory_mapping = on ? "page-table" : "double-buffer";
     else if (k == "high-accuracy")
         cc.high_accuracy = on;
     else if (k == "texture-cache")
@@ -1412,6 +1420,8 @@ char *v3k_game_fix_json(const char *title_id) {
             const bool on = value == "on" || value == "true" || value == "1" || value == "yes";
             if (key == "memory-mapping")
                 matches &= (cc.memory_mapping != "disabled") == on;
+            else if (key == "native-buffer")
+                matches &= (cc.memory_mapping == "page-table") == on;
             else if (key == "surface-sync")
                 matches &= !cc.disable_surface_sync == on;
             else if (key == "async-shaders")
@@ -1449,7 +1459,7 @@ bool v3k_apply_game_fix(const char *title_id) {
     for (const auto &[key, value] : fix.settings) {
         const bool on = value == "on" || value == "true" || value == "1" || value == "yes";
         const char *flag = on ? "true" : "false";
-        if (key == "memory-mapping" || key == "high-accuracy" || key == "async-shaders" || key == "texture-cache"
+        if (key == "memory-mapping" || key == "native-buffer" || key == "high-accuracy" || key == "async-shaders" || key == "texture-cache"
             || key == "shader-cache" || key == "fps-hack" || key == "cpu-opt" || key == "v-sync")
             ok &= v3k_set_game_setting(title_id, key.c_str(), flag);
         else if (key == "surface-sync")

@@ -59,6 +59,30 @@
 #include <unistd.h>
 
 // Implemented in Swift (ui/TouchControls.swift)
+// The running session, for the pause button and the game menu (main thread only)
+namespace {
+std::atomic<app::AppSessionController *> g_session{ nullptr };
+std::atomic<bool> g_user_paused{ false };
+} // namespace
+
+extern "C" void v3k_set_game_paused(int reason, bool paused) {
+    app::AppSessionController *session = g_session.load();
+    if (!session)
+        return;
+    const auto pause_reason = reason == 1 ? app::AppSessionPauseReason::User : app::AppSessionPauseReason::Menu;
+    if (session->set_pause_reason(pause_reason, paused)) {
+        if (reason == 1) {
+            g_user_paused = paused;
+            LOG_INFO("Game {}", paused ? "paused" : "resumed");
+        }
+    }
+}
+
+extern "C" bool v3k_game_paused_by_user(void) {
+    return g_user_paused.load();
+}
+
+extern "C" void v3k_set_portrait_unlocked(bool unlocked);
 extern "C" void v3k_controls_attach(void *ui_window);
 extern "C" void v3k_controls_detach(void);
 extern "C" void v3k_controls_show_menu(void);
@@ -133,11 +157,17 @@ int main(int argc, char *argv[]) {
 
         // The library can rotate freely; games are landscape
         // (Portrait mode: upright too, with the game at the top and the controls below)
-        SDL_SetHint(SDL_HINT_ORIENTATIONS, ios::portrait_mode_enabled() ? "LandscapeLeft LandscapeRight Portrait" : "LandscapeLeft LandscapeRight");
+        // Games boot in landscape: started upright, the first seconds stalled the GPU (device lost) on
+        // iPhone, while turning the phone during play is fine. Portrait opens up once the game is on
+        // screen (see on_frame).
+        SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+        v3k_set_portrait_unlocked(false);
         v3k_set_portrait_top(-1);
 
         // A fresh session controller per launch (as Tsubomi does): no state carried over from the last game
         app::AppSessionController session_controller(*emuenv);
+        g_user_paused = false;
+        g_session = &session_controller;
 
         // Watchdog: logs memory headroom and stalls, and makes sure Quit always gets you out even if the
         // game is stuck (iOS has no other way to leave a hung game except the app switcher)
@@ -216,11 +246,22 @@ int main(int argc, char *argv[]) {
             .on_stop = [emuenv] {
                 ios::cheats::session_ended(*emuenv);
                 ios::extras::session_ended(*emuenv); },
-            .on_frame = [emuenv, cheats_started = false]() mutable {
+            .on_frame = [emuenv, cheats_started = false, first_frame_at = uint64_t(0), portrait_open = false]() mutable {
                 if (!cheats_started) {
                     cheats_started = true;
                     ios::cheats::session_started(*emuenv);
                     ios::extras::session_started(*emuenv);
+                }
+                // Portrait mode: allowed 2 s after the game first showed a frame of its own
+                if (!portrait_open && ios::portrait_mode_enabled()) {
+                    if (!first_frame_at && emuenv->frame_count > 0)
+                        first_frame_at = SDL_GetTicks();
+                    if (first_frame_at && SDL_GetTicks() - first_frame_at > 2000) {
+                        portrait_open = true;
+                        SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight Portrait");
+                        v3k_set_portrait_unlocked(true);
+                        LOG_INFO("Portrait mode available");
+                    }
                 }
                 ios::cheats::frame(*emuenv);
                 ios::extras::frame(*emuenv); },
@@ -234,6 +275,8 @@ int main(int argc, char *argv[]) {
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
         session_over = true;
         watchdog.join();
+        g_session = nullptr;
+        g_user_paused = false;
         renderer::vulkan::on_persistent_device_lost() = nullptr;
         const uint32_t gpu_errors = renderer::vulkan::device_lost_count();
         ios::crash::session_ended();

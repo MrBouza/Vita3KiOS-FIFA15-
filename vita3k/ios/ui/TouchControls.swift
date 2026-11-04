@@ -263,6 +263,31 @@ enum TouchLayout {
 /// controls below. Landscape is unaffected.
 enum PortraitMode {
     static var enabled: Bool { UserDefaults.standard.object(forKey: "v3k.portraitMode") as? Bool ?? true }
+    /// Games boot in landscape and portrait opens up once the game is on screen: starting upright
+    /// stalled the GPU at boot (device lost), while turning the phone during play works
+    static var unlocked = false
+    static var allowed: Bool { enabled && unlocked }
+}
+
+@_cdecl("v3k_set_portrait_unlocked")
+public func v3kSetPortraitUnlocked(_ unlocked: Bool) {
+    MainActor.assumeIsolated {
+        PortraitMode.unlocked = unlocked
+        // keeps UIDevice.orientation up to date by the time portrait opens up (balanced calls not needed)
+        if !UIDevice.current.isGeneratingDeviceOrientationNotifications {
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+            }
+            // Held upright already: turn to portrait now rather than waiting for the phone to move
+            if unlocked && PortraitMode.enabled && UIDevice.current.orientation == .portrait {
+                windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
+            }
+        }
+    }
 }
 
 final class ControlsOverlayView: UIView {
@@ -282,7 +307,9 @@ final class ControlsOverlayView: UIView {
     private let rightStick = StickView(xAxis: Pad.rightX, yAxis: Pad.rightY)
     private let exitButton = UIButton(type: .system)
     private let hideButton = UIButton(type: .system)
+    private let pauseButton = UIButton(type: .system)
     private let rearButton = UIButton(type: .system)
+    private let pausedBanner = UIButton(type: .system)
     private let toastLabel = UILabel()
     private var toastGeneration = 0
     private let showRearButton = UserDefaults.standard.object(forKey: "v3k.touchRearButton") as? Bool ?? true
@@ -338,6 +365,28 @@ final class ControlsOverlayView: UIView {
         hideButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
         addSubview(hideButton)
+
+        pauseButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
+        pauseButton.tintColor = UIColor.white.withAlphaComponent(0.85)
+        pauseButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        pauseButton.addTarget(self, action: #selector(pauseTapped), for: .touchUpInside)
+        pauseButton.accessibilityLabel = "Pause"
+        addSubview(pauseButton)
+
+        // Covers the screen while the player has paused the game; tapping it resumes
+        var bannerConfig = UIButton.Configuration.plain()
+        bannerConfig.image = UIImage(systemName: "play.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 56))
+        bannerConfig.title = "Paused"
+        bannerConfig.subtitle = "Tap to resume"
+        bannerConfig.imagePlacement = .top
+        bannerConfig.imagePadding = 10
+        bannerConfig.titleAlignment = .center
+        bannerConfig.baseForegroundColor = .white
+        pausedBanner.configuration = bannerConfig
+        pausedBanner.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        pausedBanner.addTarget(self, action: #selector(pauseTapped), for: .touchUpInside)
+        pausedBanner.isHidden = true
+        addSubview(pausedBanner)
 
         rearButton.setImage(UIImage(systemName: "hand.point.up.left"), for: .normal)
         rearButton.tintColor = UIColor.white.withAlphaComponent(0.85)
@@ -432,39 +481,84 @@ final class ControlsOverlayView: UIView {
         showMenu(fromController: false)
     }
 
+    @objc private func pauseTapped() {
+        setUserPaused(!v3k_game_paused_by_user())
+    }
+
+    /// The pause button: the game stops (CPU, GPU and sound) until resumed; Quit works while paused
+    func setUserPaused(_ paused: Bool) {
+        v3k_pad_release_all()
+        v3k_set_game_paused(1, paused)
+        let isPaused = v3k_game_paused_by_user()
+        pauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
+        pauseButton.accessibilityLabel = isPaused ? "Resume" : "Pause"
+        pausedBanner.isHidden = !isPaused
+        if isPaused {
+            pausedBanner.frame = bounds
+            insertSubview(pausedBanner, belowSubview: exitButton)
+        }
+    }
+
+    /// While the game menu is open the game is paused too; it resumes when the menu closes
+    private func menuClosed() {
+        menuAlert = nil
+        v3k_set_game_paused(2, false)
+    }
+
     func showMenu(fromController: Bool) {
         guard menuAlert == nil, editor == nil, let root = window?.rootViewController else { return }
+        v3k_pad_release_all()
+        v3k_set_game_paused(2, true)
         let alert = UIAlertController(title: "Game menu", message: fromController
-            ? "Press the controller's Home/PS button, or hold Select + Start, to open this menu."
-            : nil, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Take screenshot", style: .default) { _ in
+            ? "Press the controller's Home/PS button, or hold Select + Start, to open this menu. The game is paused while it is open."
+            : "The game is paused while this menu is open.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Take screenshot", style: .default) { [weak self] _ in
+            self?.menuClosed()
             v3k_request_screenshot()
         })
+        let paused = v3k_game_paused_by_user()
+        alert.addAction(UIAlertAction(title: paused ? "Resume game" : "Pause game", style: .default) { [weak self] _ in
+            self?.menuClosed()
+            self?.setUserPaused(!paused)
+        })
         alert.addAction(UIAlertAction(title: v3k_rear_touch() ? "Touch the front screen" : "Touch the rear touchpad", style: .default) { [weak self] _ in
+            self?.menuClosed()
             self?.rearTapped()
         })
         alert.addAction(UIAlertAction(title: "Edit control layout", style: .default) { [weak self] _ in
+            self?.menuClosed()
             self?.beginEditing()
         })
         alert.addAction(UIAlertAction(title: controlsHidden ? "Show touch controls" : "Hide touch controls", style: .default) { [weak self] _ in
+            self?.menuClosed()
             self?.controlsHidden.toggle()
         })
         alert.addAction(UIAlertAction(title: "Quit game", style: .destructive) { [weak self] _ in
+            self?.menuClosed()
             self?.confirmQuit()
         })
-        alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel) { [weak self] _ in
+            self?.menuClosed()
+        })
         menuAlert = alert
         (root.presentedViewController ?? root).present(alert, animated: true)
     }
 
     private func confirmQuit() {
         guard let root = window?.rootViewController else { return }
+        v3k_set_game_paused(2, true)
         let alert = UIAlertController(title: "Quit game?", message: "Unsaved progress will be lost.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { _ in
+        alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { [weak self] _ in
             v3k_pad_release_all()
+            // the game closes faster running than paused
+            self?.menuAlert = nil
+            v3k_set_game_paused(2, false)
+            v3k_set_game_paused(1, false)
             v3k_pad_request_exit()
         })
-        alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel) { [weak self] _ in
+            self?.menuClosed()
+        })
         menuAlert = alert
         (root.presentedViewController ?? root).present(alert, animated: true)
     }
@@ -505,7 +599,7 @@ final class ControlsOverlayView: UIView {
         hiddenBeforeEditing = controlsHidden
         if controlsHidden { controlsHidden = false }
         controls.forEach { $0.isHidden = false; $0.isUserInteractionEnabled = false }
-        [exitButton, hideButton, rearButton].forEach { $0.isHidden = true }
+        [exitButton, pauseButton, hideButton, rearButton].forEach { $0.isHidden = true }
         let newEditor = LayoutEditorView(overlay: self)
         newEditor.frame = bounds
         newEditor.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -526,7 +620,7 @@ final class ControlsOverlayView: UIView {
         editor.removeFromSuperview()
         self.editor = nil
         controls.forEach { $0.isUserInteractionEnabled = true }
-        [exitButton, hideButton].forEach { $0.isHidden = false }
+        [exitButton, pauseButton, hideButton].forEach { $0.isHidden = false }
         controlsHidden = hiddenBeforeEditing
         updateRearButton()
         setNeedsLayout()
@@ -601,6 +695,7 @@ final class ControlsOverlayView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        pausedBanner.frame = bounds
         if isPortrait {
             layoutPortrait()
             return
@@ -636,7 +731,7 @@ final class ControlsOverlayView: UIView {
         applyPlacements(in: area)
 
         // Menu, show/hide and rear touchpad, top centre
-        let topButtons = showRearButton ? [exitButton, hideButton, rearButton] : [exitButton, hideButton]
+        let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton] : [exitButton, pauseButton, hideButton]
         let rowWidth = CGFloat(topButtons.count) * 36 + CGFloat(topButtons.count - 1) * 8
         for (index, button) in topButtons.enumerated() {
             button.frame = CGRect(x: area.midX - rowWidth / 2 + CGFloat(index) * 44, y: area.minY, width: 36, height: 36)
@@ -679,7 +774,7 @@ final class ControlsOverlayView: UIView {
         // Shoulder buttons along the top of the controls, the menu buttons between them
         l.frame = CGRect(x: controls.minX, y: controls.minY, width: unit * 1.7, height: unit * 0.75)
         r.frame = CGRect(x: controls.maxX - unit * 1.7, y: controls.minY, width: unit * 1.7, height: unit * 0.75)
-        let topButtons = showRearButton ? [exitButton, hideButton, rearButton] : [exitButton, hideButton]
+        let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton] : [exitButton, pauseButton, hideButton]
         let rowWidth = CGFloat(topButtons.count) * 36 + CGFloat(topButtons.count - 1) * 8
         for (index, button) in topButtons.enumerated() {
             button.frame = CGRect(x: controls.midX - rowWidth / 2 + CGFloat(index) * 44, y: controls.minY + (unit * 0.75 - 36) / 2, width: 36, height: 36)
@@ -740,7 +835,7 @@ final class ControlsViewController: UIViewController {
     override func loadView() {
         view = ControlsOverlayView(frame: UIScreen.main.bounds)
     }
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { PortraitMode.enabled ? [.landscape, .portrait] : .landscape }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { PortraitMode.allowed ? [.landscape, .portrait] : .landscape }
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 }

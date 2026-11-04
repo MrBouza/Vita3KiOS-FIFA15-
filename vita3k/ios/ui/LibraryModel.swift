@@ -92,6 +92,7 @@ struct EmulatorSettings: Codable {
     var importTextures: Bool = false
     var sysButton: Int = 1
     var sysLang: Int = 1
+    var nativeBuffer: Bool = false
 }
 
 struct StorageInfo: Codable {

@@ -293,7 +293,9 @@ static bool apply_fix_setting(Config::CurrentConfig &cc, const std::string &key,
     if (!on && !off && key != "resolution" && key != "screen-filter")
         return false;
     if (key == "memory-mapping")
-        cc.memory_mapping = on ? "double-buffer" : "disabled";
+        cc.memory_mapping = on ? (cc.memory_mapping == "page-table" ? "page-table" : "double-buffer") : "disabled";
+    else if (key == "native-buffer")
+        cc.memory_mapping = on ? "page-table" : (cc.memory_mapping == "disabled" ? "disabled" : "double-buffer");
     else if (key == "surface-sync")
         cc.disable_surface_sync = !on;
     else if (key == "high-accuracy")

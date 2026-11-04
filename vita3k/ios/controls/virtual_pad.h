@@ -42,6 +42,11 @@ unsigned long long v3k_pad_quit_requested_ms(void);
 unsigned long long v3k_pad_now_ms(void);
 void v3k_pad_clear_quit_request(void);
 
+// Pausing the running game: reason 1 = the player's pause button, 2 = the game menu being open.
+// The game stays paused while any reason holds. Safe to call with no game running.
+void v3k_set_game_paused(int reason, bool paused);
+bool v3k_game_paused_by_user(void);
+
 #ifdef __cplusplus
 }
 #endif

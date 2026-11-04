@@ -276,6 +276,12 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
             break;
 #if defined(VITA3K_PLATFORM_IOS)
         thermal::follow_render_qos(thermal_qos);
+        // Paused (pause button, game menu, app in the background): no GPU work at all. The screen
+        // keeps the last frame, and iOS ends apps that use the GPU from the background.
+        if (state.paused.load(std::memory_order_relaxed) && !state.async_flip_requested.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
 #endif
 
         process_batches(state, state.features, mem, config, 500);

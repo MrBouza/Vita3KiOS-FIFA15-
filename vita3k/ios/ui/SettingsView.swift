@@ -318,6 +318,15 @@ struct EmulationSections: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if model.settings.memoryMapping {
+                Toggle(isOn: binding(\.nativeBuffer) { model.setBool("native-buffer", $0) }) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Native buffer")
+                        Text("The game's memory and the GPU share the same pages instead of a copy kept in sync. Can fix models and effects the GPU builds itself; the CPU side is a little slower. Better turned on per game.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
             Toggle("Stretch to screen", isOn: binding(\.stretchDisplay) { model.setBool("stretch-display", $0) })
             Toggle(isOn: binding(\.surfaceSync) { model.setBool("surface-sync", $0) }) {
                 VStack(alignment: .leading, spacing: 2) {

@@ -21,6 +21,7 @@ struct GameSettings: Codable {
     var stretchDisplay = false
     var asyncShaders = true
     var shaderCache = true
+    var nativeBuffer = false
 }
 
 struct GamePatch: Codable, Identifiable {
@@ -265,6 +266,9 @@ struct GameSettingsView: View {
                     ForEach(anisotropy, id: \.self) { Text("\($0)×").tag($0) }
                 }
                 toggle("GPU memory mapping", \.memoryMapping, "memory-mapping", "Fixes wrong colours. Turn off only if this game breaks with it.")
+                if settings.memoryMapping {
+                    toggle("Native buffer", \.nativeBuffer, "native-buffer", "The game's memory and the GPU share the same pages instead of a copy kept in sync. Can fix models, faces and effects the GPU builds itself (try it for Madden NFL 13); the CPU side is a little slower.")
+                }
                 toggle("High accuracy", \.highAccuracy, "high-accuracy", "More accurate blending and effects, slower.")
                 toggle("Texture cache", \.textureCache, "texture-cache", nil)
                 toggle("Compile shaders in the background", \.asyncShaders, "async-shaders", "Less stutter; objects may pop in for a moment while their shaders compile.")
