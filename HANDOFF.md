@@ -1,7 +1,7 @@
 # Vita3KiOS: handoff notes
 
 Everything the previous assistant knew about this project, for whoever picks it up next. Current as of
-commit `4592fec7` (4 Nov 2026). Last published release: **v1.0.0**. Everything after it is built
+the commit that raised the JIT pool to 64 (4 Nov 2026). Last published release: **v1.0.0**. Everything after it is built
 and pushed but **not released**.
 
 ---
@@ -108,7 +108,7 @@ and pushed but **not released**.
 - `crash_report.cpp`: signal/terminate handlers. Writes `crash-report.txt`; the previous one is kept
   as `last-crash-report.txt`.
 - **`jit/ios_jit.cpp`:**
-  - JIT region pool: `IOS_JIT_POOL_TARGET = 48` regions × 16 MiB, prepared in one StikDebug request
+  - JIT region pool: `IOS_JIT_POOL_TARGET = 64` regions × 16 MiB, prepared in one StikDebug request
     at launch.
   - When the pool runs out, `create_thread` fails and the game gets `SCE_KERNEL_ERROR_NO_MEMORY`.
     The app does not crash.
@@ -343,6 +343,18 @@ and pushed but **not released**.
    - Suggested owner test: Surface sync on for Madden. It crashed at boot before the 16K protection
      fixes; it may work now and is the usual fix for black render-to-texture.
 9. Mortal Kombat 9: reported crashing, no log yet.
+   - Dead or Alive 5 Plus (PCSE00235): `std::bad_alloc` in `oaknut::CodeBlock` because the JIT pool
+     (then 32) was exhausted. The game had 37 threads at boot, on an iPhone16,2 with iOS 27.2 and
+     build v1.0.0. The pool is now 64, and newer builds also turn pool exhaustion into
+     `SCE_KERNEL_ERROR_NO_MEMORY` for the game instead of a crash.
+   - Madden face ("melting putty") in log 122cc30c: no `Texture inside`/`not taken from it` lines, so
+     it is most likely a geometry problem (vertex/bone data), not render-to-texture. Untested
+     candidates: facial bones in a uniform buffer region, vertex attribute formats, and Metal fast
+     math. Quick owner test: Precise shader math on. The jumbotron also never overlapped a render
+     target in that log.
+   - Madden crashes with surface sync on (SIGTRAP from the memory handler). Since 14dc39ed the crash
+     report names the faulting address (read/write, guest address or "outside guest memory"). A
+     crash report from the new build is needed.
 10. Unverified on a device: the pause feature, portrait unlock flow, Native buffer fixes, darker
    controls (all from 3–4 Nov).
 
