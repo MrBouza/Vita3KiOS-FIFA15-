@@ -352,7 +352,12 @@ and pushed but **not released**.
      candidates: facial bones in a uniform buffer region, vertex attribute formats, and Metal fast
      math. Quick owner test: Precise shader math on. The jumbotron also never overlapped a render
      target in that log.
-   - Madden crashes with surface sync on (SIGTRAP from the memory handler). Since 14dc39ed the crash
+   - 48268c90: the surface sync + high accuracy crash was a write to unallocated guest memory
+     (0xFF000A0C). On iOS that page now gets zeroed memory instead of crashing. Madden's
+     recommended settings are now Native buffer + surface sync on + high accuracy off; the owner
+     reports surface sync boots with Native buffer. The face is still not fixed. Precise shader math
+     and high accuracy were tried; the effect on the face was not reported.
+   - Earlier: Madden crashes with surface sync on (SIGTRAP from the memory handler). Since 14dc39ed the crash
      report names the faulting address (read/write, guest address or "outside guest memory"). A
      crash report from the new build is needed.
 10. Unverified on a device: the pause feature, portrait unlock flow, Native buffer fixes, darker
