@@ -509,6 +509,12 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         // keeps going while the GPU work is encoded, and Metal compiles shaders on several cores
         const VkBool32 synchronous_queue_submits = VK_FALSE;
         const VkBool32 concurrent_compilation = VK_TRUE;
+        // One queue, no Metal events behind Vulkan semaphores (MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE_SINGLE_QUEUE):
+        // Vita3K submits everything to a single queue, where Metal already runs work in order. With
+        // Metal events, a semaphore left signalled by a skipped frame (a rotation, a resize) made the
+        // GPU wait for a value that never came: 5 seconds of frozen phone, then device lost. This
+        // also spares the GPU an event wait per frame.
+        const int32_t semaphore_style = 0;
         // Metal fast math is on by default; a game can ask for precise math (per-game setting on iOS,
         // passed as V3K_PRECISE_SHADER_MATH) when it relies on exact results, e.g. for its lighting
         const char *precise_env = getenv("V3K_PRECISE_SHADER_MATH");
@@ -531,6 +537,8 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
                 &concurrent_compilation },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_FAST_MATH_ENABLED", vk::LayerSettingTypeEXT::eInt32, 1,
                 &fast_math },
+            { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_SEMAPHORE_SUPPORT_STYLE", vk::LayerSettingTypeEXT::eInt32, 1,
+                &semaphore_style },
 #ifndef NDEBUG
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_DEBUG", vk::LayerSettingTypeEXT::eBool32, 1, &debug },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_LOG_LEVEL", vk::LayerSettingTypeEXT::eInt32, 1, &log_level },

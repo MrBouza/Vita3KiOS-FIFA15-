@@ -758,11 +758,18 @@ void new_frame(VKContext &context) {
 
             // the wait is done by the wait thread
             std::unique_lock<std::mutex> lock(context.new_frame_mutex);
-            context.new_frame_condv.wait(lock, [&]() {
+            while (!context.new_frame_condv.wait_for(lock, std::chrono::seconds(1), [&]() {
                 return context.last_frame_waited >= previous_frame_timestamp;
-            });
+            })) {
+                if (context.state.render_abort.load(std::memory_order_relaxed))
+                    return;
+            }
         } else {
-            auto result = tolerate_device_lost("a frame fence wait", [&] { return device.waitForFences(frame.rendered_fences, VK_TRUE, std::numeric_limits<uint64_t>::max()); });
+            // In steps of a second, so a game being closed is never stuck here behind the GPU
+            vk::Result result;
+            do {
+                result = tolerate_device_lost("a frame fence wait", [&] { return device.waitForFences(frame.rendered_fences, VK_TRUE, 1'000'000'000ULL); });
+            } while (result == vk::Result::eTimeout && !context.state.render_abort.load(std::memory_order_relaxed));
             if (result != vk::Result::eSuccess) {
                 LOG_ERROR("Could not wait for fences.");
                 assert(false);

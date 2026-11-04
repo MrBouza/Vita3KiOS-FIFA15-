@@ -97,6 +97,7 @@ public:
 private:
     void create_render_pass();
     void create_layout_sync();
+    void renew_semaphores();
     void create_swapchain();
     vk::Pipeline create_graphics_pipeline_impl(std::array<vk::PipelineShaderStageCreateInfo, 2> &shader_stages);
     bool create_graphics_pipelines();

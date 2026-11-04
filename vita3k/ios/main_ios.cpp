@@ -81,6 +81,7 @@ int main(int argc, char *argv[]) {
     setenv("MVK_CONFIG_FULL_IMAGE_VIEW_SWIZZLE", "1", 0);
     setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 0);
     setenv("MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION", "1", 0);
+    setenv("MVK_CONFIG_SEMAPHORE_SUPPORT_STYLE", "0", 0);
 
     const fs::path documents = fs::path(ios::get_documents_path());
     if (!ios::initialize(documents)) {
@@ -183,8 +184,8 @@ int main(int argc, char *argv[]) {
                         }
                     }
                     LOG_CRITICAL("Watchdog: guest threads still active: {}", threads.empty() ? "none" : threads);
-                    ios::crash::write_note("The game did not close within 20 seconds of tapping Quit. Threads still active: "
-                        + (threads.empty() ? std::string("none") : threads));
+                    // The player asked to leave and is leaving: that is not a crash, so no crash report
+                    // (the log above keeps the details)
                     ios::crash::session_ended();
                     if (auto logger = spdlog::default_logger())
                         logger->flush();

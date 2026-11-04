@@ -403,7 +403,14 @@ void ScreenRenderer::destroy_surface() {
     surface = nullptr;
 }
 
+#ifdef __APPLE__
+// Never wait forever for the screen: while iOS rotates or resizes the window, Metal can hold on to its
+// drawables, and an endless wait here froze the game (and kept Quit from finishing). After a second
+// the frame is skipped and the swapchain rebuilt.
+static constexpr uint64_t next_image_timeout = 1'000'000'000ULL;
+#else
 static constexpr uint64_t next_image_timeout = std::numeric_limits<uint64_t>::max();
+#endif
 
 bool ScreenRenderer::acquire_swapchain_image() {
     if (!window_has_drawable_size(state)) {
@@ -432,6 +439,10 @@ bool ScreenRenderer::acquire_swapchain_image() {
     const bool has_acquired_image = acquire_result == vk::Result::eSuccess || acquire_result == vk::Result::eSuboptimalKHR;
     if (!has_acquired_image) {
         if (acquire_result == vk::Result::eTimeout || acquire_result == vk::Result::eNotReady) {
+#ifdef __APPLE__
+            LOG_WARN_ONCE("The screen did not give an image within a second: skipping the frame and rebuilding the swapchain");
+            need_rebuild = true;
+#endif
             current_cmd_buffer = nullptr;
             swapchain_image_idx = 0xDEADBEAF;
             return false;
@@ -458,6 +469,10 @@ bool ScreenRenderer::acquire_swapchain_image() {
     auto result = tolerate_device_lost("the swapchain fence wait", [&] { return state.device.waitForFences(fences[swapchain_image_idx], VK_TRUE, next_image_timeout); });
     if (result != vk::Result::eSuccess) {
         LOG_ERROR("Could not wait for fences.");
+        // the image was acquired but will not be drawn: rebuild, which also renews the semaphores
+        need_rebuild = true;
+        current_cmd_buffer = nullptr;
+        swapchain_image_idx = 0xDEADBEAF;
         return false;
     }
     state.device.resetFences(fences[swapchain_image_idx]);
@@ -605,6 +620,20 @@ void ScreenRenderer::set_filter(const std::string_view &filter) {
     this->filter->init();
 }
 
+// A semaphore an acquire signalled but no submit waited on (a skipped frame, a rotation in between)
+// must not be reused: on Metal the next wait on it can stall the GPU until iOS reports device lost.
+// The swapchain is rebuilt after the GPU went idle, so fresh ones are safe to swap in.
+void ScreenRenderer::renew_semaphores() {
+    for (auto *list : { &image_acquired_semaphores, &image_ready_semaphores }) {
+        for (vk::Semaphore &semaphore : *list) {
+            if (semaphore)
+                state.device.destroy(semaphore);
+            semaphore = state.device.createSemaphore({});
+        }
+    }
+    current_frame = 0;
+}
+
 void ScreenRenderer::create_layout_sync() {
     if (command_buffers.size() >= swapchain_size)
         return;
@@ -725,6 +754,7 @@ bool ScreenRenderer::rebuild_swapchain_if_visible() {
 
     tolerate_device_lost("a GPU idle wait", [&] { state.device.waitIdle(); });
     destroy_swapchain();
+    renew_semaphores();
 
 #ifdef __ANDROID__
     if (!create())
