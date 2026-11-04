@@ -1,7 +1,7 @@
 # Vita3KiOS: handoff notes
 
 Everything the previous assistant knew about this project, for whoever picks it up next. Current as of
-commit `6365ba1f` (4 Nov 2026). Last published release: **v1.0.0**. Everything after it is built
+commit `ab84ea4f` (4 Nov 2026). Last published release: **v1.0.0**. Everything after it is built
 and pushed but **not released**.
 
 ---
@@ -231,6 +231,17 @@ and pushed but **not released**.
 - The game picture sits at the top (`v3k_set_portrait_top` from `layoutPortrait`). The controls get
   the bottom, with a separate placements key `v3k.touchLayout.portrait`.
 
+### Last build (ab84ea4f)
+- **Memory mapping is one picker:** Double buffer / Native buffer (page-table) / Off.
+  - Global setting key: `memory-mapping-mode` via `v3k_set_setting_string`.
+  - Per-game: same key via `v3k_set_game_setting`.
+  - JSON field: `mappingMode`.
+  - Swift enum `MemoryMappingMode` in `GameSettingsView.swift`.
+- **Background cache saves:** periodic pipeline cache saves run on a background thread
+  (`save_pipeline_cache(true)`, `cache_save_thread`). Exit, background and cleanup saves still run
+  synchronously after joining.
+- **Texture cache:** `TextureCacheSize` is 2048 on iOS (1024 upstream).
+
 ### Pause (46fafde3)
 - The top-bar pause button, and Pause/Resume in the game menu, use `v3k_set_game_paused(1, …)`.
 - The game menu and the Quit prompt pause the game while open (`reason 2`). Each action calls
@@ -321,7 +332,11 @@ and pushed but **not released**.
    option is `madvise` on returned JIT regions, but it is risky with StikDebug-prepared memory.
 7. **Thermals:** "Serious" in Persona and Madden even after Keep cool. Further levers: frame pacing,
    fewer guest threads at high QoS, lower internal resolution when hot.
-8. Unverified on a device: the pause feature, portrait unlock flow, Native buffer fixes, darker
+8. Madden: per the owner, Native buffer did not fix the deformed face skin (features in place, skin
+   misplaced), and the stadium jumbotron is broken (likely render-to-texture: surface cache or
+   surface sync, which crashes Madden). Not investigated further.
+9. Mortal Kombat 9: reported crashing, no log yet.
+10. Unverified on a device: the pause feature, portrait unlock flow, Native buffer fixes, darker
    controls (all from 3–4 Nov).
 
 ---
