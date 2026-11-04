@@ -1,7 +1,7 @@
 # Vita3KiOS: handoff notes
 
 Everything the previous assistant knew about this project, for whoever picks it up next. Current as of
-commit `ab84ea4f` (4 Nov 2026). Last published release: **v1.0.0**. Everything after it is built
+commit `4592fec7` (4 Nov 2026). Last published release: **v1.0.0**. Everything after it is built
 and pushed but **not released**.
 
 ---
@@ -333,8 +333,15 @@ and pushed but **not released**.
 7. **Thermals:** "Serious" in Persona and Madden even after Keep cool. Further levers: frame pacing,
    fewer guest threads at high QoS, lower internal resolution when hot.
 8. Madden: per the owner, Native buffer did not fix the deformed face skin (features in place, skin
-   misplaced), and the stadium jumbotron is broken (likely render-to-texture: surface cache or
-   surface sync, which crashes Madden). Not investigated further.
+   misplaced), and the stadium jumbotron is black.
+   - Log ff430259 (Native buffer, build 6365ba1): the unhandled protect faults are gone.
+   - 4592fec7 decodes texture offsets inside tiled/swizzled render targets correctly. They used the
+     linear formula. The theory is that the face skin is a self-drawn atlas, but this is unconfirmed.
+   - 4592fec7 also logs `Texture inside a ... render target` and `overlaps a render target but is
+     not taken from it: <reason>`. Use those lines from the next Madden log to chase the face and the
+     jumbotron.
+   - Suggested owner test: Surface sync on for Madden. It crashed at boot before the 16K protection
+     fixes; it may work now and is the usual fix for black render-to-texture.
 9. Mortal Kombat 9: reported crashing, no log yet.
 10. Unverified on a device: the pause feature, portrait unlock flow, Native buffer fixes, darker
    controls (all from 3–4 Nov).
