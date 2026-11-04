@@ -312,8 +312,7 @@ static bool apply_fix_setting(Config::CurrentConfig &cc, const std::string &key,
         cc.cpu_opt = on;
     else if (key == "fast-cpu" || key == "accurate-cpu") {
         // CPU modes, read at launch (v3k_game_fix_flag)
-    }
-    else if (key == "v-sync")
+    } else if (key == "v-sync")
         cc.v_sync = on;
     else if (key == "stretch")
         cc.stretch_the_display_area = on;
