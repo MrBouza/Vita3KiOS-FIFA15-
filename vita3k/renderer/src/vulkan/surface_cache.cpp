@@ -18,6 +18,7 @@
 #include <renderer/vulkan/surface_cache.h>
 
 #include <gxm/functions.h>
+#include <renderer/functions.h>
 #include <renderer/vulkan/gxm_to_vulkan.h>
 #include <renderer/vulkan/state.h>
 #include <renderer/vulkan/types.h>
@@ -26,6 +27,7 @@
 #include <vulkan/vulkan_format_traits.hpp>
 
 #include <array>
+#include <bit>
 #include <util/align.h>
 #include <util/log.h>
 #include <util/vector_utils.h>
@@ -493,9 +495,21 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
     if (!overlap)
         return std::nullopt;
 
+    // Why a texture that sits on a render target is not taken from it (then it is read from memory,
+    // which only holds what the GPU drew if surface sync is on: black or stale otherwise)
+    const auto rejected = [&](const char *reason) {
+        static int logged = 0;
+        if (logged < 30) {
+            logged++;
+            LOG_INFO("Texture at 0x{:X} ({}x{}) overlaps a render target at 0x{:X} but is not taken from it: {}", address,
+                gxm::get_width(texture), gxm::get_height(texture), ite->first, reason);
+        }
+        return std::nullopt;
+    };
+
     if (*ite->second->dirty)
         // Guest wrote to the surface backing memory since it was rendered, so GPU data is stale.
-        return std::nullopt;
+        return rejected("the game wrote to its memory since");
 
     const vk::ComponentMapping swizzle = texture::translate_swizzle(gxm::get_format(texture));
     vk::Format vk_format = color::translate_surface_format(base_format,
@@ -546,12 +560,12 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
             || expanded_rgba4)
         && base_format != info.format)
         // Expanded surfaces cannot be reinterpreted as a different guest format.
-        return std::nullopt;
+        return rejected("format cannot be reinterpreted");
 
     if (tiling != info.tiling || info.stride_bytes != stride_bytes)
         // if the tiling is different, also don't try to match them
         // about the strides, I've yet to see a case where the byte stride is different
-        return std::nullopt;
+        return rejected(tiling != info.tiling ? "different tiling" : "different stride");
 
     // Check if we can use this surface
     bool addr_in_range_of_cache = ((address + total_surface_size) <= (ite->first + info.total_bytes + 4));
@@ -559,19 +573,55 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
     if (ite->first != address && !addr_in_range_of_cache)
         // persona 4 sample from the top of a texture while the bottom wasn't rendered to, the fact that both the surface and
         // the texture start at the same location should be enough
-        return std::nullopt;
+        return rejected("extends past the render target");
 
     uint32_t bytes_per_pixel_requested = gxm::bits_per_pixel(base_format) / 8;
     uint32_t bytes_per_pixel_in_store = gxm::bits_per_pixel(info.format) / 8;
 
     if (std::max(bytes_per_pixel_requested, bytes_per_pixel_in_store) % std::min(bytes_per_pixel_requested, bytes_per_pixel_in_store) != 0)
-        return std::nullopt;
+        return rejected("pixel sizes do not divide");
 
-    // TODO: this is true only for linear textures (and also kind of for tiled textures) (and in this case start_x = 0),
-    // for swizzled textures this is different
+    // Where the texture starts inside the surface. The byte offset maps to a pixel differently for
+    // each layout: rows for linear surfaces, 32x32 tiles for tiled ones, a Morton (Z) order for
+    // swizzled ones. Only the linear formula was used, so a texture taken from the middle of a tiled
+    // or swizzled render target (a face or logo atlas the game draws itself, for example) was read
+    // from the wrong place.
     const uint32_t data_delta = address - ite->first;
-    uint32_t start_sourced_line = static_cast<uint32_t>((data_delta / stride_bytes) * state.res_multiplier);
-    uint32_t start_x = static_cast<uint32_t>((data_delta % stride_bytes) / bytes_per_pixel_requested * state.res_multiplier);
+    uint32_t source_x = (data_delta % stride_bytes) / bytes_per_pixel_requested;
+    uint32_t source_y = data_delta / stride_bytes;
+    if (data_delta != 0 && tiling != SurfaceTiling::Linear && bytes_per_pixel_in_store > 0) {
+        const uint32_t pixel = data_delta / bytes_per_pixel_in_store;
+        const uint32_t row_pixels = stride_bytes / bytes_per_pixel_in_store;
+        if (tiling == SurfaceTiling::Tiled) {
+            constexpr uint32_t TILE = 32;
+            const uint32_t tile_row_pixels = row_pixels * TILE;
+            const uint32_t in_row = pixel % tile_row_pixels;
+            source_y = (pixel / tile_row_pixels) * TILE + (in_row % (TILE * TILE)) / TILE;
+            source_x = (in_row / (TILE * TILE)) * TILE + (in_row % (TILE * TILE)) % TILE;
+        } else {
+            // swizzled: both dimensions are powers of two, the smaller one sets the interleaved bits
+            const uint32_t surface_width = std::max<uint32_t>(next_power_of_two(row_pixels), 1);
+            const uint32_t surface_height = std::max<uint32_t>(next_power_of_two(info.original_height), 1);
+            const uint32_t smaller = std::min(surface_width, surface_height);
+            const uint32_t k = std::bit_width(smaller) - 1;
+            source_x = renderer::texture::decode_morton2_x(pixel) & (smaller - 1);
+            source_y = renderer::texture::decode_morton2_y(pixel) & (smaller - 1);
+            const uint32_t upper = (pixel >> (2 * k)) << k;
+            if (surface_width >= surface_height)
+                source_x |= upper;
+            else
+                source_y |= upper;
+        }
+        static int logged = 0;
+        if (logged < 20) {
+            logged++;
+            LOG_INFO("Texture inside a {} render target: offset {} bytes -> pixel ({}, {}) of {}x{}, texture {}x{}",
+                tiling == SurfaceTiling::Tiled ? "tiled" : "swizzled", data_delta, source_x, source_y,
+                info.original_width, info.original_height, original_width, original_height);
+        }
+    }
+    uint32_t start_sourced_line = static_cast<uint32_t>(source_y * state.res_multiplier);
+    uint32_t start_x = static_cast<uint32_t>(source_x * state.res_multiplier);
 
     if (static_cast<uint16_t>(start_sourced_line + height) > info.height)
         LOG_WARN_ONCE("Trying to use texture partially in the surface cache");
