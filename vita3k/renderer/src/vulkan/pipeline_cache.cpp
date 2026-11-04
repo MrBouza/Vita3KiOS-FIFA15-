@@ -436,8 +436,10 @@ void PipelineCache::cleanup() {
     if (use_async_compilation)
         set_async_compilation(false);
 
-    for (auto &[hash, pipeline] : pipelines)
-        state.device.destroy(pipeline);
+    for (auto &[hash, pipeline] : pipelines) {
+        if (pipeline != failed_pipeline())
+            state.device.destroy(pipeline);
+    }
     pipelines.clear();
 
     {
@@ -1048,6 +1050,12 @@ void PipelineCache::compiler_thread(MemState &mem) {
     }
 }
 
+// Marks a pipeline the driver refused to build (on iOS: Metal could not compile the converted shader).
+// Its draws are skipped instead of retrying the compile on every draw.
+static vk::Pipeline failed_pipeline() {
+    return std::bit_cast<vk::Pipeline, uint64_t>(~1ULL);
+}
+
 static vk::StencilOpState convert_op_state(const GxmStencilStateOp &state) {
     return vk::StencilOpState{
         .failOp = translate_stencil_op(state.stencil_fail),
@@ -1186,13 +1194,20 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
         .subpass = 0
     };
 
-    const auto result = state.device.createGraphicsPipeline(pipeline_cache, pipeline_info);
-    if (result.result != vk::Result::eSuccess) {
-        LOG_CRITICAL("Failed to create pipeline.");
-        return nullptr;
+    // vulkan-hpp throws when the driver refuses the pipeline. On the background compile threads that
+    // exception closed Vita3K (One Piece Burning Blood loading a 3D model): skip the draw instead.
+    try {
+        const auto result = state.device.createGraphicsPipeline(pipeline_cache, pipeline_info);
+        if (result.result != vk::Result::eSuccess) {
+            LOG_ERROR("Failed to create a pipeline ({})", vk::to_string(result.result));
+            return failed_pipeline();
+        }
+        return result.value;
+    } catch (const vk::SystemError &e) {
+        LOG_ERROR("The GPU driver could not build a pipeline, its draws are skipped: {} (vertex shader {}, fragment shader {})", e.what(),
+            hex_string(vertex_program_gxm.renderer_data->hash), hex_string(fragment_program_gxm.renderer_data->hash));
+        return failed_pipeline();
     }
-
-    return result.value;
 }
 
 vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiveType &type, bool consider_for_async, MemState &mem) {
@@ -1223,8 +1238,8 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
     auto it = pipelines.find(key);
     if (it != pipelines.end()) {
         if (it->second != nullptr) {
-            if (it->second == pipeline_compiling)
-                // pipeline is still compiling
+            if (it->second == pipeline_compiling || it->second == failed_pipeline())
+                // pipeline is still compiling, or could not be built
                 return nullptr;
             else
                 return it->second;
@@ -1281,7 +1296,7 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
 
         it->second = result;
 
-        return result;
+        return result == failed_pipeline() ? nullptr : result;
     }
 }
 
