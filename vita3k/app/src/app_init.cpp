@@ -247,7 +247,7 @@ static constexpr const char *DEFAULT_GAME_FIXES = R"(PCSA00011 surface-sync=on |
 PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
 PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
 PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
-PCSE00084 memory-mapping=on surface-sync=off async-shaders=on fast-cpu=off | Memory mapping on (faces and bodies), surface sync off (black field, crash), background shaders on (with them off the GPU hung and the phone froze), Fast CPU off
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer with surface sync: the stadium screens and other images the game draws for itself show up (surface sync crashed with double buffer); background shaders; high accuracy off
 )";
 
 bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix) {
@@ -352,11 +352,15 @@ static void apply_builtin_game_fixes(EmuEnvState &emuenv, const std::string &app
     // Shaders compile in the background: compiled before drawing, the GPU hung right after boot
     // (the whole phone froze for 5 seconds, then device lost). The shader cache fills in the players
     // after the first match.
+    // Owner's tests (Nov 2026): with Native buffer (page-table mapping) surface sync boots and runs;
+    // surface sync is what brings back images the game draws itself (stadium screens).
     if (app_path == "PCSE00084") {
-        cc.memory_mapping = "double-buffer";
-        cc.disable_surface_sync = true;
+        cc.memory_mapping = "page-table";
+        cc.disable_surface_sync = false;
+        cc.high_accuracy = false;
         cc.async_pipeline_compilation = true;
-        LOG_INFO("Game fix for {}: GPU memory mapping on, surface sync off, shaders in the background", app_path);
+        cc.cpu_opt = true;
+        LOG_INFO("Game fix for {}: Native buffer, surface sync on, high accuracy off, shaders in the background", app_path);
     }
 
     // The downloadable list (Settings › Game fixes) has the last word: fixes found after a release

@@ -364,6 +364,21 @@ bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcep
     }
 
     if (!is_valid_addr(state, vaddr)) {
+#if defined(VITA3K_PLATFORM_IOS)
+        // A game touching guest memory it never allocated (Madden NFL 13 with surface sync and high
+        // accuracy wrote to 0xFF000A0C) closed the whole app. A Vita would have faulted the game
+        // too, but here it usually is an emulation gap, so give that page zeroed scratch memory and
+        // let the game go on. Only for pages backed by the reserved guest range itself.
+        const bool in_reserved_range = fault_addr >= memory_addr && fault_addr < memory_addr + TOTAL_MEM_SIZE;
+        if (in_reserved_range) {
+            // also tells the trackers of any protected region sharing that host page
+            release_host_page(state, vaddr, write);
+            static std::atomic<int> logged{ 0 };
+            if (logged.fetch_add(1) < 20)
+                LOG_WARN("The game {} unallocated guest memory at 0x{:X}: gave it a zeroed page", write ? "wrote to" : "read", vaddr);
+            return true;
+        }
+#endif
         return false;
     }
     if (LOG_PROTECT) {
