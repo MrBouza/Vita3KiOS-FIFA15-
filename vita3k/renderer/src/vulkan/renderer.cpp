@@ -1508,18 +1508,25 @@ bool VKState::map_memory(MemState &mem, Ptr<void> address, uint32_t size) {
         break;
     }
     case MappingMethod::PageTable: {
-        // add 4 KiB because we can as an easy way to prevent crashes due to memory accesses right after the memory boundary
-        // also make sure later the mapped address is 4K aligned
-        vkutil::Buffer buffer(size + KiB(4));
+        // Write tracking (textures, buffers) protects whole host pages, which are 16 KiB on Apple
+        // silicon. The copy must therefore sit at the same offset within a host page as the guest
+        // address, in memory of its own: with only 4 KiB alignment, protecting a guest page also
+        // protected the neighbouring host memory, writes there were "unhandled" and the trackers
+        // stopped seeing changes (Madden NFL 13 with Native buffer: stray geometry, stadium not
+        // drawn). Extra room: up to two host pages for the alignment, one so accesses (and
+        // page-rounded protections) right after the end stay inside the buffer.
+        const uint64_t host_page = std::max<uint64_t>(KiB(4), static_cast<uint64_t>(mem.host_page_size));
+        vkutil::Buffer buffer(size + 3 * host_page);
         constexpr vma::AllocationCreateInfo memory_mapped_alloc = {
-            .flags = vma::AllocationCreateFlagBits::eMapped | vma::AllocationCreateFlagBits::eHostAccessSequentialWrite,
+            .flags = vma::AllocationCreateFlagBits::eMapped | vma::AllocationCreateFlagBits::eHostAccessSequentialWrite
+                | vma::AllocationCreateFlagBits::eDedicatedMemory,
             .usage = vma::MemoryUsage::eAutoPreferHost,
             .requiredFlags = vk::MemoryPropertyFlagBits::eHostCoherent,
             .preferredFlags = vk::MemoryPropertyFlagBits::eHostCached,
         };
         buffer.init_buffer(mapped_memory_flags, memory_mapped_alloc);
         const uint64_t buffer_ptr_val = std::bit_cast<uint64_t>(buffer.mapped_data);
-        const uint64_t buffer_offset = align(buffer_ptr_val, KiB(4)) - buffer_ptr_val;
+        const uint64_t buffer_offset = align(buffer_ptr_val, host_page) + (address.address() % host_page) - buffer_ptr_val;
         buffer.mapped_data = std::bit_cast<void *>(buffer_ptr_val + buffer_offset);
 
         vk::BufferDeviceAddressInfoKHR address_info{

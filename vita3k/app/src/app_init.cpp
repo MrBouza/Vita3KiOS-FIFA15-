@@ -384,6 +384,12 @@ static void apply_required_game_settings(EmuEnvState &emuenv, const std::string 
         cc.async_pipeline_compilation = true;
         LOG_WARN("{}: shaders compile in the background for this game (compiled before drawing, it hangs the GPU on iOS)", app_path);
     }
+    // Madden NFL 13 with CPU optimisations off: about 21 FPS instead of 30, and with Native buffer
+    // every memory access goes through a slow callback. Nothing in the game needs them off.
+    if (app_path == "PCSE00084" && !cc.cpu_opt) {
+        cc.cpu_opt = true;
+        LOG_WARN("{}: CPU optimisations stay on for this game (off, it runs at about 21 FPS)", app_path);
+    }
     // FSR cannot run on iOS (the screen is not an RGBA8 storage image): use the default filter
     if (cc.screen_filter == "FSR")
         cc.screen_filter = "Bilinear";

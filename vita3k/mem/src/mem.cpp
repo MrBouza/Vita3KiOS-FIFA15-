@@ -304,6 +304,27 @@ void protect_inner(MemState &state, Address addr, uint32_t size, const MemPerm p
 #endif
 }
 
+// A write hit a protected host page that no segment covers exactly (host pages are 16 KiB on Apple
+// silicon, so one page can hold several guest regions). The page gets unprotected so the game can go
+// on; every segment overlapping it loses its protection with it, so tell their trackers (texture
+// cache, buffer trapping) now: before, they silently stopped seeing changes (stale textures and
+// GPU buffers: stray geometry, missing scenery). Called with protect_mutex held.
+static void release_host_page(MemState &state, Address vaddr, bool write) {
+    const Address page = std::max<Address>(STANDARD_PAGE_SIZE, static_cast<Address>(state.host_page_size));
+    const Address page_begin = align_down(vaddr, page);
+    const Address page_end = page_begin + page;
+    // segments never overlap each other and the tree is sorted by descending start: walk down from
+    // the last segment starting inside the page until one ends before it
+    auto it = state.protect_tree.lower_bound(page_end - 1);
+    while (it != state.protect_tree.end() && it->first + it->second.size > page_begin) {
+        for (auto &[block_addr, block] : it->second.blocks)
+            block.callback(vaddr, write);
+        unprotect_inner(state, it->first, it->second.size);
+        it = state.protect_tree.erase(it);
+    }
+    unprotect_inner(state, page_begin, page);
+}
+
 bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcept {
     const uintptr_t memory_addr = reinterpret_cast<uintptr_t>(state.memory.get());
     const uintptr_t fault_addr = reinterpret_cast<uintptr_t>(addr);
@@ -335,20 +356,14 @@ bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcep
     }
 
     auto it = state.protect_tree.lower_bound(vaddr);
-    if (it == state.protect_tree.end()) {
-        // HACK: keep going
-        unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
-        LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
+    if (it == state.protect_tree.end() || vaddr < it->first || vaddr >= it->first + it->second.size) {
+        // keep going: unprotect the page, and let the segments that shared it know
+        release_host_page(state, vaddr, write);
+        LOG_WARN_ONCE("Write to a protected host page outside any tracked region (address 0x{:X}): released the page", vaddr);
         return true;
     }
 
     ProtectSegmentInfo &info = it->second;
-    if (vaddr < it->first || vaddr >= it->first + info.size) {
-        // HACK: keep going
-        unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
-        LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
-        return true;
-    }
 
     Address previous_beg = it->first;
     for (auto &[block_addr, block] : info.blocks) {
@@ -432,10 +447,18 @@ void add_external_mapping(MemState &mem, Address addr, uint32_t size, uint8_t *a
         mem.page_table[addr / KiB(4) + block] = page_table_entry;
     }
 
-    // set the first page table entry to the original value to be able to call protect_inner
-    mem.page_table[addr / KiB(4)] = mem.memory.get();
-    protect_inner(mem, addr, size, MemPerm::None);
-    mem.page_table[addr / KiB(4)] = page_table_entry;
+    // Protect the now unused original range (catches stray accesses), only the host pages it fully
+    // covers: protecting outward would also protect the neighbouring guest memory that shares a
+    // 16 KiB host page and is still used from the original memory
+    const Address host_page = std::max<Address>(STANDARD_PAGE_SIZE, static_cast<Address>(mem.host_page_size));
+    const Address inner_begin = align(addr, host_page);
+    const Address inner_end = align_down(addr + size, host_page);
+    if (inner_end > inner_begin) {
+        // point the first page table entry at the original memory for protect_inner
+        mem.page_table[inner_begin / KiB(4)] = mem.memory.get();
+        protect_inner(mem, inner_begin, inner_end - inner_begin, MemPerm::None);
+        mem.page_table[inner_begin / KiB(4)] = page_table_entry;
+    }
 
     const std::unique_lock<std::mutex> lock(mem.protect_mutex);
     mem.external_mapping[addr_value] = { addr, size };
@@ -470,6 +493,9 @@ void remove_external_mapping(MemState &mem, uint8_t *addr_ptr, uint32_t size) {
         }
 
         while (prot_it != mem.protect_tree.end() && prot_it->first < mapping.address + mapping.size) {
+            // the memory under these segments changes owner: their trackers must reload it
+            for (auto &[block_addr, block] : prot_it->second.blocks)
+                block.callback(prot_it->first, true);
             if (prot_it == mem.protect_tree.begin()) {
                 mem.protect_tree.erase(prot_it);
                 break;
@@ -480,9 +506,15 @@ void remove_external_mapping(MemState &mem, uint8_t *addr_ptr, uint32_t size) {
     }
 
     if (mem.use_page_table) {
-        // unprotect the original memory range
-        mem.page_table[mapping.address / KiB(4)] = mem.memory.get();
-        unprotect_inner(mem, mapping.address, mapping.size);
+        // unprotect the original memory range (add_external_mapping only protected the host pages
+        // it fully covers)
+        const Address host_page = std::max<Address>(STANDARD_PAGE_SIZE, static_cast<Address>(mem.host_page_size));
+        const Address inner_begin = align(mapping.address, host_page);
+        const Address inner_end = align_down(mapping.address + mapping.size, host_page);
+        if (inner_end > inner_begin) {
+            mem.page_table[inner_begin / KiB(4)] = mem.memory.get();
+            unprotect_inner(mem, inner_begin, inner_end - inner_begin);
+        }
         // copy back and reset the page table
         for (int block = 0; block < mapping.size / KiB(4); block++) {
             // this is not thread write safe, but hopefully not other thread is busy copying while this happens
