@@ -355,7 +355,13 @@ and pushed but **not released**.
    - 48268c90: the surface sync + high accuracy crash was a write to unallocated guest memory
      (0xFF000A0C). On iOS that page now gets zeroed memory instead of crashing. Madden's
      recommended settings are now Native buffer + surface sync on + high accuracy off; the owner
-     reports surface sync boots with Native buffer. The face is still not fixed. Precise shader math
+     reports surface sync boots with Native buffer. The face is still not fixed.
+   - b2e01e04: a best-guess face fix, "Accurate CPU" (`set_ios_accurate_cpu`,
+     game-fix key `accurate-cpu=on`, on for Madden). Dynarmic runs without the IR optimisations
+     ConstProp, GetSetElimination and MiscIROpt; block linking, the return stack buffer and fast
+     dispatch stay. The theory is that the CPU-side face animation math is mis-optimised.
+     - If the face is still wrong, remove `accurate-cpu=on` from the Madden lines, which saves
+       speed. The next suspects are uniform buffer bone ranges and vertex formats. Precise shader math
      and high accuracy were tried; the effect on the face was not reported.
    - Earlier: Madden crashes with surface sync on (SIGTRAP from the memory handler). Since 14dc39ed the crash
      report names the faulting address (read/write, guest address or "outside guest memory"). A
