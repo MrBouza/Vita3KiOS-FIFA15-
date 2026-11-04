@@ -19,6 +19,8 @@
 
 #include "ios_platform.h"
 
+#include <util/thermal.h>
+
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
 #include <objc/runtime.h>
@@ -144,8 +146,23 @@ void set_screen_always_on(bool on) {
     });
 }
 
+// "Keep the phone cool" (Settings, on by default)
+bool keep_cool_enabled() {
+    NSNumber *value = [NSUserDefaults.standardUserDefaults objectForKey:@"v3k.keepCool"];
+    return value ? value.boolValue : true;
+}
+
+static void update_thermal_state() {
+    const NSProcessInfoThermalState state = NSProcessInfo.processInfo.thermalState;
+    thermal::phone_is_hot() = state >= NSProcessInfoThermalStateSerious;
+}
+
 void observe_app_state() {
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    thermal::keep_cool() = keep_cool_enabled();
+    update_thermal_state();
+    [center addObserverForName:NSProcessInfoThermalStateDidChangeNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { update_thermal_state(); }];
     [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil
                     usingBlock:^(NSNotification *) { in_background = true; }];
     [center addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:nil

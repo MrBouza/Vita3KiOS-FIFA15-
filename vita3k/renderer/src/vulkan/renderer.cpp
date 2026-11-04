@@ -515,6 +515,9 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         // GPU wait for a value that never came: 5 seconds of frozen phone, then device lost. This
         // also spares the GPU an event wait per frame.
         const int32_t semaphore_style = 0;
+        // MoltenVK keeps the Metal source of every shader in memory for its pipeline cache; compressed
+        // (LZFSE) it takes a fraction of the space, which adds up over hundreds of shaders
+        const int32_t shader_compression = 1;
         // Metal fast math is on by default; a game can ask for precise math (per-game setting on iOS,
         // passed as V3K_PRECISE_SHADER_MATH) when it relies on exact results, e.g. for its lighting
         const char *precise_env = getenv("V3K_PRECISE_SHADER_MATH");
@@ -539,6 +542,8 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
                 &fast_math },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_SEMAPHORE_SUPPORT_STYLE", vk::LayerSettingTypeEXT::eInt32, 1,
                 &semaphore_style },
+            { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_SHADER_COMPRESSION_ALGORITHM", vk::LayerSettingTypeEXT::eInt32, 1,
+                &shader_compression },
 #ifndef NDEBUG
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_DEBUG", vk::LayerSettingTypeEXT::eBool32, 1, &debug },
             { kMVKMoltenVKDriverLayerName, "MVK_CONFIG_LOG_LEVEL", vk::LayerSettingTypeEXT::eInt32, 1, &log_level },

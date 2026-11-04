@@ -272,6 +272,7 @@ struct TouchControlsSection: View {
 struct EmulationSections: View {
     @EnvironmentObject var model: LibraryModel
     @AppStorage("v3k.fastCPU") private var fastCPU = false
+    @AppStorage("v3k.keepCool") private var keepCool = true
     @State private var confirmClearShaders = false
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
@@ -341,6 +342,13 @@ struct EmulationSections: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Fast CPU")
                     Text("Lets the CPU recompiler take floating-point shortcuts. Faster in CPU-heavy games; turn it off if a game shows physics or animation glitches.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle(isOn: $keepCool) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Keep the phone cool")
+                    Text("Game threads stay on the fast cores without forcing them to top speed, and the renderer eases off while iOS reports the phone as hot. Off: maximum speed, more heat. Applies from the next game launch.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

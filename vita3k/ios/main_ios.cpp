@@ -41,6 +41,7 @@
 #include <renderer/vulkan/device_lost.h>
 #include <sdl-frontend/session.h>
 #include <util/log.h>
+#include <util/thermal.h>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -82,6 +83,7 @@ int main(int argc, char *argv[]) {
     setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 0);
     setenv("MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION", "1", 0);
     setenv("MVK_CONFIG_SEMAPHORE_SUPPORT_STYLE", "0", 0);
+    setenv("MVK_CONFIG_SHADER_COMPRESSION_ALGORITHM", "1", 0);
 
     const fs::path documents = fs::path(ios::get_documents_path());
     if (!ios::initialize(documents)) {
@@ -166,7 +168,8 @@ int main(int argc, char *argv[]) {
                     stall_logged = true;
                 }
                 if (now - last_memory_log > 10s) {
-                    LOG_INFO("Watchdog: {} MiB of memory left, {} frames", os_proc_available_memory() / (1024 * 1024), last_frames);
+                    LOG_INFO("Watchdog: {} MiB of memory left, {} frames{}", os_proc_available_memory() / (1024 * 1024), last_frames,
+                        thermal::phone_is_hot() ? ", phone hot" : "");
                     last_memory_log = now;
                 }
                 const uint64_t quit_at = v3k_pad_quit_requested_ms();
@@ -225,6 +228,7 @@ int main(int argc, char *argv[]) {
         // The GPU failing over and over (MoltenVK device lost) ends the game instead of freezing it
         renderer::vulkan::device_lost_count() = 0;
         renderer::vulkan::on_persistent_device_lost() = +[] { v3k_pad_request_exit(); };
+        thermal::keep_cool() = ios::keep_cool_enabled();
         const bool mapping_was_on = v3k_game_uses_memory_mapping(title_id.c_str());
         const bool async_was_on = v3k_game_uses_async_shaders(title_id.c_str());
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);

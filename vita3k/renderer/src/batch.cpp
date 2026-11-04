@@ -29,6 +29,7 @@
 #include <overlay/display_manager.h>
 #include <overlay/shader_precompile_progress.h>
 #include <util/log.h>
+#include <util/thermal.h>
 
 #include <memory>
 #include <thread>
@@ -264,12 +265,18 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
             state.swap_window();
         }
     }
+#if defined(VITA3K_PLATFORM_IOS)
+    int thermal_qos = 0;
+#endif
     while (!state.render_abort.load(std::memory_order_relaxed)) {
 #ifdef TRACY_ENABLE
         ZoneScopedN("Game rendering");
 #endif
         if (!state.set_current())
             break;
+#if defined(VITA3K_PLATFORM_IOS)
+        thermal::follow_render_qos(thermal_qos);
+#endif
 
         process_batches(state, state.features, mem, config, 500);
 

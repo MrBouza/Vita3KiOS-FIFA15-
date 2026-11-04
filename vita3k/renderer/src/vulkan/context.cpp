@@ -27,6 +27,7 @@
 
 #include <util/log.h>
 #include <util/overloaded.h>
+#include <util/thermal.h>
 
 #if defined(VITA3K_PLATFORM_IOS)
 #include <pthread.h>
@@ -66,11 +67,17 @@ void VKContext::wait_thread_function(const MemState &mem) {
         }
     };
 
+#if defined(VITA3K_PLATFORM_IOS)
+    int thermal_qos = 0;
+#endif
     while (true) {
         auto wait_request = state.request_queue.pop();
 
         if (!wait_request)
             break;
+#if defined(VITA3K_PLATFORM_IOS)
+        thermal::follow_render_qos(thermal_qos);
+#endif
 
         std::visit(overloaded{
                        [&](FenceWaitRequest &request) {

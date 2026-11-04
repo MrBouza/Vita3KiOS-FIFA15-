@@ -99,7 +99,7 @@ final class PadButtonView: UIView {
     private let label = UILabel()
     private let feedback = UIImpactFeedbackGenerator(style: .light)
 
-    private var baseFill = UIColor.black.withAlphaComponent(0.5)
+    private var baseFill = UIColor.black.withAlphaComponent(0.62)
     private var pressedFill = UIColor.white.withAlphaComponent(0.45)
     private let haptics = UserDefaults.standard.object(forKey: "v3k.touchHaptics") as? Bool ?? true
 
@@ -125,10 +125,10 @@ final class PadButtonView: UIView {
         label.textColor = color
         // Dark fills on every theme: the controls stay visible over bright scenes (skies, menus)
         if theme.coloredFill && faceButton {
-            baseFill = darkened(color, by: 0.3).withAlphaComponent(0.6)
+            baseFill = darkened(color, by: 0.22).withAlphaComponent(0.7)
             pressedFill = color.withAlphaComponent(0.7)
         } else {
-            baseFill = UIColor.black.withAlphaComponent(theme.filled ? 0.5 : 0.3)
+            baseFill = UIColor.black.withAlphaComponent(theme.filled ? 0.62 : 0.45)
             pressedFill = color.withAlphaComponent(0.5)
         }
         backgroundColor = baseFill
@@ -170,11 +170,11 @@ final class StickView: UIView {
         self.xAxis = xAxis
         self.yAxis = yAxis
         super.init(frame: .zero)
-        backgroundColor = UIColor.black.withAlphaComponent(0.4)
-        layer.borderColor = UIColor.white.withAlphaComponent(0.45).cgColor
+        backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        layer.borderColor = UIColor.white.withAlphaComponent(0.4).cgColor
         layer.borderWidth = 1.5
-        knob.backgroundColor = UIColor.white.withAlphaComponent(0.55)
-        knob.layer.borderColor = UIColor.black.withAlphaComponent(0.4).cgColor
+        knob.backgroundColor = UIColor(white: 0.32, alpha: 0.85)
+        knob.layer.borderColor = UIColor.white.withAlphaComponent(0.45).cgColor
         knob.layer.borderWidth = 1
         knob.isUserInteractionEnabled = false
         addSubview(knob)
@@ -330,18 +330,18 @@ final class ControlsOverlayView: UIView {
 
         exitButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         exitButton.tintColor = UIColor.white.withAlphaComponent(0.85)
-        exitButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        exitButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         exitButton.addTarget(self, action: #selector(exitTapped), for: .touchUpInside)
         addSubview(exitButton)
 
         hideButton.tintColor = UIColor.white.withAlphaComponent(0.85)
-        hideButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        hideButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
         addSubview(hideButton)
 
         rearButton.setImage(UIImage(systemName: "hand.point.up.left"), for: .normal)
         rearButton.tintColor = UIColor.white.withAlphaComponent(0.85)
-        rearButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        rearButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         rearButton.addTarget(self, action: #selector(rearTapped), for: .touchUpInside)
         rearButton.accessibilityLabel = "Rear touchpad"
         rearButton.isHidden = !showRearButton
@@ -478,7 +478,7 @@ final class ControlsOverlayView: UIView {
 
     private func updateRearButton() {
         let rear = v3k_rear_touch()
-        rearButton.backgroundColor = rear ? Theme.accentUIColor.withAlphaComponent(0.85) : UIColor.black.withAlphaComponent(0.45)
+        rearButton.backgroundColor = rear ? Theme.accentUIColor.withAlphaComponent(0.85) : UIColor.black.withAlphaComponent(0.6)
         rearButton.isHidden = !(showRearButton || rear) || editor != nil
     }
 

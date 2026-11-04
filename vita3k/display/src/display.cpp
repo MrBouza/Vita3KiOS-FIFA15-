@@ -30,6 +30,7 @@
 #if defined(VITA3K_PLATFORM_IOS)
 #include <pthread.h>
 #include <sys/qos.h>
+#include <util/thermal.h>
 #endif
 
 // Code heavily influenced by PPSSSPP's SceDisplay.cpp
@@ -46,8 +47,14 @@ static void vblank_sync_thread(EmuEnvState &emuenv) {
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 #endif
     DisplayState &display = emuenv.display;
+#if defined(VITA3K_PLATFORM_IOS)
+    int thermal_qos = 0;
+#endif
 
     while (!display.abort.load()) {
+#if defined(VITA3K_PLATFORM_IOS)
+        thermal::follow_render_qos(thermal_qos);
+#endif
         {
             const std::lock_guard<std::mutex> guard(display.mutex);
 

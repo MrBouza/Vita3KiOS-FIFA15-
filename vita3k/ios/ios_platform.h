@@ -83,4 +83,7 @@ void save_image_to_photos(const std::string &path);
 // Settings › Controls › Portrait mode (on unless turned off)
 bool portrait_mode_enabled();
 
+// "Keep the phone cool" (Settings): game threads below the top priority, renderer threads too while hot
+bool keep_cool_enabled();
+
 } // namespace ios

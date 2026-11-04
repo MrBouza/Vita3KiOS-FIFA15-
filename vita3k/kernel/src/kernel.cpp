@@ -30,6 +30,7 @@
 #include <mem/ptr.h>
 #include <util/lock_and_find.h>
 #include <util/log.h>
+#include <util/thermal.h>
 
 #include <chrono>
 #include <string>
@@ -74,8 +75,9 @@ static int SDLCALL thread_function(void *data) {
     ThreadStatePtr thread = std::move(params.thread);
 #if defined(VITA3K_PLATFORM_IOS)
     // Guest threads are the game itself: ask iOS for the performance cores instead of letting the
-    // scheduler park them on efficiency cores (default QoS)
-    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    // scheduler park them on efficiency cores (default QoS). With "Keep the phone cool" one step below
+    // the top class (see util/thermal.h).
+    pthread_set_qos_class_self_np(thermal::game_thread_qos(), 0);
 #endif
 #ifdef TRACY_ENABLE
     if (!thread->name.empty()) {
