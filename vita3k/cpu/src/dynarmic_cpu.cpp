@@ -164,6 +164,8 @@ class ArmDynarmicUnknownCoprocessor : public Dynarmic::A32::Coprocessor {
     int number;
 
 public:
+    using CoprocReg = Dynarmic::A32::CoprocReg;
+
     explicit ArmDynarmicUnknownCoprocessor(int number)
         : number(number) {}
 
