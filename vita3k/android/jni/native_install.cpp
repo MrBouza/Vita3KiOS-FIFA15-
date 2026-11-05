@@ -25,6 +25,8 @@
 #include <rif2zrif.h>
 #include <util/log.h>
 
+#include <algorithm>
+
 extern "C" {
 
 JNIEXPORT jstring JNICALL
@@ -97,10 +99,12 @@ Java_org_vita3k_emulator_NativeLib_installArchive(JNIEnv *env, jclass, jstring p
 
     const auto reinstall_fn = [force_reinstall](const std::string &, const std::string &) -> bool { return static_cast<bool>(force_reinstall); };
     const auto result = install_archive(*emuenv, fs::path(path), progress_fn, reinstall_fn);
-    if (!result.empty())
+    // (a failed archive now comes back as one entry with state false and the reason)
+    const bool installed = std::ranges::any_of(result, [](const ContentInfo &content) { return content.state; });
+    if (installed)
         app::scan_apps(*emuenv);
 
-    return result.empty() ? JNI_FALSE : JNI_TRUE;
+    return installed ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL

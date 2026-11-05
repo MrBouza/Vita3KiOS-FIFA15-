@@ -41,6 +41,7 @@ struct ContentInfo {
     std::string content_id;
     std::string path;
     bool state = false;
+    std::string error; // why it failed, readable by the player (empty when unknown)
 };
 
 std::vector<ContentInfo> install_archive(EmuEnvState &emuenv, const fs::path &archive_path, const std::function<void(ArchiveContents)> &progress_callback = nullptr, const ReinstallCallback &reinstall_callback = nullptr);

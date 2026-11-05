@@ -84,6 +84,8 @@ struct LibraryView: View {
     @State private var pendingDeleteSave: GameApp?
     @State private var gameDetails: GameApp?
     @State private var zrifInput = ""
+    @State private var showingZrifEntry = false
+    @State private var zrifEntry = ""
 
     private var filteredApps: [GameApp] {
         let apps = search.isEmpty ? model.apps : model.apps.filter {
@@ -179,6 +181,14 @@ struct LibraryView: View {
                         Button { openImporter([.folder]) } label: {
                             Label("Game folder", systemImage: "folder.badge.plus")
                         }
+                        Section("License") {
+                            Button { openImporter([.item]) } label: {
+                                Label("License file (work.bin, .rif)", systemImage: "key.fill")
+                            }
+                            Button { showingZrifEntry = true } label: {
+                                Label("zRIF key", systemImage: "key.horizontal.fill")
+                            }
+                        }
                     } label: {
                         Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(Theme.accentGradient)
                     }
@@ -248,6 +258,18 @@ struct LibraryView: View {
             } message: {
                 Text(licenseMessage)
             }
+            .alert("Add a license", isPresented: $showingZrifEntry) {
+                TextField("zRIF (KO5i...)", text: $zrifEntry)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Add") {
+                    model.installZrif(zrifEntry)
+                    zrifEntry = ""
+                }
+                Button("Cancel", role: .cancel) { zrifEntry = "" }
+            } message: {
+                Text("Paste the game's or DLC's zRIF. Then import its .pkg, or a dump that has no work.bin.")
+            }
             .alert(model.lastMessage ?? "", isPresented: Binding(get: { model.lastMessage != nil && model.packageNeedingLicense == nil }, set: { if !$0 { model.lastMessage = nil } })) {
                 Button("OK", role: .cancel) { model.lastMessage = nil }
             }
@@ -260,7 +282,7 @@ struct LibraryView: View {
         guard let item = model.packageNeedingLicense else { return "" }
         let what = item.packageTitle.isEmpty ? item.name : item.packageTitle
         let kind = item.packageKind == "dlc" ? "This DLC" : "This game"
-        return "\(what)\n\(kind) needs its zRIF license key (updates don't need one). You can also put it in a .zrif file next to the .pkg."
+        return "\(what)\n\(kind) needs its zRIF license key (updates don't need one). You can also put it in a .zrif file next to the .pkg, or add its work.bin first (+ › License file)."
     }
 
     private func openImporter(_ types: [UTType]) {
@@ -519,7 +541,7 @@ struct EmptyLibrary: View {
                 .foregroundStyle(Theme.accentGradient)
                 .padding(.top, 40)
             Text("Your library is empty").font(.title2.bold())
-            Text("Add games as .vpk, .zip, .pkg (with zRIF) or a dumped game folder.\nYou can also drop files into the Import folder of Vita3K in the Files app.")
+            Text("Add games as .vpk, .zip, .pkg (with its zRIF or work.bin) or a dumped game folder.\nYou can also drop files into the Import folder of Vita3K in the Files app.")
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.65))

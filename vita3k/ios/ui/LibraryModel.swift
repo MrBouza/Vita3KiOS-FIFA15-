@@ -348,7 +348,14 @@ final class LibraryModel: ObservableObject {
     // MARK: Importing
 
     func enqueue(_ urls: [URL]) {
-        for url in urls {
+        // Licenses (work.bin, .rif, .zrif) before the games picked with them, so those find them
+        let isLicense: (URL) -> Bool = { url in
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            return v3k_install_kind(url.path) == 5
+        }
+        let ordered = urls.filter(isLicense) + urls.filter { !isLicense($0) }
+        for url in ordered {
             var item = PendingImport(url: url)
             if item.isPackage {
                 let accessing = url.startAccessingSecurityScopedResource()
@@ -416,6 +423,21 @@ final class LibraryModel: ObservableObject {
                 self.lastMessage = "\(item.name): \(text)"
                 self.reload()
                 self.processNext()
+            }
+        }
+    }
+
+    /// Adds a license from a typed or pasted zRIF
+    func installZrif(_ text: String) {
+        let zrif = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !zrif.isEmpty else { return }
+        Task.detached(priority: .userInitiated) {
+            var message: UnsafeMutablePointer<CChar>?
+            let ok = v3k_install_zrif(zrif, &message)
+            let text = takeString(message) ?? (ok ? "License added." : "The license could not be added.")
+            await MainActor.run {
+                self.lastMessage = text
+                self.reload()
             }
         }
     }

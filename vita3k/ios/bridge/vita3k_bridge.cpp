@@ -35,6 +35,7 @@
 #include <io/state.h>
 #include <miniz.h>
 #include <packages/functions.h>
+#include <packages/license.h>
 #include <packages/pkg.h>
 #include <packages/sfo.h>
 #include <patch/patch.h>
@@ -52,6 +53,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -101,6 +103,18 @@ std::string lower_extension(const fs::path &path) {
     return string_utils::tolower(path.extension().string());
 }
 
+// A license file: a work.bin / .rif (a 512-byte NpDrm license), or a .zrif text file holding a zRIF
+bool is_license_file(const fs::path &path) {
+    const auto ext = lower_extension(path);
+    if (ext == ".zrif")
+        return true;
+    if (ext != ".bin" && ext != ".rif")
+        return false;
+    std::error_code ec;
+    const auto size = fs::file_size(path, ec);
+    return !ec && (size == sizeof(SceNpDrmLicense) || size == 1024);
+}
+
 int kind_of(const fs::path &path) {
     std::error_code ec;
     if (fs::is_directory(path, ec))
@@ -112,7 +126,57 @@ int kind_of(const fs::path &path) {
         return 2;
     if (ext == ".pkg")
         return 3;
+    if (is_license_file(path))
+        return 5;
     return 0;
+}
+
+std::string trimmed_zrif(std::string zrif) {
+    std::erase_if(zrif, [](unsigned char c) { return std::isspace(c); });
+    return zrif;
+}
+
+// Installs a license into ux0/license/<title ID>/<content ID>.rif, from a zRIF or a license file.
+// Games installed later (zip/vpk dumps without their work.bin, .pkg files) find it there.
+bool install_license_unchecked(EmuEnvState &emuenv, const std::string &zrif, const fs::path &file, std::string &result);
+
+bool install_license(EmuEnvState &emuenv, const std::string &zrif, const fs::path &file, std::string &result) {
+    // A damaged license can make the parsers throw (a short content ID, say)
+    try {
+        return install_license_unchecked(emuenv, zrif, file, result);
+    } catch (const std::exception &e) {
+        LOG_ERROR("License install failed: {}", e.what());
+        result = "The license could not be read.";
+        return false;
+    }
+}
+
+bool install_license_unchecked(EmuEnvState &emuenv, const std::string &zrif, const fs::path &file, std::string &result) {
+    emuenv.license_title_id.clear();
+    emuenv.license_content_id.clear();
+    bool ok = false;
+    if (!zrif.empty()) {
+        if (!validate_zrif(zrif)) {
+            result = "That is not a valid zRIF. It starts with KO5i and is about 50 to 150 characters long.";
+            return false;
+        }
+        ok = create_license(emuenv, zrif);
+    } else if (lower_extension(file) == ".zrif") {
+        std::ifstream in(file);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        return install_license(emuenv, trimmed_zrif(text), {}, result);
+    } else {
+        ok = copy_license(emuenv, file);
+    }
+    if (!ok || emuenv.license_title_id.empty()) {
+        result = "The license could not be read. A work.bin is 512 bytes; take it from the game's sce_sys/package folder.";
+        return false;
+    }
+    const bool game_installed = fs::exists(emuenv.vita_fs_path / "ux0/app" / emuenv.license_title_id);
+    result = fmt::format("License for {} added ({}).{}", emuenv.license_title_id, emuenv.license_content_id,
+        game_installed ? "" : " Now import the game: its .pkg, or a .zip/.vpk/folder dump without a work.bin.");
+    LOG_INFO("License installed: {} ({})", emuenv.license_title_id, emuenv.license_content_id);
+    return true;
 }
 
 std::string read_zrif(const fs::path &pkg_path) {
@@ -132,7 +196,44 @@ struct InstallOutcome {
     int failed = 0;
     std::string firmware_version;
     std::vector<std::string> errors; // readable reasons, shown to the user
+    std::vector<std::string> notes; // what was done besides installing a game (licenses added)
 };
+
+bool install_license(EmuEnvState &emuenv, const std::string &zrif, const fs::path &file, std::string &result);
+
+// Licenses packed in a zip (work.bin anywhere, .rif, .zrif): installed before the dump in it, so a
+// dump whose work.bin sits outside its sce_sys/package folder still installs
+void install_licenses_in_zip(EmuEnvState &emuenv, const fs::path &zip_path) {
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_file(&zip, zip_path.string().c_str(), 0))
+        return;
+    const fs::path temp = emuenv.cache_path / "zip-license";
+    std::error_code ec;
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint i = 0; i < count; i++) {
+        mz_zip_archive_file_stat stat;
+        if (!mz_zip_reader_file_stat(&zip, i, &stat) || stat.m_is_directory)
+            continue;
+        std::string name = stat.m_filename;
+        std::replace(name.begin(), name.end(), '\\', '/');
+        const std::string lower = string_utils::tolower(name);
+        // A work.bin inside sce_sys/package belongs to the dump and is used from there
+        if (lower.contains("__macosx") || lower.contains("sce_sys/package/"))
+            continue;
+        const bool license = lower.ends_with(".zrif")
+            || ((lower.ends_with(".bin") || lower.ends_with(".rif")) && (stat.m_uncomp_size == sizeof(SceNpDrmLicense) || stat.m_uncomp_size == 1024));
+        if (!license)
+            continue;
+        fs::create_directories(temp, ec);
+        const fs::path out = temp / fs::path(name).filename();
+        if (mz_zip_reader_extract_to_file(&zip, i, out.string().c_str(), 0)) {
+            std::string result;
+            install_license(emuenv, {}, out, result);
+        }
+    }
+    mz_zip_reader_end(&zip);
+    fs::remove_all(temp, ec);
+}
 
 bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &zrif_in, v3k_progress_fn progress, void *context, InstallOutcome &outcome);
 
@@ -223,8 +324,25 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
             else if (contents.count && contents.current && *contents.count > 0)
                 report(*contents.current / *contents.count * 100.f);
         };
-        const bool archive_installed = !install_archive(emuenv, file, progress_fn, reinstall).empty();
-        return archive_installed || pkg_results > 0;
+        // A license (work.bin / .rif / .zrif) packed in the zip next to a dump: installed first, so
+        // the dump finds it
+        install_licenses_in_zip(emuenv, file);
+        const auto contents = install_archive(emuenv, file, progress_fn, reinstall);
+        int archive_installed = 0;
+        for (const auto &content : contents) {
+            if (content.state) {
+                archive_installed++;
+            } else if (pkg_results == 0 || !content.title_id.empty()) {
+                // (a zip of .pkg files has no game folder: that is not an error)
+                const std::string name = content.title_id.empty() ? file.filename().string() : content.title_id;
+                outcome.errors.push_back(content.error.empty() ? fmt::format("{}: installation failed (see vita3k.log).", name)
+                                                               : fmt::format("{}: {}", name, content.error));
+            }
+        }
+        // Several games in one zip: count the extra ones
+        if (archive_installed > 1)
+            outcome.installed += archive_installed - 1;
+        return archive_installed > 0 || pkg_results > 0;
     }
     case 3: {
         std::string zrif = zrif_in.empty() ? read_zrif(file) : zrif_in;
@@ -241,8 +359,25 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
         LOG_INFO("Installing {} ({} {}), license {}", file.filename().string(), info.kind, info.title_id, zrif.empty() ? "not found" : "found");
         return install_pkg(file, emuenv, zrif, [&](float p) { report(p); });
     }
-    default:
+    case 5: {
+        std::string result;
+        const bool ok = install_license(emuenv, zrif_in, file, result);
+        if (ok)
+            outcome.notes.push_back(result);
+        else
+            outcome.errors.push_back(fmt::format("{}: {}", file.filename().string(), result));
+        return ok;
+    }
+    default: {
+        const auto ext = lower_extension(file);
+        if (ext == ".7z" || ext == ".rar")
+            outcome.errors.push_back(fmt::format("{}: .7z and .rar archives aren't supported. Extract it first (for example with an unarchiver app) and import the folder, or re-pack it as .zip.", file.filename().string()));
+        else if (ext == ".bin")
+            outcome.errors.push_back(fmt::format("{}: not a license file (a work.bin is exactly 512 bytes).", file.filename().string()));
+        else
+            outcome.errors.push_back(fmt::format("{}: Vita3K doesn't know this kind of file. Import .vpk, .zip, .pkg, .pup, work.bin/.rif/.zrif licenses, or a game folder.", file.filename().string()));
         return false;
+    }
     }
 }
 
@@ -253,6 +388,16 @@ void install_path(EmuEnvState &emuenv, const fs::path &path, const std::string &
         else
             outcome.failed++;
         return;
+    }
+
+    // Licenses (work.bin, .rif, .zrif) at the top of the folder first: a dump in it may need one
+    std::error_code license_ec;
+    for (const auto &entry : fs::directory_iterator(path, license_ec)) {
+        if (entry.is_regular_file() && kind_of(entry.path()) == 5) {
+            std::string result;
+            if (install_license(emuenv, {}, entry.path(), result))
+                outcome.notes.push_back(result);
+        }
     }
 
     // A dumped game folder (sce_sys/param.sfo inside), or several of them
@@ -266,7 +411,8 @@ void install_path(EmuEnvState &emuenv, const fs::path &path, const std::string &
     std::vector<fs::path> files;
     std::error_code ec;
     for (const auto &entry : fs::directory_iterator(path, ec)) {
-        if (entry.is_regular_file() && kind_of(entry.path()) != 0)
+        // (licenses were installed above)
+        if (entry.is_regular_file() && kind_of(entry.path()) != 0 && kind_of(entry.path()) != 5)
             files.push_back(entry.path());
     }
     // Firmware first, then everything else, with packages ordered game > update > DLC
@@ -466,6 +612,19 @@ int v3k_install_kind(const char *path) {
     return path ? kind_of(fs::path(path)) : 0;
 }
 
+bool v3k_install_zrif(const char *zrif, char **message) {
+    auto *emuenv = ios::get_emuenv();
+    std::string result = "The emulator is not initialised.";
+    bool ok = false;
+    if (emuenv && zrif) {
+        std::lock_guard lock(install_mutex);
+        ok = install_license(*emuenv, trimmed_zrif(zrif), {}, result);
+    }
+    if (message)
+        *message = dup_string(result);
+    return ok;
+}
+
 char *v3k_zrif_next_to(const char *pkg_path) {
     if (!pkg_path)
         return nullptr;
@@ -498,6 +657,8 @@ bool v3k_install(const char *path, const char *zrif, v3k_progress_fn progress, v
         std::string text;
         if (!outcome.firmware_version.empty())
             text = fmt::format("Firmware {} installed.", outcome.firmware_version);
+        else if (!outcome.notes.empty() && outcome.installed == static_cast<int>(outcome.notes.size()))
+            text = outcome.notes.front(); // only licenses
         else if (outcome.installed > 0)
             text = outcome.installed == 1 ? "Installed." : fmt::format("Installed {} items.", outcome.installed);
         if (outcome.failed > 0) {

@@ -95,21 +95,46 @@ static std::string fallback_theme_root_name(const std::string &content_path) {
     return (separator == std::string::npos) ? trimmed : trimmed.substr(separator + 1);
 }
 
-static bool is_nonpdrm(EmuEnvState &emuenv, const fs::path &output_path) {
-    const auto app_license_path{ emuenv.vita_fs_path / "ux0/license" / emuenv.app_info.app_title_id / fmt::format("{}.rif", emuenv.app_info.app_content_id) };
-    const auto is_patch_found_app_license = (emuenv.app_info.app_category == "gp") && fs::exists(app_license_path);
-    if (fs::exists(output_path / "sce_sys/package/work.bin") || is_patch_found_app_license) {
-        fs::path licpath = is_patch_found_app_license ? app_license_path : output_path / "sce_sys/package/work.bin";
-        LOG_INFO("Decrypt layer: {}", output_path);
-        if (!decrypt_install_nonpdrm(emuenv, licpath, output_path)) {
-            LOG_ERROR("NoNpDrm installation failed, deleting data!");
-            fs::remove_all(output_path);
-            return false;
+// The license for a NoNpDrm dump: its own work.bin, else one already installed for the title
+// (imported as a work.bin, .rif or zRIF, or left by an earlier install). Empty when there is none.
+static fs::path find_nonpdrm_license(EmuEnvState &emuenv, const fs::path &output_path) {
+    const auto work_bin = output_path / "sce_sys/package/work.bin";
+    if (fs::exists(work_bin))
+        return work_bin;
+    const auto license_dir = emuenv.vita_fs_path / "ux0/license" / emuenv.app_info.app_title_id;
+    const auto exact = license_dir / fmt::format("{}.rif", emuenv.app_info.app_content_id);
+    if (fs::exists(exact))
+        return exact;
+    // An update's content ID differs from the game's: any license of the title will do (only for
+    // updates: a DLC with the game's license would decrypt to garbage)
+    std::error_code ec;
+    if (emuenv.app_info.app_category.contains("gp") && fs::is_directory(license_dir, ec)) {
+        for (const auto &entry : fs::directory_iterator(license_dir, ec)) {
+            if (string_utils::tolower(entry.path().extension().string()) == ".rif")
+                return entry.path();
         }
-        return true;
     }
+    return {};
+}
 
-    return false;
+static bool is_nonpdrm(EmuEnvState &emuenv, const fs::path &output_path, std::string *error = nullptr) {
+    const fs::path licpath = find_nonpdrm_license(emuenv, output_path);
+    if (licpath.empty()) {
+        LOG_ERROR("{} is an encrypted dump without a license (no sce_sys/package/work.bin, none installed)", emuenv.app_info.app_title_id);
+        if (error)
+            *error = fmt::format("{} needs its license: import its work.bin or zRIF first (+ \u203a License), then import the game again.", emuenv.app_info.app_title_id);
+        fs::remove_all(output_path);
+        return false;
+    }
+    LOG_INFO("Decrypt layer: {} (license {})", output_path, licpath);
+    if (!decrypt_install_nonpdrm(emuenv, licpath, output_path)) {
+        LOG_ERROR("NoNpDrm installation failed, deleting data!");
+        if (error)
+            *error = fmt::format("{} could not be decrypted with its license (wrong work.bin or zRIF for this game?).", emuenv.app_info.app_title_id);
+        fs::remove_all(output_path);
+        return false;
+    }
+    return true;
 }
 
 static bool set_content_path(EmuEnvState &emuenv, const bool is_theme, fs::path &dest_path) {
@@ -173,27 +198,72 @@ static void set_theme_name(EmuEnvState &emuenv, const vfs::FileBuffer &buffer, c
     }
 }
 
-static bool install_archive_content(EmuEnvState &emuenv, const ZipPtr &zip, const std::string &content_path, const std::function<void(ArchiveContents)> &progress_callback, const ReinstallCallback &reinstall_callback) {
-    std::string sfo_path = "sce_sys/param.sfo";
-    std::string theme_path = "theme.xml";
+// Zip entry names as the installer compares them: forward slashes (zips made on Windows can use
+// backslashes, and then sce_sys/param.sfo was never found)
+static std::string archive_entry_name(const mz_zip_archive_file_stat &stat) {
+    std::string name = stat.m_filename;
+    std::replace(name.begin(), name.end(), '\\', '/');
+    while (name.starts_with("./"))
+        name.erase(0, 2);
+    return name;
+}
+
+// macOS metadata (__MACOSX/, ._ files) and Finder/Explorer leftovers: never part of a game
+static bool is_junk_entry(const std::string &name) {
+    const std::string lower = string_utils::tolower(name);
+    if (lower.starts_with("__macosx/") || lower.contains("/__macosx/"))
+        return true;
+    const auto slash = lower.find_last_of('/');
+    const std::string file = slash == std::string::npos ? lower : lower.substr(slash + 1);
+    return file.starts_with("._") || file == ".ds_store" || file == "thumbs.db" || file == "desktop.ini";
+}
+
+static bool starts_with_icase(const std::string &text, const std::string &prefix) {
+    return text.size() >= prefix.size() && string_utils::tolower(text.substr(0, prefix.size())) == string_utils::tolower(prefix);
+}
+
+// Finds an entry by its path, ignoring case and slash direction
+static std::optional<mz_uint> find_archive_entry(const ZipPtr &zip, const std::string &wanted) {
+    const std::string lower_wanted = string_utils::tolower(wanted);
+    const mz_uint num_files = mz_zip_reader_get_num_files(zip.get());
+    for (mz_uint i = 0; i < num_files; i++) {
+        mz_zip_archive_file_stat stat;
+        if (mz_zip_reader_file_stat(zip.get(), i, &stat) && !stat.m_is_directory
+            && string_utils::tolower(archive_entry_name(stat)) == lower_wanted)
+            return i;
+    }
+    return std::nullopt;
+}
+
+static bool install_archive_content(EmuEnvState &emuenv, const ZipPtr &zip, const std::string &content_path, const std::function<void(ArchiveContents)> &progress_callback, const ReinstallCallback &reinstall_callback, std::string &error) {
+    const std::string sfo_path = "sce_sys/param.sfo";
+    const std::string theme_path = "theme.xml";
     vfs::FileBuffer buffer, theme;
 
-    const auto is_theme = mz_zip_reader_extract_file_to_callback(zip.get(), (content_path + theme_path).c_str(), &write_to_buffer, &theme, 0);
+    const auto theme_entry = find_archive_entry(zip, content_path + theme_path);
+    const bool is_theme = theme_entry && mz_zip_reader_extract_to_callback(zip.get(), *theme_entry, &write_to_buffer, &theme, 0);
     const std::string theme_root_name = fallback_theme_root_name(content_path);
 
     auto output_path{ emuenv.vita_fs_path / "ux0" };
-    if (mz_zip_reader_extract_file_to_callback(zip.get(), (content_path + sfo_path).c_str(), &write_to_buffer, &buffer, 0)) {
+    const auto sfo_entry = find_archive_entry(zip, content_path + sfo_path);
+    if (sfo_entry && mz_zip_reader_extract_to_callback(zip.get(), *sfo_entry, &write_to_buffer, &buffer, 0)) {
         if (!sfo::get_param_info(emuenv.app_info, buffer, emuenv.cfg.sys_lang)) {
             LOG_ERROR("{}{} is not a readable param.sfo, not installing it", content_path, sfo_path);
+            error = fmt::format("{}{} is damaged.", content_path, sfo_path);
             return false;
         }
-        if (!set_content_path(emuenv, is_theme, output_path))
+        if (!set_content_path(emuenv, is_theme, output_path)) {
+            error = emuenv.app_info.app_category.contains("gp")
+                ? fmt::format("{} is an update: install the game first.", emuenv.app_info.app_title_id)
+                : fmt::format("{}{} has no title ID.", content_path, sfo_path);
             return false;
+        }
     } else if (is_theme) {
         set_theme_name(emuenv, theme, theme_root_name);
         output_path /= fs::path("theme") / emuenv.app_info.app_content_id;
     } else {
-        LOG_CRITICAL("miniz error: {} extracting file: {}", miniz_get_error(zip), sfo_path);
+        LOG_CRITICAL("miniz error: {} extracting file: {}{}", miniz_get_error(zip), content_path, sfo_path);
+        error = fmt::format("Could not read {}{} from the archive ({}).", content_path, sfo_path, miniz_get_error(zip));
         return false;
     }
 
@@ -206,6 +276,7 @@ static bool install_archive_content(EmuEnvState &emuenv, const ZipPtr &zip, cons
             }
         }
         fs::remove_all(output_path);
+        fs::create_directories(output_path);
     }
 
     float file_progress = 0;
@@ -216,47 +287,73 @@ static bool install_archive_content(EmuEnvState &emuenv, const ZipPtr &zip, cons
             progress_callback({ {}, {}, { file_progress * 0.7f + decrypt_progress * 0.3f } });
     };
 
-    mz_uint num_files = mz_zip_reader_get_num_files(zip.get());
+    // Progress by bytes, not by file count: one big file no longer looks stuck at the same percent
+    const mz_uint num_files = mz_zip_reader_get_num_files(zip.get());
+    uint64_t total_bytes = 0;
     for (mz_uint i = 0; i < num_files; i++) {
         mz_zip_archive_file_stat file_stat;
-        if (!mz_zip_reader_file_stat(zip.get(), i, &file_stat)) {
+        if (mz_zip_reader_file_stat(zip.get(), i, &file_stat) && !file_stat.m_is_directory) {
+            const std::string name = archive_entry_name(file_stat);
+            if (starts_with_icase(name, content_path) && !is_junk_entry(name))
+                total_bytes += file_stat.m_uncomp_size;
+        }
+    }
+
+    const fs::path normalized_output_path = output_path.lexically_normal();
+    uint64_t done_bytes = 0;
+    std::vector<std::string> failed;
+    for (mz_uint i = 0; i < num_files; i++) {
+        mz_zip_archive_file_stat file_stat;
+        if (!mz_zip_reader_file_stat(zip.get(), i, &file_stat))
+            continue;
+        const std::string name = archive_entry_name(file_stat);
+        if (!starts_with_icase(name, content_path) || is_junk_entry(name))
+            continue;
+
+        const std::string relative_name = name.substr(content_path.size());
+        if (relative_name.empty())
+            continue;
+        const fs::path file_output = fs_utils::generic_path(output_path / fs_utils::utf8_to_path(relative_name));
+
+        const fs::path relative_to_output = file_output.lexically_normal().lexically_relative(normalized_output_path);
+        if (relative_to_output.empty() || *relative_to_output.begin() == "..") {
+            LOG_ERROR("Rejecting archive entry whose path escapes the install directory: {}", file_stat.m_filename);
             continue;
         }
-        const std::string m_filename = file_stat.m_filename;
-        if (m_filename.contains(content_path)) {
-            file_progress = static_cast<float>(i) / num_files * 100.0f;
-            update_progress();
 
-            std::string replace_filename = m_filename.substr(content_path.size());
-            const fs::path file_output = fs_utils::generic_path(output_path / fs_utils::utf8_to_path(replace_filename));
-
-            const fs::path normalized_output_path = output_path.lexically_normal();
-            const fs::path normalized_file_output = file_output.lexically_normal();
-            const fs::path relative_to_output = normalized_file_output.lexically_relative(normalized_output_path);
-            if (relative_to_output.empty() || *relative_to_output.begin() == "..") {
-                LOG_ERROR("Rejecting archive entry whose path escapes the install directory: {}", m_filename);
-                continue;
-            }
-
-            if (mz_zip_reader_is_file_a_directory(zip.get(), i)) {
-                fs::create_directories(file_output);
-            } else {
-                fs::create_directories(file_output.parent_path());
-                LOG_INFO("Extracting {}", file_output);
-                mz_zip_reader_extract_to_file(zip.get(), i, fs_utils::path_to_utf8(file_output).c_str(), 0);
-            }
+        if (file_stat.m_is_directory) {
+            fs::create_directories(file_output);
+            continue;
         }
+        fs::create_directories(file_output.parent_path());
+        if (!mz_zip_reader_extract_to_file(zip.get(), i, fs_utils::path_to_utf8(file_output).c_str(), 0)) {
+            LOG_ERROR("Could not extract {}: {}", name, miniz_get_error(zip));
+            failed.push_back(name);
+        }
+        done_bytes += file_stat.m_uncomp_size;
+        file_progress = total_bytes ? static_cast<float>(static_cast<double>(done_bytes) / static_cast<double>(total_bytes) * 100.0) : 100.f;
+        update_progress();
+    }
+
+    if (!failed.empty()) {
+        // A half-extracted game crashes in odd places later: don't leave one installed
+        error = fmt::format("{} file(s) could not be extracted ({}{}). The archive may be damaged or incomplete; nothing was installed.",
+            failed.size(), failed.front(), failed.size() > 1 ? ", ..." : "");
+        fs::remove_all(output_path);
+        return false;
     }
 
     if (fs::exists(output_path / "sce_sys/package/") && emuenv.app_info.app_title_id.starts_with("PCS")) {
         update_progress();
-        if (is_nonpdrm(emuenv, output_path))
+        if (is_nonpdrm(emuenv, output_path, &error))
             decrypt_progress = 100.f;
         else
             return false;
     }
-    if (!copy_path(output_path, emuenv.vita_fs_path, emuenv.app_info.app_title_id, emuenv.app_info.app_category))
+    if (!copy_path(output_path, emuenv.vita_fs_path, emuenv.app_info.app_title_id, emuenv.app_info.app_category)) {
+        error = fmt::format("{} could not be moved into place.", emuenv.app_info.app_title_id);
         return false;
+    }
 
     update_progress();
 
@@ -265,33 +362,41 @@ static bool install_archive_content(EmuEnvState &emuenv, const ZipPtr &zip, cons
     return true;
 }
 
-static std::vector<std::string> get_archive_contents_path(const ZipPtr &zip) {
-    mz_uint num_files = mz_zip_reader_get_num_files(zip.get());
+static std::vector<std::string> get_archive_contents_path(const ZipPtr &zip, std::string &error) {
+    const mz_uint num_files = mz_zip_reader_get_num_files(zip.get());
     std::vector<std::string> content_path;
-    std::string sfo_path = "sce_sys/param.sfo";
-    std::string theme_path = "theme.xml";
+    std::vector<std::string> theme_roots;
+    const std::string sfo_path = "sce_sys/param.sfo";
+    const std::string theme_path = "theme.xml";
 
     for (mz_uint i = 0; i < num_files; i++) {
         mz_zip_archive_file_stat file_stat;
-        if (!mz_zip_reader_file_stat(zip.get(), i, &file_stat))
+        if (!mz_zip_reader_file_stat(zip.get(), i, &file_stat) || file_stat.m_is_directory)
             continue;
 
-        std::string m_filename = std::string(file_stat.m_filename);
-        if (m_filename.contains("sce_module/steroid.suprx")) {
+        const std::string name = archive_entry_name(file_stat);
+        if (is_junk_entry(name))
+            continue;
+        const std::string lower = string_utils::tolower(name);
+        if (lower.ends_with("sce_module/steroid.suprx")) {
             LOG_CRITICAL("A Vitamin dump was detected, aborting installation...");
-#ifdef __ANDROID__
-            // SDL_ShowAndroidToast("Vitamin dumps are not supported!", 1, -1, 0, 0);
-#endif
+            error = "This is a Vitamin dump, which Vita3K can't run. Use a NoNpDrm dump or a .pkg with its license.";
             content_path.clear();
             break;
         }
 
-        const auto is_content = m_filename.contains(sfo_path) || m_filename.contains(theme_path);
-        if (is_content) {
-            const auto content_type = m_filename.contains(sfo_path) ? sfo_path : theme_path;
-            m_filename.erase(m_filename.find(content_type));
-            vector_utils::push_if_not_exists(content_path, m_filename);
-        }
+        // A content root holds sce_sys/param.sfo (or theme.xml for a theme) right below it. Matched as
+        // a whole path part, any case, either slash
+        if (lower == sfo_path || lower.ends_with("/" + sfo_path))
+            vector_utils::push_if_not_exists(content_path, name.substr(0, name.size() - sfo_path.size()));
+        else if (lower == theme_path || lower.ends_with("/" + theme_path))
+            vector_utils::push_if_not_exists(theme_roots, name.substr(0, name.size() - theme_path.size()));
+    }
+
+    // A theme.xml inside a game's own folders is not a separate theme
+    for (const auto &theme_root : theme_roots) {
+        if (std::ranges::none_of(content_path, [&](const std::string &root) { return starts_with_icase(theme_root, root); }))
+            content_path.push_back(theme_root);
     }
 
     // Install games before their updates and DLC (ux0-style dumps: app/, patch/, addcont/), or an
@@ -302,7 +407,34 @@ static std::vector<std::string> get_archive_contents_path(const ZipPtr &zip) {
     };
     std::ranges::stable_sort(content_path, [&](const std::string &a, const std::string &b) { return rank(a) < rank(b); });
 
+    if (content_path.empty() && error.empty())
+        error = "No game was found in the archive (no sce_sys/param.sfo). If it holds a .pkg, import the .pkg with its license.";
+
     return content_path;
+}
+
+// miniz reads stored and Deflate entries. Anything else (Deflate64 from Windows' own zipper for big
+// files, LZMA, bzip2, Zstandard, encrypted entries) failed file by file halfway through the install.
+static std::string unsupported_compression(const ZipPtr &zip) {
+    const mz_uint num_files = mz_zip_reader_get_num_files(zip.get());
+    for (mz_uint i = 0; i < num_files; i++) {
+        mz_zip_archive_file_stat stat;
+        if (!mz_zip_reader_file_stat(zip.get(), i, &stat) || stat.m_is_directory || is_junk_entry(archive_entry_name(stat)))
+            continue;
+        if (stat.m_is_encrypted || (stat.m_bit_flag & 1))
+            return "is password-protected";
+        if (stat.m_method != 0 && stat.m_method != MZ_DEFLATED) {
+            switch (stat.m_method) {
+            case 9: return "uses Deflate64 compression (Windows' built-in zipper does this for big files)";
+            case 12: return "uses bzip2 compression";
+            case 14: return "uses LZMA compression";
+            case 93: return "uses Zstandard compression";
+            case 99: return "is AES-encrypted";
+            default: return fmt::format("uses an unsupported compression method ({})", stat.m_method);
+            }
+        }
+    }
+    return {};
 }
 
 std::vector<ContentInfo> install_archive(EmuEnvState &emuenv, const fs::path &archive_path, const std::function<void(ArchiveContents)> &progress_callback, const ReinstallCallback &reinstall_callback) {
@@ -317,10 +449,17 @@ std::vector<ContentInfo> install_archive(EmuEnvState &emuenv, const fs::path &ar
         return content_installed;
     }
 
+    const auto failure = [&](const std::string &error) {
+        ContentInfo info{};
+        info.path = archive_path.string();
+        info.error = error;
+        return std::vector<ContentInfo>{ info };
+    };
+
     FILE *vpk_fp = FOPEN(archive_path.c_str(), "rb");
     if (!vpk_fp) {
         LOG_CRITICAL("Failed to load archive file in path: {}", fs_utils::path_to_utf8(archive_path));
-        return {};
+        return failure("The file could not be opened.");
     }
 
     const ZipPtr zip(new mz_zip_archive, delete_zip);
@@ -329,13 +468,36 @@ std::vector<ContentInfo> install_archive(EmuEnvState &emuenv, const fs::path &ar
     if (!mz_zip_reader_init_cfile(zip.get(), vpk_fp, 0, 0)) {
         LOG_CRITICAL("miniz error reading archive: {}", miniz_get_error(zip));
         fclose(vpk_fp);
-        return {};
+        return failure(fmt::format("This is not a readable .zip/.vpk ({}). .7z and .rar archives aren't supported: extract them first and import the folder.", miniz_get_error(zip)));
     }
 
-    const auto content_path = get_archive_contents_path(zip);
+    if (const auto unsupported = unsupported_compression(zip); !unsupported.empty()) {
+        LOG_ERROR("{} {}", fs_utils::path_to_utf8(archive_path.filename()), unsupported);
+        fclose(vpk_fp);
+        return failure(fmt::format("The archive {}. Unzip it in the Files app and import the folder, or re-zip it with standard compression.", unsupported));
+    }
+
+    std::string error;
+    const auto content_path = get_archive_contents_path(zip, error);
     if (content_path.empty()) {
         fclose(vpk_fp);
-        return {};
+        return failure(error);
+    }
+
+    // Enough room for everything, with the decrypted copy of encrypted dumps on top
+    uint64_t needed = 0;
+    const mz_uint num_files = mz_zip_reader_get_num_files(zip.get());
+    for (mz_uint i = 0; i < num_files; i++) {
+        mz_zip_archive_file_stat stat;
+        if (mz_zip_reader_file_stat(zip.get(), i, &stat) && !stat.m_is_directory)
+            needed += stat.m_uncomp_size;
+    }
+    std::error_code space_ec;
+    const auto space = fs::space(emuenv.vita_fs_path, space_ec);
+    if (!space_ec && space.available < needed) {
+        fclose(vpk_fp);
+        return failure(fmt::format("Not enough free space: the archive needs about {:.1f} GB, {:.1f} GB is free.",
+            static_cast<double>(needed) / 1e9, static_cast<double>(space.available) / 1e9));
     }
 
     const auto count = static_cast<float>(content_path.size());
@@ -350,9 +512,10 @@ std::vector<ContentInfo> install_archive(EmuEnvState &emuenv, const fs::path &ar
     for (auto &path : content_path) {
         current++;
         update_progress();
-        bool state = install_archive_content(emuenv, zip, path, progress_callback, reinstall_callback);
+        std::string content_error;
+        bool state = install_archive_content(emuenv, zip, path, progress_callback, reinstall_callback, content_error);
         // Can't use emplace_back due to Clang 15 for macos
-        content_installed.push_back({ emuenv.app_info.app_title, emuenv.app_info.app_title_id, emuenv.app_info.app_category, emuenv.app_info.app_content_id, path, state });
+        content_installed.push_back({ emuenv.app_info.app_title, emuenv.app_info.app_title_id, emuenv.app_info.app_category, emuenv.app_info.app_content_id, path, state, content_error });
     }
 
     fclose(vpk_fp);

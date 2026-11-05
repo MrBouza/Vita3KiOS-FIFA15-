@@ -68,8 +68,13 @@ bool v3k_use_internal_storage(char **message);
 // ---- Installing ----
 typedef void (*v3k_progress_fn)(void *context, float percent);
 
-// What kind of thing a path is: 0 unknown, 1 firmware (.PUP), 2 archive (.vpk/.zip), 3 package (.pkg), 4 folder
+// What kind of thing a path is: 0 unknown, 1 firmware (.PUP), 2 archive (.vpk/.zip), 3 package (.pkg), 4 folder,
+// 5 license (work.bin / .rif of 512 bytes, or a .zrif text file). v3k_install installs any of them.
 int v3k_install_kind(const char *path);
+
+// Adds a game's license from its zRIF key (ux0/license/<title ID>/<content ID>.rif), so its .pkg or a
+// dump without its work.bin installs afterwards. *message gets a summary to free with v3k_free_string.
+bool v3k_install_zrif(const char *zrif, char **message);
 
 // Installs firmware, a .vpk/.zip, a .pkg (zrif may be NULL or empty when a license is already present),
 // or a folder (a game folder, or a folder holding any of the above). Blocking: call it off the main thread.
