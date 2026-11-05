@@ -125,7 +125,7 @@ struct GameSettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onAppear(perform: load)
-            .fileImporter(isPresented: Binding(get: { zipImport != nil }, set: { if !$0 { zipImport = nil } }), allowedContentTypes: [.zip]) { result in
+            .fileImporter(isPresented: Binding(get: { zipImport != nil }, set: { if !$0 { zipImport = nil } }), allowedContentTypes: zipImport == .save ? [.zip, .folder] : [.zip]) { result in
                 let kind = zipImport
                 zipImport = nil
                 guard case let .success(url) = result, let kind else { return }
@@ -495,7 +495,7 @@ struct GameSettingsView: View {
             Button {
                 zipImport = .save
             } label: {
-                Label("Import save data (.zip)", systemImage: "square.and.arrow.down")
+                Label("Import save data (zip or folder)", systemImage: "square.and.arrow.down")
             }
             Button(role: .destructive) { confirmDeleteSave = true } label: {
                 Label("Delete save data", systemImage: "externaldrive.badge.minus")
@@ -503,7 +503,7 @@ struct GameSettingsView: View {
         } header: {
             Text("Data")
         } footer: {
-            Text("Deleting the shader cache only makes the next launch stutter while shaders compile again; do it if graphics break after an update. Exported saves are also kept in Files › Vita3KiOS › Save Backups.")
+            Text("Deleting the shader cache only makes the next launch stutter while shaders compile again; do it if graphics break after an update. Exported saves are also kept in Files › Vita3KiOS › Save Backups.\n\nImport takes a save from another Vita3K or a modded Vita, as a zip or a folder. From a Vita, export it decrypted first (VitaShell: \"Open decrypted\" on the save, or Vita Save Manager). The current save is backed up to Save Backups before it is replaced.")
         }
     }
 

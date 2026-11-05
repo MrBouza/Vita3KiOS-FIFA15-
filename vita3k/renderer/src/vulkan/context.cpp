@@ -27,7 +27,6 @@
 
 #include <util/log.h>
 #include <util/overloaded.h>
-#include <util/thermal.h>
 
 #if defined(VITA3K_PLATFORM_IOS)
 #include <pthread.h>

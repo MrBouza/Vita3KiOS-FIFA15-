@@ -172,8 +172,11 @@ bool v3k_reset_game_settings(const char *title_id);
 // ---- Save data backups ----
 // Zips the save into Documents/Save Backups and returns the zip path (free it), or NULL
 char *v3k_export_save_data(const char *title_id, char **message);
-// Replaces the save with a zip's contents (the current save is moved aside first)
-bool v3k_import_save_data(const char *title_id, const char *zip_path, char **message);
+// Replaces the save with one from a zip or a folder: a save exported decrypted from a modded Vita
+// (VitaShell, Vita Save Manager, Apollo) or another Vita3K, in any of the usual layouts (the save's
+// files, its PCSE00120/ folder, savedata/, a whole ux0/). The current save is copied to
+// Documents/Save Backups first; encrypted saves and other games' saves are refused with a reason.
+bool v3k_import_save_data(const char *title_id, const char *path, char **message);
 
 // ---- Game patches and cheats (github.com/Vita3K/vita3k-patches) ----
 // Downloads the patch list and the cheat files in one go. Blocking: run off the main thread.

@@ -1091,7 +1091,114 @@ char *v3k_export_save_data(const char *title_id, char **message) {
     return dup_string(zip_path.string());
 }
 
-bool v3k_import_save_data(const char *title_id, const char *zip_path, char **message) {
+namespace {
+
+bool is_save_junk(const std::string &name) {
+    const std::string lower = string_utils::tolower(name);
+    return lower == "__macosx" || lower.starts_with("._") || lower == ".ds_store" || lower == "thumbs.db" || lower == "desktop.ini";
+}
+
+// A Vita title ID: four capital letters and five digits (PCSE00120)
+bool looks_like_title_id(const std::string &name) {
+    return name.size() == 9 && std::all_of(name.begin(), name.begin() + 4, [](unsigned char c) { return std::isupper(c); })
+        && std::all_of(name.begin() + 4, name.end(), [](unsigned char c) { return std::isdigit(c); });
+}
+
+// Unpacks a zip into a folder: either slash, junk skipped, nothing outside the folder
+bool unpack_save_zip(const fs::path &zip_path, const fs::path &out, std::string &error) {
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_file(&zip, zip_path.string().c_str(), 0)) {
+        error = "That file is not a readable zip archive.";
+        return false;
+    }
+    const fs::path base = out.lexically_normal();
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    bool ok = true;
+    for (mz_uint i = 0; ok && i < count; i++) {
+        mz_zip_archive_file_stat stat;
+        if (!mz_zip_reader_file_stat(&zip, i, &stat) || stat.m_is_directory)
+            continue;
+        std::string name = stat.m_filename;
+        std::replace(name.begin(), name.end(), '\\', '/');
+        const fs::path relative = fs::path(name).lexically_normal();
+        if (relative.empty() || relative.is_absolute() || *relative.begin() == "..")
+            continue;
+        if (std::any_of(relative.begin(), relative.end(), [](const fs::path &part) { return is_save_junk(part.string()); }))
+            continue;
+        const fs::path file = base / relative;
+        std::error_code ec;
+        fs::create_directories(file.parent_path(), ec);
+        ok = mz_zip_reader_extract_to_file(&zip, i, file.string().c_str(), 0);
+        if (!ok)
+            error = fmt::format("{} could not be extracted: the archive may be damaged.", name);
+    }
+    mz_zip_reader_end(&zip);
+    return ok;
+}
+
+// Where the save itself sits in what the player picked. Exports come in many shapes: the save's own
+// files (sce_sys/ and the game's files), its folder (PCSE00120/), a savedata/ folder with several
+// games, or a whole ux0 (ux0/user/00/savedata/PCSE00120/), possibly wrapped in one more folder.
+fs::path find_save_root(const fs::path &source, const std::vector<std::string> &names, std::string &other_title) {
+    std::error_code ec;
+    // A folder named after the game's save, anywhere a few levels down
+    std::vector<std::pair<fs::path, int>> queue{ { source, 0 } };
+    for (size_t i = 0; i < queue.size(); i++) {
+        const auto [folder, depth] = queue[i];
+        for (const auto &entry : fs::directory_iterator(folder, ec)) {
+            if (!entry.is_directory(ec) || is_save_junk(entry.path().filename().string()))
+                continue;
+            const std::string name = entry.path().filename().string();
+            for (const auto &wanted : names) {
+                if (string_utils::tolower(name) == string_utils::tolower(wanted))
+                    return entry.path();
+            }
+            if (depth < 6)
+                queue.push_back({ entry.path(), depth + 1 });
+        }
+    }
+
+    // No such folder: the picked folder is the save, or wraps it in folders without files beside them
+    fs::path root = source;
+    for (int depth = 0; depth < 6; depth++) {
+        if (fs::exists(root / "sce_sys", ec))
+            break;
+        std::vector<fs::path> folders;
+        bool files = false;
+        for (const auto &entry : fs::directory_iterator(root, ec)) {
+            if (is_save_junk(entry.path().filename().string()))
+                continue;
+            if (entry.is_directory(ec))
+                folders.push_back(entry.path());
+            else
+                files = true;
+        }
+        if (files || folders.size() != 1)
+            break;
+        root = folders.front();
+    }
+    // Another game's save folder (or a savedata/ folder without this game in it)
+    const std::string root_name = root.filename().string();
+    if (looks_like_title_id(root_name)) {
+        other_title = root_name;
+        return {};
+    }
+    return root;
+}
+
+size_t count_files(const fs::path &folder) {
+    size_t files = 0;
+    std::error_code ec;
+    for (auto it = fs::recursive_directory_iterator(folder, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (it->is_regular_file(ec))
+            files++;
+    }
+    return files;
+}
+
+} // namespace
+
+bool v3k_import_save_data(const char *title_id, const char *path, char **message) {
     auto *emuenv = ios::get_emuenv();
     const auto app = app_for(title_id);
     const auto result = [&](bool ok, const std::string &text) {
@@ -1099,62 +1206,88 @@ bool v3k_import_save_data(const char *title_id, const char *zip_path, char **mes
             *message = dup_string(text);
         return ok;
     };
-    if (!emuenv || !app || !zip_path)
+    if (!emuenv || !app || !path)
         return result(false, "This game is not installed.");
     if (app->savedata.empty())
         return result(false, app->title + " does not use save data.");
 
-    mz_zip_archive zip{};
-    if (!mz_zip_reader_init_file(&zip, zip_path, 0))
-        return result(false, "That file is not a zip archive.");
-
-    const fs::path target = save_folder(*emuenv, *app);
+    std::lock_guard lock(install_mutex);
     std::error_code ec;
-    // Keep the current save, just in case
-    if (fs::exists(target, ec) && !fs::is_empty(target, ec)) {
-        const fs::path backup = emuenv->cache_path / "save-backups" / fmt::format("{}-{}", app->savedata, timestamp());
-        fs::create_directories(backup.parent_path(), ec);
-        fs::rename(target, backup, ec);
-        if (ec) {
-            mz_zip_reader_end(&zip);
-            return result(false, "Could not move the current save aside: " + ec.message());
+    const fs::path picked(path);
+    const fs::path staging = emuenv->cache_path / "save-import";
+    fs::remove_all(staging, ec);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() {
+            std::error_code ec;
+            fs::remove_all(path, ec);
         }
-    }
-    fs::create_directories(target, ec);
+    } cleanup{ staging };
 
-    // Archives made by hand often wrap everything in one folder: strip it when every file shares it
-    const mz_uint count = mz_zip_reader_get_num_files(&zip);
-    std::string prefix;
-    for (mz_uint i = 0; i < count; i++) {
-        char name[1024];
-        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
-        const std::string entry = name;
-        const auto slash = entry.find('/');
-        const std::string top = slash == std::string::npos ? std::string() : entry.substr(0, slash + 1);
-        if (i == 0)
-            prefix = top;
-        else if (top != prefix)
-            prefix.clear();
-        if (top.empty() || entry.find("sce_sys/") == 0)
-            prefix.clear();
+    // A zip is unpacked first; a folder is read where it is
+    fs::path source = picked;
+    if (!fs::is_directory(picked, ec)) {
+        std::string error;
+        if (!unpack_save_zip(picked, staging / "unpacked", error))
+            return result(false, error);
+        source = staging / "unpacked";
     }
 
-    bool ok = true;
-    for (mz_uint i = 0; ok && i < count; i++) {
-        if (mz_zip_reader_is_file_a_directory(&zip, i))
+    std::vector<std::string> names{ app->savedata };
+    if (app->title_id != app->savedata)
+        names.push_back(app->title_id);
+    std::string other_title;
+    const fs::path root = find_save_root(source, names, other_title);
+    if (root.empty())
+        return result(false, fmt::format("This is the save of {}, not of {} ({}). Pick the save of this game.", other_title, app->title, app->savedata));
+    if (!fs::exists(root, ec) || fs::is_empty(root, ec))
+        return result(false, "No save data was found in it.");
+
+    // Saves copied straight off a Vita are encrypted for that console and can't be read here
+    if (fs::exists(root / "sce_pfs", ec) || fs::exists(root / "sce_sys/sealedkey", ec))
+        return result(false, "This save is still encrypted for the Vita it came from. Export it decrypted on the Vita (VitaShell: \"Open decrypted\" on the save folder, then copy; or Vita Save Manager / Apollo), then import that.");
+
+    // Copied next to the current save first, then swapped in, so a failed copy changes nothing
+    const fs::path target = save_folder(*emuenv, *app);
+    const fs::path incoming = target.parent_path() / (app->savedata + ".importing");
+    fs::remove_all(incoming, ec);
+    fs::create_directories(incoming, ec);
+    ec.clear();
+    for (const auto &entry : fs::directory_iterator(root, ec)) {
+        if (is_save_junk(entry.path().filename().string()))
             continue;
-        char name[1024];
-        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
-        std::string entry = std::string(name).substr(prefix.size());
-        if (entry.empty() || entry.find("..") != std::string::npos)
-            continue;
-        const fs::path out = target / entry;
-        fs::create_directories(out.parent_path(), ec);
-        ok = mz_zip_reader_extract_to_file(&zip, i, out.string().c_str(), 0);
+        fs::copy(entry.path(), incoming / entry.path().filename(), fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+        if (ec)
+            break;
     }
-    mz_zip_reader_end(&zip);
-    LOG_INFO("Imported save data for {} from {}: {}", app->title_id, zip_path, ok ? "ok" : "failed");
-    return result(ok, ok ? "Save data imported. The previous save was kept in the cache folder." : "Some files could not be extracted.");
+    if (ec) {
+        const std::string reason = ec.message();
+        fs::remove_all(incoming, ec);
+        return result(false, "The save could not be copied: " + reason);
+    }
+
+    // The current save is kept where the player can find it: Files › Vita3KiOS › Save Backups
+    std::string kept;
+    if (fs::exists(target, ec) && !fs::is_empty(target, ec)) {
+        const fs::path backups = fs::path(ios::get_documents_path()) / "Save Backups";
+        const fs::path backup = backups / fmt::format("{} ({}) before import {}", safe_file_name(app->title), app->title_id, timestamp());
+        fs::create_directories(backups, ec);
+        fs::copy(target, backup, fs::copy_options::recursive, ec);
+        if (ec) {
+            const std::string reason = ec.message();
+            fs::remove_all(incoming, ec);
+            return result(false, "The current save could not be backed up, so nothing was changed: " + reason);
+        }
+        kept = " The previous save is in Files › Vita3KiOS › Save Backups.";
+    }
+    fs::remove_all(target, ec);
+    fs::rename(incoming, target, ec);
+    if (ec)
+        return result(false, "The save could not be put in place: " + ec.message());
+
+    const size_t files = count_files(target);
+    LOG_INFO("Imported the save data of {} from {} ({} files)", app->title_id, picked.string(), files);
+    return result(true, fmt::format("Save data imported ({} file{}).{}", files, files == 1 ? "" : "s", kept));
 }
 
 // ---- Game patches and cheats (github.com/Vita3K/vita3k-patches) ----

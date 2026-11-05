@@ -44,7 +44,6 @@
 #include <util/align.h>
 #include <util/bytes.h>
 #include <util/log.h>
-#include <util/thermal.h>
 
 #include <util/tracy.h>
 
