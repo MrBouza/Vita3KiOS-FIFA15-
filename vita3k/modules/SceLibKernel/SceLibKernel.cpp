@@ -217,6 +217,16 @@ EXPORT(Ptr<void>, sceClibMspaceCalloc, Ptr<void> space, uint32_t elements, uint3
     return Ptr<void>(address, emuenv.mem);
 }
 
+#if defined(VITA3K_PLATFORM_IOS)
+// dlmalloc found a game's mspace damaged (ios/dlmalloc_ios.cc): it returns NULL to the game instead
+// of aborting the app
+void vita3k_dlmalloc_error(int line) {
+    static std::atomic<int> logged{ 0 };
+    if (logged.fetch_add(1) < 20)
+        LOG_ERROR("A game heap (sceClibMspace) is damaged (dlmalloc line {}): the call fails instead of closing Vita3K", line);
+}
+#endif
+
 EXPORT(Ptr<void>, sceClibMspaceCreate, Ptr<void> base, uint32_t capacity) {
     TRACY_FUNC(sceClibMspaceCreate, base, capacity);
     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);

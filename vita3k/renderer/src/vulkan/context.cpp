@@ -67,17 +67,13 @@ void VKContext::wait_thread_function(const MemState &mem) {
         }
     };
 
-#if defined(VITA3K_PLATFORM_IOS)
-    int thermal_qos = 0;
-#endif
+    // (no thermal step-down: this thread only waits for the GPU, and a lower class woke the game
+    // later after each frame)
     while (true) {
         auto wait_request = state.request_queue.pop();
 
         if (!wait_request)
             break;
-#if defined(VITA3K_PLATFORM_IOS)
-        thermal::follow_render_qos(thermal_qos);
-#endif
 
         std::visit(overloaded{
                        [&](FenceWaitRequest &request) {

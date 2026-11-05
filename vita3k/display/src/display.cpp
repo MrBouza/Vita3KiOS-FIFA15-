@@ -47,14 +47,9 @@ static void vblank_sync_thread(EmuEnvState &emuenv) {
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 #endif
     DisplayState &display = emuenv.display;
-#if defined(VITA3K_PLATFORM_IOS)
-    int thermal_qos = 0;
-#endif
-
+    // (no thermal step-down here: this thread does almost no work, and a lower class only made the
+    // 60 Hz tick late and uneven, which games felt as hitches once the phone was warm)
     while (!display.abort.load()) {
-#if defined(VITA3K_PLATFORM_IOS)
-        thermal::follow_render_qos(thermal_qos);
-#endif
         {
             const std::lock_guard<std::mutex> guard(display.mutex);
 

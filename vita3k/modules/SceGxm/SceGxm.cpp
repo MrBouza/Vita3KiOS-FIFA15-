@@ -910,16 +910,11 @@ static void display_entry_thread(EmuEnvState &emuenv) {
         return;
     }
 
-#if defined(VITA3K_PLATFORM_IOS)
-    int thermal_qos = 0;
-#endif
+    // (no thermal step-down: a few microseconds of work per frame, and a lower class delayed frames)
     while (true) {
         auto display_callback = display_queue.top();
         if (!display_callback)
             break;
-#if defined(VITA3K_PLATFORM_IOS)
-        thermal::follow_render_qos(thermal_qos);
-#endif
 
         SceGxmSyncObject *old_sync = display_callback->old_sync.get(emuenv.mem);
         SceGxmSyncObject *new_sync = display_callback->new_sync.get(emuenv.mem);

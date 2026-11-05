@@ -140,10 +140,12 @@ ExitCode init(const Root &root_paths, bool use_stdout) {
     // needed, otherwise the log file contains nothing
     spdlog::flush_on(spdlog::level::trace);
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
-    // iOS: write errors at once, everything else at least every second (games can log warnings every
-    // frame, and a write per line slows them down). The fatal signal handler flushes too, so the
-    // lines before a crash reach the file.
-    spdlog::flush_on(spdlog::level::err);
+    // iOS: write critical lines at once, everything else at least every second. Errors were written
+    // at once too, but games log them in bursts during normal play (FIFA 15: dozens of missing files
+    // and audio decode errors while streaming), and each one stopped a game thread for a disk write.
+    // Crashes log critical lines and the crash handlers flush, so the lines before a crash still
+    // reach the file.
+    spdlog::flush_on(spdlog::level::critical);
     spdlog::flush_every(std::chrono::seconds(1));
 #endif
 

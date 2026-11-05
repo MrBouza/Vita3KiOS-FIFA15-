@@ -37,6 +37,7 @@
 #include <sys/mman.h>
 #endif
 
+#include <array>
 #include <atomic>
 #include <bit>
 #include <memory>
@@ -143,6 +144,52 @@ std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size) {
 }
 #endif
 
+// A coprocessor instruction nobody handles: dynarmic's ARM64 backend compiles a "coprocessor
+// exception" as ASSERT_FALSE, which ended the whole app (FIFA 15 hit an STC). Compile a call that
+// does nothing instead (reads give 0) and log the instruction once when it is compiled. The game
+// may misbehave afterwards, but the app stays up and the log names the instruction.
+static std::uint64_t ignored_coprocessor_access(void *, std::uint32_t, std::uint32_t) {
+    return 0;
+}
+
+static Dynarmic::A32::Coprocessor::Callback ignored_coprocessor_callback(int coproc, const char *what) {
+    static std::atomic<int> logged{ 0 };
+    if (logged.fetch_add(1) < 32)
+        LOG_WARN("Unhandled coprocessor instruction ({} on p{}): ignored", what, coproc);
+    return Dynarmic::A32::Coprocessor::Callback{ &ignored_coprocessor_access, nullptr };
+}
+
+// Every coprocessor other than CP15 (the decoder sends VFP/NEON elsewhere)
+class ArmDynarmicUnknownCoprocessor : public Dynarmic::A32::Coprocessor {
+    int number;
+
+public:
+    explicit ArmDynarmicUnknownCoprocessor(int number)
+        : number(number) {}
+
+    std::optional<Callback> CompileInternalOperation(bool, unsigned, CoprocReg, CoprocReg, CoprocReg, unsigned) override {
+        return ignored_coprocessor_callback(number, "CDP");
+    }
+    CallbackOrAccessOneWord CompileSendOneWord(bool, unsigned, CoprocReg, CoprocReg, unsigned) override {
+        return ignored_coprocessor_callback(number, "MCR");
+    }
+    CallbackOrAccessTwoWords CompileSendTwoWords(bool, unsigned, CoprocReg) override {
+        return ignored_coprocessor_callback(number, "MCRR");
+    }
+    CallbackOrAccessOneWord CompileGetOneWord(bool, unsigned, CoprocReg, CoprocReg, unsigned) override {
+        return ignored_coprocessor_callback(number, "MRC");
+    }
+    CallbackOrAccessTwoWords CompileGetTwoWords(bool, unsigned, CoprocReg) override {
+        return ignored_coprocessor_callback(number, "MRRC");
+    }
+    std::optional<Callback> CompileLoadWords(bool, bool, CoprocReg, std::optional<std::uint8_t>) override {
+        return ignored_coprocessor_callback(number, "LDC");
+    }
+    std::optional<Callback> CompileStoreWords(bool, bool, CoprocReg, std::optional<std::uint8_t>) override {
+        return ignored_coprocessor_callback(number, "STC");
+    }
+};
+
 class ArmDynarmicCP15 : public Dynarmic::A32::Coprocessor {
 public:
     using CoprocReg = Dynarmic::A32::CoprocReg;
@@ -155,7 +202,7 @@ public:
     std::optional<Callback> CompileInternalOperation(bool two, unsigned opc1, CoprocReg CRd,
         CoprocReg CRn, CoprocReg CRm,
         unsigned opc2) override {
-        return std::nullopt;
+        return ignored_coprocessor_callback(15, "CDP");
     }
 
     // MCR p15, 0, Rt, CRn, c0, opc2 for TPIDRURO (c13, 3), TPIDRURW (c13, 2), SCTLR (c1, 0) and DACR (c3, 0)
@@ -172,11 +219,11 @@ public:
                 return &dacr;
         }
         LOG_WARN("Unhandled CP15 MCR or MRC: two={} opc1={} CRn={} CRm={} opc2={}", two, opc1, static_cast<int>(CRn), static_cast<int>(CRm), opc2);
-        return CallbackOrAccessOneWord{};
+        return ignored_coprocessor_callback(15, "MCR/MRC");
     }
 
     CallbackOrAccessTwoWords CompileSendTwoWords(bool two, unsigned opc, CoprocReg CRm) override {
-        return CallbackOrAccessTwoWords{};
+        return ignored_coprocessor_callback(15, "MCRR");
     }
 
     // MRC reads the same registers
@@ -186,17 +233,17 @@ public:
     }
 
     CallbackOrAccessTwoWords CompileGetTwoWords(bool two, unsigned opc, CoprocReg CRm) override {
-        return CallbackOrAccessTwoWords{};
+        return ignored_coprocessor_callback(15, "MRRC");
     }
 
     std::optional<Callback> CompileLoadWords(bool two, bool long_transfer, CoprocReg CRd,
         std::optional<std::uint8_t> option) override {
-        return std::nullopt;
+        return ignored_coprocessor_callback(15, "LDC");
     }
 
     std::optional<Callback> CompileStoreWords(bool two, bool long_transfer, CoprocReg CRd,
         std::optional<std::uint8_t> option) override {
-        return std::nullopt;
+        return ignored_coprocessor_callback(15, "STC");
     }
 };
 
@@ -421,6 +468,14 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     }
     config.hook_hint_instructions = true;
     config.global_monitor = &shared_monitor;
+    static const auto unknown_coprocessors = [] {
+        std::array<std::shared_ptr<Dynarmic::A32::Coprocessor>, 15> coprocessors;
+        for (int i = 0; i < 15; i++)
+            coprocessors[i] = std::make_shared<ArmDynarmicUnknownCoprocessor>(i);
+        return coprocessors;
+    }();
+    for (int i = 0; i < 15; i++)
+        config.coprocessors[i] = unknown_coprocessors[i];
     config.coprocessors[15] = cp15;
     config.processor_id = core_id;
     config.optimizations = cpu_opt ? Dynarmic::all_safe_optimizations : Dynarmic::no_optimizations;

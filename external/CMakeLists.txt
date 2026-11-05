@@ -239,7 +239,12 @@ option(SPIRV_CROSS_ENABLE_UTIL "Enable util module support." OFF)
 option(SPIRV_CROSS_SKIP_INSTALL "Skips installation targets." ON)
 add_subdirectory(SPIRV-Cross)
 
-add_library(dlmalloc STATIC "${CMAKE_CURRENT_SOURCE_DIR}/dlmalloc/dlmalloc.cc")
+if(VITA3K_PLATFORM_IOS)
+	# Same dlmalloc, built through a wrapper that logs a damaged game heap instead of aborting the app
+	add_library(dlmalloc STATIC "${CMAKE_SOURCE_DIR}/vita3k/ios/dlmalloc_ios.cc")
+else()
+	add_library(dlmalloc STATIC "${CMAKE_CURRENT_SOURCE_DIR}/dlmalloc/dlmalloc.cc")
+endif()
 target_include_directories(dlmalloc PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/dlmalloc")
 target_compile_definitions(dlmalloc PUBLIC ONLY_MSPACES=1)
 target_compile_definitions(dlmalloc PUBLIC USE_LOCK=0)

@@ -61,8 +61,10 @@ inline qos_class_t game_thread_qos() {
     return keep_cool().load(std::memory_order_relaxed) ? QOS_CLASS_USER_INITIATED : QOS_CLASS_USER_INTERACTIVE;
 }
 
-// The renderer's own threads, called once per loop: full priority, one step down while the phone is
-// hot and the player wants it kept cool. `current` starts at 0 (user-interactive, set at thread start).
+// The render loop (the renderer's heavy thread), called once per loop: full priority, one step down
+// while the phone is hot and the player wants it kept cool, or in Low Power Mode. The vblank, display
+// and GPU-wait threads stay at full priority: they barely work, and slowing them made frames uneven.
+// `current` starts at 0 (user-interactive, set at thread start).
 inline void follow_render_qos(int &current) {
     const int wanted = should_step_down() ? 1 : 0;
     if (wanted == current)
