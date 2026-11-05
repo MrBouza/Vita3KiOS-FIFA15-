@@ -174,24 +174,8 @@ struct LibraryView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button { openImporter([.item]) } label: {
-                            Label("Files (VPK, ZIP, PKG, PUP)", systemImage: "doc.badge.plus")
-                        }
-                        Button { openImporter([.folder]) } label: {
-                            Label("Game folder", systemImage: "folder.badge.plus")
-                        }
-                        Section("License") {
-                            Button { openImporter([.item]) } label: {
-                                Label("License file (work.bin, .rif)", systemImage: "key.fill")
-                            }
-                            Button { showingZrifEntry = true } label: {
-                                Label("zRIF key", systemImage: "key.horizontal.fill")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(Theme.accentGradient)
-                    }
+                    ImportMenu(importFiles: { openImporter([.item]) }, importFolder: { openImporter([.folder]) },
+                               enterZrif: { showingZrifEntry = true })
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showingSettings = true } label: {
@@ -225,54 +209,8 @@ struct LibraryView: View {
             } message: {
                 Text(model.jitPreparing ? "Vita3K is still preparing JIT (\(model.jitProgress)/\(model.jitTarget)). Try again in a moment." : "\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
             }
-            .alert("Delete \(pendingDelete?.title ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
-                Button("Delete", role: .destructive) {
-                    if let app = pendingDelete { model.delete(app) }
-                    pendingDelete = nil
-                }
-                Button("Cancel", role: .cancel) { pendingDelete = nil }
-            } message: {
-                Text("The game is removed from Vita3K. Save data is kept.")
-            }
-            .alert("Delete the save data of \(pendingDeleteSave?.title ?? "")?", isPresented: Binding(get: { pendingDeleteSave != nil }, set: { if !$0 { pendingDeleteSave = nil } })) {
-                Button("Delete", role: .destructive) {
-                    if let app = pendingDeleteSave { model.deleteSaveData(app) }
-                    pendingDeleteSave = nil
-                }
-                Button("Cancel", role: .cancel) { pendingDeleteSave = nil }
-            } message: {
-                Text("This can't be undone.")
-            }
-            .alert("License needed", isPresented: Binding(get: { model.packageNeedingLicense != nil }, set: { _ in })) {
-                TextField("zRIF", text: $zrifInput)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("Install") {
-                    model.provideLicense(zrifInput)
-                    zrifInput = ""
-                }
-                Button("Install without", role: .cancel) {
-                    model.provideLicense("")
-                    zrifInput = ""
-                }
-            } message: {
-                Text(licenseMessage)
-            }
-            .alert("Add a license", isPresented: $showingZrifEntry) {
-                TextField("zRIF (KO5i...)", text: $zrifEntry)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("Add") {
-                    model.installZrif(zrifEntry)
-                    zrifEntry = ""
-                }
-                Button("Cancel", role: .cancel) { zrifEntry = "" }
-            } message: {
-                Text("Paste the game's or DLC's zRIF. Then import its .pkg, or a dump that has no work.bin.")
-            }
-            .alert(model.lastMessage ?? "", isPresented: Binding(get: { model.lastMessage != nil && model.packageNeedingLicense == nil }, set: { if !$0 { model.lastMessage = nil } })) {
-                Button("OK", role: .cancel) { model.lastMessage = nil }
-            }
+            .modifier(DeleteAlerts(model: model, pendingDelete: $pendingDelete, pendingDeleteSave: $pendingDeleteSave))
+            .modifier(ImportAlerts(model: model, zrifInput: $zrifInput, showingZrifEntry: $showingZrifEntry, zrifEntry: $zrifEntry, licenseMessage: licenseMessage))
         }
         .tint(Theme.accent)
         .id(themeName) // redraw everything in the new colours when the theme changes
@@ -653,5 +591,106 @@ struct CrashReportView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Close") { dismiss() } }
             }
         }
+    }
+}
+
+/// The + menu of the library
+private struct ImportMenu: View {
+    let importFiles: () -> Void
+    let importFolder: () -> Void
+    let enterZrif: () -> Void
+
+    var body: some View {
+        Menu {
+            Button(action: importFiles) {
+                Label("Files (VPK, ZIP, PKG, PUP)", systemImage: "doc.badge.plus")
+            }
+            Button(action: importFolder) {
+                Label("Game folder", systemImage: "folder.badge.plus")
+            }
+            Section("License") {
+                Button(action: importFiles) {
+                    Label("License file (work.bin, .rif)", systemImage: "key.fill")
+                }
+                Button(action: enterZrif) {
+                    Label("zRIF key", systemImage: "key.horizontal.fill")
+                }
+            }
+        } label: {
+            Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(Theme.accentGradient)
+        }
+    }
+}
+
+/// The alerts of importing: a .pkg asking for its license, typing a zRIF, and the result message
+/// (kept out of LibraryView.body, which grew too long for the Swift type checker)
+private struct ImportAlerts: ViewModifier {
+    @ObservedObject var model: LibraryModel
+    @Binding var zrifInput: String
+    @Binding var showingZrifEntry: Bool
+    @Binding var zrifEntry: String
+    let licenseMessage: String
+
+    func body(content: Content) -> some View {
+        content
+            .alert("License needed", isPresented: Binding(get: { model.packageNeedingLicense != nil }, set: { _ in })) {
+                TextField("zRIF", text: $zrifInput)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Install") {
+                    model.provideLicense(zrifInput)
+                    zrifInput = ""
+                }
+                Button("Install without", role: .cancel) {
+                    model.provideLicense("")
+                    zrifInput = ""
+                }
+            } message: {
+                Text(licenseMessage)
+            }
+            .alert("Add a license", isPresented: $showingZrifEntry) {
+                TextField("zRIF (KO5i...)", text: $zrifEntry)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Add") {
+                    model.installZrif(zrifEntry)
+                    zrifEntry = ""
+                }
+                Button("Cancel", role: .cancel) { zrifEntry = "" }
+            } message: {
+                Text("Paste the game's or DLC's zRIF. Then import its .pkg, or a dump that has no work.bin.")
+            }
+            .alert(model.lastMessage ?? "", isPresented: Binding(get: { model.lastMessage != nil && model.packageNeedingLicense == nil }, set: { if !$0 { model.lastMessage = nil } })) {
+                Button("OK", role: .cancel) { model.lastMessage = nil }
+            }
+    }
+}
+
+/// Deleting a game or its save data (kept out of LibraryView.body for the Swift type checker)
+private struct DeleteAlerts: ViewModifier {
+    @ObservedObject var model: LibraryModel
+    @Binding var pendingDelete: GameApp?
+    @Binding var pendingDeleteSave: GameApp?
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Delete \(pendingDelete?.title ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
+                Button("Delete", role: .destructive) {
+                    if let app = pendingDelete { model.delete(app) }
+                    pendingDelete = nil
+                }
+                Button("Cancel", role: .cancel) { pendingDelete = nil }
+            } message: {
+                Text("The game is removed from Vita3K. Save data is kept.")
+            }
+            .alert("Delete the save data of \(pendingDeleteSave?.title ?? "")?", isPresented: Binding(get: { pendingDeleteSave != nil }, set: { if !$0 { pendingDeleteSave = nil } })) {
+                Button("Delete", role: .destructive) {
+                    if let app = pendingDeleteSave { model.deleteSaveData(app) }
+                    pendingDeleteSave = nil
+                }
+                Button("Cancel", role: .cancel) { pendingDeleteSave = nil }
+            } message: {
+                Text("This can't be undone.")
+            }
     }
 }
