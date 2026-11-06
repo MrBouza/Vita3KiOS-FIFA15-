@@ -34,6 +34,7 @@
 
 #include <app/session_controller.h>
 #include <cpu/functions.h>
+#include <display/state.h>
 #include <emuenv/app_launch_request.h>
 #include <emuenv/state.h>
 #include <kernel/state.h>
