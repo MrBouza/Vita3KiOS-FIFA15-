@@ -222,6 +222,30 @@ static const std::string &thread_name(StallWatch &watch, EmuEnvState &emuenv, Sc
     return watch.name;
 }
 
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+// From vita3k/ios/patches/0002-dynarmic-cache-stats.patch
+namespace Dynarmic::Backend::Arm64 {
+extern std::atomic<std::uint64_t> g_full_cache_clears;
+extern thread_local std::uint64_t t_full_cache_clears;
+extern thread_local std::uint64_t t_emitted_bytes;
+} // namespace Dynarmic::Backend::Arm64
+
+// A guest thread's code cache filled up and Dynarmic threw it away: every block it runs has to be
+// compiled again. Logged when the thread next calls an import.
+static void log_jit_cache_clears(StallWatch &watch, EmuEnvState &emuenv, SceUID thread_id) {
+    thread_local uint64_t seen_clears = 0;
+    const uint64_t clears = Dynarmic::Backend::Arm64::t_full_cache_clears;
+    if (clears == seen_clears)
+        return;
+    seen_clears = clears;
+    static std::atomic<uint32_t> logged{ 0 };
+    if (logged.fetch_add(1, std::memory_order_relaxed) < 1000)
+        LOG_INFO("JIT cache full: thread {} ({}) threw its compiled code away (clear #{} on this thread, {} in total); it has emitted {} MiB of code so far",
+            thread_id, thread_name(watch, emuenv, thread_id), clears, Dynarmic::Backend::Arm64::g_full_cache_clears.load(std::memory_order_relaxed),
+            Dynarmic::Backend::Arm64::t_emitted_bytes / (1024 * 1024));
+}
+#endif
+
 void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread_id) {
     // HLE - call our C++ function
     if (emuenv.kernel.debugger.watch_import_calls) {
@@ -246,6 +270,9 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
             watch.window_start = start;
         }
         watch.window_calls++;
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+        log_jit_cache_clears(watch, emuenv, thread_id);
+#endif
         if (watch.last_return && start - watch.last_return > STALL_THRESHOLD_MS * 1000000 && may_log_stall(watch)) {
             watch.logged++;
             stalls_logged.fetch_add(1, std::memory_order_relaxed);
