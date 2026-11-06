@@ -782,11 +782,11 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
             const int32_t dst_w = static_cast<int32_t>(original_width);
             const int32_t dst_h = static_cast<int32_t>(original_height);
 
+            const vk::Offset3D src_start{ static_cast<int32_t>(start_x), static_cast<int32_t>(start_sourced_line), 0 };
+            const vk::Offset3D src_end{ src_start.x + src_w, src_start.y + src_h, 1 };
             vk::ImageBlit blit{
                 .srcSubresource = vkutil::color_subresource_layer,
-                .srcOffsets = std::array<vk::Offset3D, 2>{
-                vk::Offset3D{ static_cast<int32_t>(start_x), static_cast<int32_t>(start_sourced_line), 0 },
-                vk::Offset3D{ static_cast<int32_t>(start_x) + src_w, static_cast<int32_t>(start_sourced_line) + src_h, 1 } },
+                .srcOffsets = std::array<vk::Offset3D, 2>{ src_start, src_end },
                 .dstSubresource = vkutil::color_subresource_layer,
                 .dstOffsets = std::array<vk::Offset3D, 2>{ vk::Offset3D{ 0, 0, 0 }, vk::Offset3D{ dst_w, dst_h, 1 } }
             };
