@@ -212,6 +212,8 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
         const uint64_t elapsed = hitch::now_ns() - start;
         hitch::ThreadImports &imports = hitch::this_thread_imports();
         imports.add({ .nid = nid, .ret = read_reg(cpu, 0), .lr = caller, .us = static_cast<uint32_t>(std::min<uint64_t>(elapsed / 1000, UINT32_MAX)) });
+        if (nid == NID_SCE_DISPLAY_SET_FRAME_BUF)
+            hitch::guest_frames.fetch_add(1, std::memory_order_relaxed);
         if (nid == NID_SCE_GXM_DISPLAY_QUEUE_ADD_ENTRY || nid == NID_SCE_DISPLAY_SET_FRAME_BUF)
             end_of_frame(imports, thread_id, nid);
     } else {

@@ -18,6 +18,7 @@
 #include "renderer/vulkan/screen_renderer.h"
 
 #include "renderer/vulkan/state.h"
+#include "util/hitch_stats.h"
 #include "util/log.h"
 #include "vkutil/vkutil.h"
 
@@ -457,6 +458,7 @@ bool ScreenRenderer::acquire_swapchain_image() {
         return false;
     }
 
+    const uint64_t acquire_start = hitch::now_ns();
     if (swapchain)
         acquire_result = state.device.acquireNextImageKHR(swapchain,
             next_image_timeout, image_acquired_semaphores[current_frame], vk::Fence(), &swapchain_image_idx);
@@ -500,6 +502,7 @@ bool ScreenRenderer::acquire_swapchain_image() {
         swapchain_image_idx = 0xDEADBEAF;
         return false;
     }
+    hitch::acquire_ns.fetch_add(hitch::now_ns() - acquire_start, std::memory_order_relaxed);
     state.device.resetFences(fences[swapchain_image_idx]);
 
     // begin the render command
@@ -603,6 +606,7 @@ void ScreenRenderer::swap_window() {
         tolerate_device_lost("the screen submit", [&] { state.general_queue.submit(submit_info, fences[swapchain_image_idx]); });
         result = state.general_queue.presentKHR(&present_info);
     }
+    hitch::screen_presents.fetch_add(1, std::memory_order_relaxed);
     if (result == vk::Result::eSuboptimalKHR) {
         need_rebuild = !surface_matches_window_size();
     } else if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eErrorSurfaceLostKHR) {

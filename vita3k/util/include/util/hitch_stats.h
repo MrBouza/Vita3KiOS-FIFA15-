@@ -50,6 +50,10 @@ inline std::atomic<uint64_t> fault_ns{ 0 }; // time spent handling them
 inline std::atomic<uint64_t> sync_pipelines{ 0 }; // pipelines compiled on the render thread (blocking)
 inline std::atomic<uint64_t> sync_pipeline_ns{ 0 };
 inline std::atomic<uint64_t> async_pipelines{ 0 }; // pipelines handed to the async compiler
+inline std::atomic<uint64_t> guest_frames{ 0 }; // frames the game handed to the display (sceDisplaySetFrameBuf)
+inline std::atomic<uint64_t> acquire_ns{ 0 }; // waiting for a swapchain image (acquire + its fence)
+inline std::atomic<uint64_t> screen_presents{ 0 }; // images handed to the screen (presentKHR)
+inline std::atomic<uint64_t> command_lists{ 0 }; // game command lists the render thread processed
 
 // Set by the module layer: resolves an import NID to its name
 using ImportNameFn = const char *(*)(uint32_t nid);

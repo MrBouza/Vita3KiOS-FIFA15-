@@ -29,6 +29,7 @@
 #include <overlay/display_manager.h>
 #include <overlay/shader_precompile_progress.h>
 #include <util/app_activity.h>
+#include <util/hitch_stats.h>
 #include <util/log.h>
 #include <util/thermal.h>
 
@@ -186,6 +187,7 @@ void process_batches(renderer::State &state, const FeatureState &features, MemSt
 
         state.command_buffer_queue.pop();
         process_batch(state, features, mem, config, *cmd_list);
+        hitch::command_lists.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
@@ -193,6 +195,58 @@ void reset_command_list(CommandList &command_list) {
     command_list.first = nullptr;
     command_list.last = nullptr;
 }
+
+// Stutter diagnostics on the host side: the game can hand over frames on time while the screen still
+// stalls. Logs any gap of more than hitch::HITCH_THRESHOLD_MS between two presents with where the render
+// thread spent it, and every 10 s how many presents showed a new game frame.
+struct PresentStats {
+    uint64_t last_present = 0;
+    Address last_base = 0;
+    uint64_t guest_frames_at_last = 0;
+    uint64_t window_start = 0;
+    uint64_t window_presents = 0;
+    uint64_t window_new_frames = 0;
+    uint64_t window_guest_frames_start = 0;
+    uint64_t window_hitches = 0;
+    uint64_t hitches_logged = 0;
+
+    void on_present(uint64_t loop_start, uint64_t batches_end, uint64_t present_end, uint64_t lists, uint64_t acquire, Address base) {
+        const uint64_t guest_frames = hitch::guest_frames.load(std::memory_order_relaxed);
+        const bool new_frame = base != last_base;
+        if (last_present) {
+            const uint64_t gap = present_end - last_present;
+            if (gap > hitch::HITCH_THRESHOLD_MS * 1000000) {
+                window_hitches++;
+                if (hitches_logged++ < 600)
+                    LOG_INFO("Present hitch: {:.0f} ms since the last present | game GPU work {:.1f} ms ({} command lists) | "
+                             "screen image wait {:.1f} ms | draw + present {:.1f} ms | idle before this loop {:.1f} ms | "
+                             "new game frame {} | game frames since the last present {}",
+                        gap / 1e6, (batches_end - loop_start) / 1e6, lists, acquire / 1e6,
+                        (present_end - batches_end) / 1e6 - acquire / 1e6, loop_start > last_present ? (loop_start - last_present) / 1e6 : 0.0,
+                        new_frame ? "yes" : "no", guest_frames - guest_frames_at_last);
+            }
+        } else {
+            window_start = present_end;
+            window_guest_frames_start = guest_frames;
+        }
+        window_presents++;
+        if (new_frame)
+            window_new_frames++;
+        if (present_end - window_start > 10000000000ULL) {
+            LOG_INFO("Presents in the last {:.1f} s: {} ({} with a new game frame, {} gaps over {} ms); the game made {} frames",
+                (present_end - window_start) / 1e9, window_presents, window_new_frames, window_hitches, hitch::HITCH_THRESHOLD_MS,
+                guest_frames - window_guest_frames_start);
+            window_start = present_end;
+            window_presents = 0;
+            window_new_frames = 0;
+            window_hitches = 0;
+            window_guest_frames_start = guest_frames;
+        }
+        last_present = present_end;
+        last_base = base;
+        guest_frames_at_last = guest_frames;
+    }
+};
 
 static void render_loop(renderer::State &state, DisplayState &display, GxmState &gxm, MemState &mem, Config &config) {
 #if defined(VITA3K_PLATFORM_IOS)
@@ -271,6 +325,7 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
 #if defined(VITA3K_PLATFORM_IOS)
     int thermal_qos = 0;
 #endif
+    PresentStats presents;
     while (!state.render_abort.load(std::memory_order_relaxed)) {
 #ifdef TRACY_ENABLE
         ZoneScopedN("Game rendering");
@@ -290,7 +345,10 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
         }
 #endif
 
+        const uint64_t loop_start = hitch::now_ns();
+        const uint64_t lists_before = hitch::command_lists.load(std::memory_order_relaxed);
         process_batches(state, state.features, mem, config, 500);
+        const uint64_t batches_end = hitch::now_ns();
 
         if (state.paused.load(std::memory_order_relaxed) && !config.current_config.v_sync)
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
@@ -312,9 +370,19 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
             }
         }
 
+        Address shown_base = 0;
+        {
+            std::lock_guard<std::mutex> guard(display.display_info_mutex);
+            shown_base = display.next_rendered_frame.base.address();
+        }
+        const uint64_t acquire_before = hitch::acquire_ns.load(std::memory_order_relaxed);
+        const uint64_t presents_before = hitch::screen_presents.load(std::memory_order_relaxed);
         state.render_frame(display, gxm, mem);
         state.swap_window();
         state.async_flip_requested.store(false, std::memory_order_relaxed);
+        if (hitch::screen_presents.load(std::memory_order_relaxed) != presents_before)
+            presents.on_present(loop_start, batches_end, hitch::now_ns(), hitch::command_lists.load(std::memory_order_relaxed) - lists_before,
+                hitch::acquire_ns.load(std::memory_order_relaxed) - acquire_before, shown_base);
 
 #ifdef TRACY_ENABLE
         FrameMark;
