@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.1.2",
+          "buildVersion": "88",
+          "date": "2026-11-06T12:16:05Z",
+          "localizedDescription": "### Fixes\n- Vita3K now hands the iPhone's audio back to other apps as soon as it leaves the screen, and takes it again when you return. It used to hold on to it until it was closed, which is the likely cause of videos not playing in other apps until a restart. If that still happens on this version, please report it with your iOS version and whether closing Vita3K from the app switcher fixes it.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.1.2.ipa` below.\n\nBuild 88, commit ae3a386.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.2/Vita3KiOS-1.1.2.ipa",
+          "size": 16562260,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.1.1",
           "buildVersion": "86",
           "date": "2026-11-06T01:21:05Z",
@@ -55,11 +64,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.1.1",
-      "versionDate": "2026-11-06T01:21:05Z",
-      "versionDescription": "### New\n- Licenses: add a game's work.bin / .rif or paste its zRIF from the + menu (License section). Licenses inside a zip or folder are picked up automatically.\n- Save data import from a modded Vita or another Vita3K, as a zip or a folder, in any of the usual layouts. The current save is backed up to Files › Vita3KiOS › Save Backups first.\n\n### Fixes\n- Pausing really stops the GPU: no more heat while paused, and no more game closing after you leave the app while paused.\n- The game pauses as soon as Vita3K leaves the screen, and GPU errors while off screen no longer close the game or change its settings.\n- No more app crash when the GPU fails while the screen turns, on unsupported coprocessor instructions, or on a damaged game heap.\n- Archive installer: zips made on Windows, damaged or incomplete archives, unsupported compression and full storage are handled with a clear message instead of a half-installed game.\n- Crash reports name the code behind a bad memory access.\n\n### Performance and battery\n- Shader compilation and the renderer step down when the phone is hot or in Low Power Mode.\n- Steadier frame pacing when the phone is warm.\n- Fewer stutters from log writes during play.\n- The screen can dim and lock while a game is paused.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.1.1.ipa` below.\n\nBuild 86, commit 5abaa93.",
-      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.1/Vita3KiOS-1.1.1.ipa",
-      "size": 16560938
+      "version": "1.1.2",
+      "versionDate": "2026-11-06T12:16:05Z",
+      "versionDescription": "### Fixes\n- Vita3K now hands the iPhone's audio back to other apps as soon as it leaves the screen, and takes it again when you return. It used to hold on to it until it was closed, which is the likely cause of videos not playing in other apps until a restart. If that still happens on this version, please report it with your iOS version and whether closing Vita3K from the app switcher fixes it.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.1.2.ipa` below.\n\nBuild 88, commit ae3a386.",
+      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.2/Vita3KiOS-1.1.2.ipa",
+      "size": 16562260
     }
   ]
 }
