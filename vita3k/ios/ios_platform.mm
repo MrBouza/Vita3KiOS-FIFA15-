@@ -170,11 +170,40 @@ void set_activity_callback(void (*callback)(bool active)) {
 
 // Straight from UIKit rather than through SDL's events, which reach the game loop a frame later at
 // best: the GPU is blocked before iOS starts refusing GPU work
+// Vita3K's audio session (Playback, 48 kHz, short buffers) stayed active from launch until the app
+// was killed, and with a debugger attached the app is not always suspended in the background. Other
+// apps then shared the audio hardware with an emulator that was no longer on screen; players reported
+// videos in other apps not playing until they restarted the phone. The session is now handed back
+// whenever Vita3K leaves the screen (telling the other apps they can resume), and taken again on
+// return. Deactivation fails while audio is still running, so it is tried again once Vita3K is in the
+// background (the game's audio device and the menu music have stopped by then).
+static std::atomic<bool> audio_session_released{ false };
+
+static void release_audio_session() {
+    if (audio_session_released)
+        return;
+    NSError *error = nil;
+    if ([AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error])
+        audio_session_released = true;
+}
+
+static void reclaim_audio_session() {
+    if (!audio_session_released.exchange(false))
+        return;
+    configure_audio_session();
+}
+
 static void set_app_active(bool active) {
     if (app_activity::gpu_allowed().exchange(active) == active)
         return;
+    // Back on screen: the audio session first, so the game's audio resumes into an active session
+    if (active)
+        reclaim_audio_session();
     if (auto callback = activity_callback.load())
         callback(active);
+    // Leaving: after the game has paused (its audio device stops with it)
+    if (!active)
+        release_audio_session();
 }
 
 void observe_app_state() {
@@ -194,6 +223,11 @@ void observe_app_state() {
                     usingBlock:^(NSNotification *) { in_background = true; }];
     [center addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:nil
                     usingBlock:^(NSNotification *) { in_background = false; }];
+    // Second try at handing back the audio session, once everything that plays has stopped
+    [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { release_audio_session(); }];
+    [center addObserverForName:UIApplicationWillTerminateNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { release_audio_session(); }];
 }
 
 bool app_in_background() {
