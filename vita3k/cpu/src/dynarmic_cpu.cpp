@@ -511,7 +511,17 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     // for up to a second while everything was compiled again. Its region is prepared on demand.
     constexpr std::size_t IOS_CODE_CACHE_SIZE = 16 * 1024 * 1024;
     constexpr std::size_t IOS_MAIN_THREAD_CODE_CACHE_SIZE = 128 * 1024 * 1024;
-    config.code_cache_size = large_code_cache ? IOS_MAIN_THREAD_CODE_CACHE_SIZE : IOS_CODE_CACHE_SIZE;
+    config.code_cache_size = IOS_CODE_CACHE_SIZE;
+    if (large_code_cache) {
+#if defined(__aarch64__)
+        // iOS 26+: only regions prepared at launch can be used (the JIT script is detached by then).
+        // The pool keeps one 128 MiB region; if it is missing or in use, fall back to 16 MiB.
+        if (!oaknut::detail::requires_universal_jit() || ios_jit_code_cache_pool_available(IOS_MAIN_THREAD_CODE_CACHE_SIZE) > 0)
+            config.code_cache_size = IOS_MAIN_THREAD_CODE_CACHE_SIZE;
+        else
+            LOG_WARN("No 128 MiB JIT region prepared for the main thread: using {} MiB", IOS_CODE_CACHE_SIZE / (1024 * 1024));
+#endif
+    }
 #endif
 
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)

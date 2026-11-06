@@ -69,6 +69,9 @@ constexpr std::size_t IOS_JIT_CACHE_SIZE = 16 * 1024 * 1024;
 // had 37 running within half a second of boot and asked for more). Memory is only used when a region
 // is taken, and the batched setup at launch takes about as long for 64 as for 32 (one request).
 constexpr std::size_t IOS_JIT_POOL_TARGET = 64;
+// One large cache for the game's main thread (see make_jit). The script is detached once the pool is
+// ready, so this region must be prepared here: it cannot be requested when the game starts.
+constexpr std::size_t IOS_JIT_MAIN_THREAD_CACHE_SIZE = 128 * 1024 * 1024;
 
 int os_major_version() {
     char version[32]{};
@@ -209,6 +212,9 @@ bool prepare_jit_pool() {
                 logger->flush();
             return false;
         }
+        // Not fatal: without it the main thread falls back to a 16 MiB cache
+        if (prewarm_ios_jit_code_cache_pool(1, IOS_JIT_MAIN_THREAD_CACHE_SIZE) < 1)
+            LOG_WARN("iOS JIT: the 128 MiB region for the main thread could not be prepared, it will use 16 MiB");
     } catch (const std::exception &error) {
         LOG_ERROR("iOS JIT region pool preparation failed: {}{}", error.what(),
             g_unhandled_universal_jit_breakpoint.load() ? " (no JIT script answered: use StikDebug's universal.js)" : "");
