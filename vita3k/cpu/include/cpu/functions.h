@@ -28,7 +28,8 @@
 
 struct MemState;
 
-CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem);
+// large_code_cache: on iOS, give this thread the largest JIT code cache (the game's main thread)
+CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem, bool large_code_cache = false);
 CPUStop run(CPUState &state);
 CPUStop step(CPUState &state);
 // Sets up a call of fn with args: the first four in r0 to r3, the rest on the stack, and the

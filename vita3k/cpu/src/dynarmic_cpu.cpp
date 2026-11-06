@@ -506,8 +506,12 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     // From Tsubomi: Vita3K owns one Dynarmic JIT per guest thread. On iOS 26+ each cache also has a
     // same-sized writable vm_remap alias, so the 128 MiB default scales poorly. 16 MiB stays above
     // Dynarmic's approximate 8 MiB minimum; the backend clears the cache when it fills up.
+    // The game's main thread gets the full 128 MiB: FIFA 15's runs more code than fits in 16 MiB, so
+    // its cache filled and was thrown away every 1-4 s in a match, each time freezing the game logic
+    // for up to a second while everything was compiled again. Its region is prepared on demand.
     constexpr std::size_t IOS_CODE_CACHE_SIZE = 16 * 1024 * 1024;
-    config.code_cache_size = IOS_CODE_CACHE_SIZE;
+    constexpr std::size_t IOS_MAIN_THREAD_CODE_CACHE_SIZE = 128 * 1024 * 1024;
+    config.code_cache_size = large_code_cache ? IOS_MAIN_THREAD_CODE_CACHE_SIZE : IOS_CODE_CACHE_SIZE;
 #endif
 
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
@@ -526,12 +530,13 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
 #endif
 }
 
-DynarmicCPU::DynarmicCPU(CPUState *state, std::size_t processor_id, bool cpu_opt)
+DynarmicCPU::DynarmicCPU(CPUState *state, std::size_t processor_id, bool cpu_opt, bool large_code_cache)
     : parent(state)
     , cb(std::make_unique<ArmDynarmicCallback>(*state, *this))
     , cp15(std::make_shared<ArmDynarmicCP15>())
     , core_id(processor_id)
-    , cpu_opt(cpu_opt) {
+    , cpu_opt(cpu_opt)
+    , large_code_cache(large_code_cache) {
     jit = make_jit();
 }
 

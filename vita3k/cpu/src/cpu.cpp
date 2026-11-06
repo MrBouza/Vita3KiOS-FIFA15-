@@ -31,7 +31,7 @@ static void delete_cpu_state(CPUState *state) {
     delete state;
 }
 
-CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem) {
+CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem, bool large_code_cache) {
     CPUStatePtr state(new CPUState(), delete_cpu_state);
     state->mem = &mem;
     state->thread_id = thread_id;
@@ -40,7 +40,7 @@ CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, M
         return CPUStatePtr();
     }
 
-    state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt);
+    state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt, large_code_cache);
 
     return state;
 }

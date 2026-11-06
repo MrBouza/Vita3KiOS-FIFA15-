@@ -182,7 +182,7 @@ bool KernelState::delete_callback(SceUID id, SceUID deleter) {
     return objects.remove<Callback>(id, deleter);
 }
 
-ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<const void> entry_point, int init_priority, SceInt32 affinity_mask, int stack_size, SceUInt32 attr) {
+ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<const void> entry_point, int init_priority, SceInt32 affinity_mask, int stack_size, SceUInt32 attr, bool large_code_cache) {
     const SceUID id = get_next_uid();
     int core_num = corenum_allocator.new_corenum();
     if (core_num < 0) {
@@ -195,14 +195,14 @@ ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<c
     // more threads alive than there are regions (Disgaea 3) used to bring the app down with an
     // uncaught bad_alloc: fail this one thread creation instead, as a Vita out of memory would.
     try {
-        cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
+        cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem, large_code_cache);
     } catch (const std::exception &e) {
         LOG_ERROR("Thread \"{}\" could not be created: no JIT memory left ({}). Too many threads are running at once.", name ? name : "", e.what());
         corenum_allocator.free_corenum(core_num);
         return nullptr;
     }
 #else
-    cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
+    cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem, large_code_cache);
 #endif
     if (!cpu) {
         corenum_allocator.free_corenum(core_num);

@@ -46,11 +46,12 @@ class DynarmicCPU : public CPUInterface {
     bool log_mem = false;
     bool log_code = false;
     bool cpu_opt;
+    bool large_code_cache;
 
     std::unique_ptr<Dynarmic::A32::Jit> make_jit();
 
 public:
-    DynarmicCPU(CPUState *state, std::size_t processor_id, bool cpu_opt);
+    DynarmicCPU(CPUState *state, std::size_t processor_id, bool cpu_opt, bool large_code_cache = false);
     ~DynarmicCPU() override;
     CPUStop run() override;
     CPUStop step() override;
