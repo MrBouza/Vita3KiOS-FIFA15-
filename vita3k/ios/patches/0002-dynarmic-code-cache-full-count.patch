@@ -1,13 +1,24 @@
 diff --git a/src/dynarmic/backend/arm64/a32_interface.cpp b/src/dynarmic/backend/arm64/a32_interface.cpp
-index 6b38c41..d1e2faa 100644
+index 6b38c41..147e669 100644
 --- a/src/dynarmic/backend/arm64/a32_interface.cpp
 +++ b/src/dynarmic/backend/arm64/a32_interface.cpp
-@@ -168,6 +168,10 @@ Jit::Jit(UserConfig conf)
+@@ -60,6 +60,10 @@ struct Jit::Impl final {
+         return hr;
+     }
+ 
++    std::uint64_t CodeCacheFullClears() const {
++        return current_address_space.cache_full_clears;
++    }
++
+     void ClearCache() {
+         std::unique_lock lock{invalidation_mutex};
+         invalidate_entire_cache = true;
+@@ -168,6 +172,10 @@ Jit::Jit(UserConfig conf)
  
  Jit::~Jit() = default;
  
 +std::uint64_t Jit::CodeCacheFullClears() const {
-+    return impl->current_address_space.cache_full_clears;
++    return impl->CodeCacheFullClears();
 +}
 +
  HaltReason Jit::Run() {
