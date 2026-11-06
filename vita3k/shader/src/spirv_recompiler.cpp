@@ -1885,9 +1885,14 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
                 b.addDecoration(out_var, spv::DecorationBuiltIn, spv::BuiltInPointSize);
                 b.createStore(o_val, out_var);
             } else if (vo == SCE_GXM_VERTEX_PROGRAM_OUTPUT_COLOR0 || vo == SCE_GXM_VERTEX_PROGRAM_OUTPUT_COLOR1) {
+                // Stored the way the Vita stores them: clamped (NaN to 0) and rounded to 8 bits per channel
+                // (No Heroes Allowed colours). From Vita3K-Plus (nckstwrt)
                 const spv::Id zero = utils::make_uniform_vector_from_type(b, out_type, 0.0f);
                 const spv::Id one = utils::make_uniform_vector_from_type(b, out_type, 1.0f);
-                o_val = b.createBuiltinCall(out_type, utils.std_builtins, GLSLstd450FClamp, { o_val, zero, one });
+                const spv::Id unorm8_max = utils::make_uniform_vector_from_type(b, out_type, 255.0f);
+                o_val = b.createBuiltinCall(out_type, utils.std_builtins, GLSLstd450NClamp, { o_val, zero, one });
+                o_val = b.createBuiltinCall(out_type, utils.std_builtins, GLSLstd450RoundEven, { b.createBinOp(spv::OpFMul, out_type, o_val, unorm8_max) });
+                o_val = b.createBinOp(spv::OpFDiv, out_type, o_val, unorm8_max);
                 b.createStore(o_val, out_var);
             } else {
                 b.createStore(o_val, out_var);

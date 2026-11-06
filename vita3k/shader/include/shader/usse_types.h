@@ -314,6 +314,7 @@ struct Operand {
     RegisterFlags flags{};
     Swizzle4 swizzle = SWIZZLE_CHANNEL_4_UNDEFINED;
     DataType type = DataType::F32;
+    uint8_t index_scale = 2;
 
     int index{ 0 };
 

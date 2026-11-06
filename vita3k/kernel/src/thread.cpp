@@ -74,7 +74,7 @@ ThreadState::ThreadState(SceUID id, KernelState &kernel, MemState &mem, CPUState
     , mem(mem)
     , priority(this->init_priority)
     , affinity_mask(affinity_mask) {
-    memset(stack.get_ptr<void>().get(mem), 0xcc, this->stack_size);
+    memset(stack.get_ptr<void>().get(mem), 0xff, this->stack_size);
     memset(tls.get_ptr<void>().get(mem), 0, KERNEL_TLS_SIZE + kernel.tls_msize);
 
     tls_slot(TLS_THREAD_ID) = id;

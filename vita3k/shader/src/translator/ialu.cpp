@@ -70,6 +70,10 @@ bool USSETranslatorVisitor::vbw(
     inst.opr.src2.type = type;
     inst.opr.dest.type = type;
 
+    inst.opr.src1.index_scale = 1;
+    inst.opr.src2.index_scale = 1;
+    inst.opr.dest.index_scale = 1;
+
     set_repeat_multiplier(1, 1, 1, 1);
 
     BEGIN_REPEAT(repeat_count)
