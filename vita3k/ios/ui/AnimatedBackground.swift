@@ -48,7 +48,9 @@ struct AnimatedBackground: View {
         let still = !animated || reduceMotion
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: still || !motion.active)) { timeline in
             let time = still ? 0 : timeline.date.timeIntervalSinceReferenceDate
-            Canvas { context, size in
+            // Opaque: the whole canvas is painted every frame, and an opaque surface skips the alpha
+            // blending that showed as a grid of magenta lines on one iPhone 13 Pro Max (iOS 27.2)
+            Canvas(opaque: true) { context, size in
                 draw(theme: theme, time: time, tilt: still ? .zero : motion.tilt, context: &context, size: size)
             }
         }
@@ -57,6 +59,8 @@ struct AnimatedBackground: View {
 
     private func draw(theme: AppTheme, time: Double, tilt: CGPoint, context: inout GraphicsContext, size: CGSize) {
         let rect = CGRect(origin: .zero, size: size)
+        // Nothing is drawn outside the screen (the light blobs are larger than it)
+        context.clip(to: Path(rect))
         context.fill(Path(rect), with: .linearGradient(Gradient(colors: theme.backgroundColors),
                                                        startPoint: .zero, endPoint: CGPoint(x: size.width, y: size.height)))
 
