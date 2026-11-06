@@ -206,6 +206,12 @@ static void set_app_active(bool active) {
         release_audio_session();
 }
 
+static std::atomic<unsigned> memory_warnings{ 0 };
+
+unsigned memory_warning_count() {
+    return memory_warnings.load();
+}
+
 void observe_app_state() {
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     thermal::keep_cool() = keep_cool_enabled();
@@ -228,6 +234,9 @@ void observe_app_state() {
                     usingBlock:^(NSNotification *) { release_audio_session(); }];
     [center addObserverForName:UIApplicationWillTerminateNotification object:nil queue:nil
                     usingBlock:^(NSNotification *) { release_audio_session(); }];
+    // iOS warns before it closes an app for memory: counted, logged by the game watchdog
+    [center addObserverForName:UIApplicationDidReceiveMemoryWarningNotification object:nil queue:nil
+                    usingBlock:^(NSNotification *) { memory_warnings++; }];
 }
 
 bool app_in_background() {

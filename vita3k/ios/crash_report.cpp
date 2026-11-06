@@ -26,6 +26,7 @@
 
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <exception>
@@ -51,6 +52,10 @@ namespace {
 std::array<char, 1024> g_report_path{};
 std::array<char, 1024> g_marker_path{};
 std::array<char, 256> g_current_game{};
+std::array<char, 16> g_state{};
+// Last memory/frame-rate check of the running game: if iOS closes the app without a crash
+// (memory, a hang), the next launch logs it, so the log a user sends shows why
+std::string g_detail;
 std::string g_folder;
 std::string g_previous_report;
 std::string g_unreported_end;
@@ -66,9 +71,11 @@ std::string read_file(const fs::path &path) {
 void write_marker(const char *state) {
     if (!g_marker_path[0] || !g_current_game[0])
         return;
+    std::snprintf(g_state.data(), g_state.size(), "%s", state);
     std::ofstream marker(g_marker_path.data(), std::ios::trunc);
     marker << state << '\n'
-           << g_current_game.data() << '\n';
+           << g_current_game.data() << '\n'
+           << g_detail << '\n';
 }
 
 void safe_write(int fd, const char *text) {
@@ -140,13 +147,22 @@ void init(const std::string &folder) {
         text = read_file(report);
     } else if (had_marker) {
         std::ifstream file(marker);
-        std::string state, game;
+        std::string state, game, detail;
         std::getline(file, state);
         std::getline(file, game);
-        // No crash was recorded: the app was closed from the app switcher, or iOS closed it (memory).
+        std::getline(file, detail);
+        // No crash was recorded: the app was closed from the app switcher, or iOS closed it (memory, a hang).
         // That isn't worth interrupting anyone for: it is only written to the log.
         g_unreported_end = "The last session of " + (game.empty() ? std::string("a game") : game)
             + " ended without a crash (closed from the app switcher, or by iOS, e.g. for memory; state: " + state + ")";
+        if (!detail.empty()) {
+            g_unreported_end += ". Last check before it ended: " + detail;
+            const long mib_left = std::strtol(detail.c_str(), nullptr, 10);
+            if (state == "foreground" && (detail.find("memory warning") != std::string::npos || (mib_left > 0 && mib_left < 400)))
+                g_unreported_end += ". Most likely iOS closed it for using too much memory";
+            else if (state == "foreground" && detail.find("no new frame") != std::string::npos)
+                g_unreported_end += ". The game had frozen; iOS (or the user) closed it";
+        }
     }
     g_previous_report = text;
 
@@ -168,7 +184,14 @@ void install_terminate_handler() {
 void session_started(const std::string &title_id, const std::string &title) {
     const std::lock_guard<std::mutex> guard(g_mutex);
     std::snprintf(g_current_game.data(), g_current_game.size(), "%s (%s)", title.c_str(), title_id.c_str());
+    g_detail.clear();
     write_marker("foreground");
+}
+
+void session_status(const std::string &detail) {
+    const std::lock_guard<std::mutex> guard(g_mutex);
+    g_detail = detail;
+    write_marker(g_state[0] ? g_state.data() : "foreground");
 }
 
 void session_backgrounded(bool background) {
@@ -182,6 +205,8 @@ void session_ended() {
     if (g_marker_path[0])
         fs::remove(g_marker_path.data(), ec);
     g_current_game[0] = '\0';
+    g_state[0] = '\0';
+    g_detail.clear();
 }
 
 void write_signal(int sig, uintptr_t pc, const char *image, uintptr_t offset, uintptr_t fault_addr) {

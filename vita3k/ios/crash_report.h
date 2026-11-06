@@ -36,6 +36,9 @@ void install_terminate_handler();
 
 void session_started(const std::string &title_id, const std::string &title);
 void session_backgrounded(bool background);
+// Last health check of the running game (memory left, frame rate, warnings), logged on the next
+// launch if the session ends without a crash report
+void session_status(const std::string &detail);
 void session_ended();
 
 // Async-signal-safe: appends a crash entry with a backtrace of the crashing thread

@@ -202,6 +202,14 @@ int main(int argc, char *argv[]) {
             uint64_t frames_at_memory_log = last_frames;
             bool stall_logged = false;
             bool background = false;
+            unsigned memory_warnings = ios::memory_warning_count();
+            bool warned_about_memory = false;
+            const auto record_status = [&](double fps) {
+                ios::crash::session_status(fmt::format("{} MiB of memory left{}{}{}{}",
+                    os_proc_available_memory() / (1024 * 1024), fps >= 0.0 ? fmt::format(", {:.1f} FPS", fps) : std::string(), stall_logged ? ", no new frame for 8+ seconds" : "",
+                    warned_about_memory ? ", iOS memory warning" : "",
+                    thermal::phone_is_hot() ? ", phone hot" : ""));
+            };
             while (!session_over.load()) {
                 std::this_thread::sleep_for(500ms);
                 const auto now = std::chrono::steady_clock::now();
@@ -223,6 +231,13 @@ int main(int argc, char *argv[]) {
                     LOG_WARN("Watchdog: no new frame for 8 seconds (the game may be frozen). {} MiB of memory left",
                         os_proc_available_memory() / (1024 * 1024));
                     stall_logged = true;
+                    record_status(-1.0);
+                }
+                if (ios::memory_warning_count() != memory_warnings) {
+                    LOG_WARN("Watchdog: iOS warned that memory is low, {} MiB left", os_proc_available_memory() / (1024 * 1024));
+                    memory_warnings = ios::memory_warning_count();
+                    warned_about_memory = true;
+                    record_status(-1.0);
                 }
                 if (now - last_memory_log > 10s) {
                     // Average frame rate over the last 10 seconds, so a log shows how a game ran
@@ -231,6 +246,7 @@ int main(int argc, char *argv[]) {
                     LOG_INFO("Watchdog: {} MiB of memory left, {:.1f} FPS{}{}{}", os_proc_available_memory() / (1024 * 1024), fps,
                         session_paused() ? " (paused)" : "", thermal::phone_is_hot() ? ", phone hot" : "",
                         thermal::low_power_mode() ? ", Low Power Mode" : "");
+                    record_status(fps);
                     last_memory_log = now;
                     frames_at_memory_log = last_frames;
                 }

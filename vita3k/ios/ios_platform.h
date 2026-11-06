@@ -49,6 +49,8 @@ void set_screen_always_on(bool on);
 // Tracks whether the app is in the background (call observe_app_state once at startup)
 void observe_app_state();
 bool app_in_background();
+// How many times iOS has warned that memory is low since launch
+unsigned memory_warning_count();
 // Called on the main thread when the app stops being active (home screen, app switcher, Control
 // Center, a call) and when it is active again. The GPU is already blocked/unblocked by then.
 void set_activity_callback(void (*callback)(bool active));
