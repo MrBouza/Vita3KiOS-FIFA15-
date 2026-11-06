@@ -17,6 +17,7 @@
 
 #include "crash_report.h"
 
+#include <config/version.h>
 #include <mem/functions.h>
 
 #include <util/log.h>
@@ -194,6 +195,10 @@ void write_signal(int sig, uintptr_t pc, const char *image, uintptr_t offset, ui
         safe_write(fd, " while running ");
         safe_write(fd, g_current_game.data());
     }
+    // Which build wrote this: reports get passed around long after the crash (and an old
+    // last-crash-report.txt was once taken for one of a newer build)
+    safe_write(fd, "\nBuild: ");
+    safe_write(fd, window_title);
     safe_write(fd, "\n\nSignal: ");
     safe_write(fd, signal_name(sig));
     safe_write(fd, "\nPC: ");

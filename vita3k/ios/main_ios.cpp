@@ -193,9 +193,12 @@ int main(int argc, char *argv[]) {
         std::atomic_bool session_over{ false };
         std::thread watchdog([emuenv, &session_over] {
             using namespace std::chrono_literals;
-            size_t last_frames = emuenv->frame_count;
+            // (display.frames_set counts every frame shown since boot; emuenv->frame_count is reset to 0
+            // every second by the FPS counter, so it was no measure of progress or speed)
+            uint64_t last_frames = emuenv->display.frames_set.load();
             auto last_progress = std::chrono::steady_clock::now();
             auto last_memory_log = last_progress;
+            uint64_t frames_at_memory_log = last_frames;
             bool stall_logged = false;
             bool background = false;
             while (!session_over.load()) {
@@ -205,8 +208,9 @@ int main(int argc, char *argv[]) {
                     background = !background;
                     ios::crash::session_backgrounded(background);
                 }
-                if (emuenv->frame_count != last_frames) {
-                    last_frames = emuenv->frame_count;
+                const uint64_t frames = emuenv->display.frames_set.load();
+                if (frames != last_frames) {
+                    last_frames = frames;
                     last_progress = now;
                     if (stall_logged)
                         LOG_INFO("Watchdog: the game is presenting frames again");
@@ -220,9 +224,14 @@ int main(int argc, char *argv[]) {
                     stall_logged = true;
                 }
                 if (now - last_memory_log > 10s) {
-                    LOG_INFO("Watchdog: {} MiB of memory left, {} frames{}{}", os_proc_available_memory() / (1024 * 1024), last_frames,
-                        thermal::phone_is_hot() ? ", phone hot" : "", thermal::low_power_mode() ? ", Low Power Mode" : "");
+                    // Average frame rate over the last 10 seconds, so a log shows how a game ran
+                    const double seconds = std::chrono::duration<double>(now - last_memory_log).count();
+                    const double fps = static_cast<double>(last_frames - frames_at_memory_log) / seconds;
+                    LOG_INFO("Watchdog: {} MiB of memory left, {:.1f} FPS{}{}{}", os_proc_available_memory() / (1024 * 1024), fps,
+                        session_paused() ? " (paused)" : "", thermal::phone_is_hot() ? ", phone hot" : "",
+                        thermal::low_power_mode() ? ", Low Power Mode" : "");
                     last_memory_log = now;
+                    frames_at_memory_log = last_frames;
                 }
                 const uint64_t quit_at = v3k_pad_quit_requested_ms();
                 const uint64_t now_ms = v3k_pad_now_ms();
