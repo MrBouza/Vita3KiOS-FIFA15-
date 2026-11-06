@@ -191,6 +191,37 @@ static void end_of_frame(hitch::ThreadImports &imports, SceUID thread_id, uint32
     imports.reset_frame();
 }
 
+// Stutter diagnostics per thread: the screen gets 60 new frames a second while the picture still
+// freezes, so a game thread other than the render thread must be stalling. For busy threads (at least
+// STALL_MIN_CALLS imports in the previous second), log any import that blocks longer than
+// STALL_THRESHOLD_MS and any stretch of game code that long without an import.
+constexpr uint64_t STALL_THRESHOLD_MS = 100;
+constexpr uint32_t STALL_MIN_CALLS = 120;
+
+struct StallWatch {
+    uint64_t last_return = 0;
+    uint64_t faults_at_return = 0;
+    uint64_t window_start = 0;
+    uint32_t window_calls = 0;
+    uint32_t previous_calls = 0;
+    uint32_t logged = 0;
+    std::string name;
+};
+
+static std::atomic<uint32_t> stalls_logged{ 0 };
+
+static bool may_log_stall(StallWatch &watch) {
+    return watch.previous_calls >= STALL_MIN_CALLS && watch.logged < 200 && stalls_logged.load(std::memory_order_relaxed) < 2000;
+}
+
+static const std::string &thread_name(StallWatch &watch, EmuEnvState &emuenv, SceUID thread_id) {
+    if (watch.name.empty()) {
+        const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+        watch.name = thread ? thread->name : "?";
+    }
+    return watch.name;
+}
+
 void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread_id) {
     // HLE - call our C++ function
     if (emuenv.kernel.debugger.watch_import_calls) {
@@ -208,8 +239,30 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
     if (fn) {
         const uint32_t caller = read_lr(cpu);
         const uint64_t start = hitch::now_ns();
+        thread_local StallWatch watch;
+        if (start - watch.window_start > 1000000000ULL) {
+            watch.previous_calls = watch.window_calls;
+            watch.window_calls = 0;
+            watch.window_start = start;
+        }
+        watch.window_calls++;
+        if (watch.last_return && start - watch.last_return > STALL_THRESHOLD_MS * 1000000 && may_log_stall(watch)) {
+            watch.logged++;
+            stalls_logged.fetch_add(1, std::memory_order_relaxed);
+            LOG_INFO("Stall: thread {} ({}) ran game code for {:.0f} ms without an import, then called {} from 0x{:X}; memory faults meanwhile {}",
+                thread_id, thread_name(watch, emuenv, thread_id), (start - watch.last_return) / 1e6, hitch::name_of(nid), caller,
+                hitch::faults.load(std::memory_order_relaxed) - watch.faults_at_return);
+        }
         (*fn)(emuenv, cpu, thread_id);
         const uint64_t elapsed = hitch::now_ns() - start;
+        if (elapsed > STALL_THRESHOLD_MS * 1000000 && may_log_stall(watch)) {
+            watch.logged++;
+            stalls_logged.fetch_add(1, std::memory_order_relaxed);
+            LOG_INFO("Stall: thread {} ({}) waited {:.0f} ms in {} called from 0x{:X} (-> 0x{:X})",
+                thread_id, thread_name(watch, emuenv, thread_id), elapsed / 1e6, hitch::name_of(nid), caller, read_reg(cpu, 0));
+        }
+        watch.last_return = hitch::now_ns();
+        watch.faults_at_return = hitch::faults.load(std::memory_order_relaxed);
         hitch::ThreadImports &imports = hitch::this_thread_imports();
         imports.add({ .nid = nid, .ret = read_reg(cpu, 0), .lr = caller, .us = static_cast<uint32_t>(std::min<uint64_t>(elapsed / 1000, UINT32_MAX)) });
         if (nid == NID_SCE_DISPLAY_SET_FRAME_BUF)
