@@ -887,6 +887,11 @@ static uint32_t metal_attribute_read_size(const SceGxmVertexAttribute &attribute
     return std::max(size, 1u);
 }
 
+bool metal_realign_aligned_streams() {
+    const char *env = getenv("V3K_VERTEX_REALIGN");
+    return !(env && env[0] == '0');
+}
+
 MetalStreamLayout metal_stream_layout(const SceGxmVertexProgram &program, uint32_t stream_index) {
     MetalStreamLayout layout;
     const SceGxmVertexStream &stream = program.streams[stream_index];
@@ -894,11 +899,14 @@ MetalStreamLayout metal_stream_layout(const SceGxmVertexProgram &program, uint32
     layout.stride = align(stream.stride, 4);
     const VertexProgram *vkvert = program.renderer_data.get();
 
-    // Only streams whose stride is not a multiple of 4 are rebuilt: they are copied on the CPU for
-    // every draw anyway (Metal strides must be multiples of 4). Their attributes also get aligned
-    // offsets there. Streams with a valid stride keep reading the game's memory directly, as before
-    // (copying all of them made Persona 4 Golden's 3D scenes disappear).
-    if (stream.stride % 4 == 0)
+    // Metal reads vertex attributes only at offsets that are multiples of 4 (Vulkan and the Vita allow
+    // any offset): an attribute at offset 6 or 18 (normals, UVs and bone weights after a 3-component
+    // position) was read from the wrong bytes, and character models came out bent or broken. Streams
+    // with such an attribute are copied with every attribute in an aligned slot. Streams whose
+    // attributes are all aligned keep reading the game's memory directly (copying every stream made
+    // Persona 4 Golden's 3D scenes disappear). Odd strides are always copied (Metal strides must be
+    // multiples of 4), with aligned slots when an attribute needs one.
+    if (stream.stride % 4 == 0 && !metal_realign_aligned_streams())
         return layout;
     bool misaligned = false;
     for (uint32_t i = 0; i < program.attributes.size(); i++) {

@@ -2031,6 +2031,17 @@ static SpirvCode convert_gxp_to_spirv_impl(const SceGxmProgram &program, const s
         // core in spv 1.3
         b.addExtension("SPV_KHR_storage_buffer_storage_class");
 
+#ifdef __APPLE__
+    // Vertex shaders keep Metal's precise math (MoltenVK fast math is "on demand", see renderer.cpp):
+    // fast math (no NaN or infinity, approximate reciprocals and functions, reordered sums) bends
+    // skinned character models. Fragment shaders, where nearly all the GPU time goes, stay fast.
+    if (translation_state.is_vulkan && program_type == SceGxmProgramType::Vertex) {
+        b.addExtension("SPV_KHR_float_controls");
+        b.addCapability(spv::CapabilitySignedZeroInfNanPreserve);
+        b.addExecutionMode(spv_func_main, spv::ExecutionModeSignedZeroInfNanPreserve, 32);
+    }
+#endif
+
     // Lock/unlock and read texel for shader interlock. Texture barrier will have glTextureBarrier() called so we don't
     // have to worry too much. Texture barrier will not be accurate and may be broken though.
     if (program_type == SceGxmProgramType::Fragment) {

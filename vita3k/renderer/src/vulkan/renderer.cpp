@@ -518,11 +518,13 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         // MoltenVK keeps the Metal source of every shader in memory for its pipeline cache; compressed
         // (LZFSE) it takes a fraction of the space, which adds up over hundreds of shaders
         const int32_t shader_compression = 1;
-        // Metal fast math is on by default; a game can ask for precise math (per-game setting on iOS,
-        // passed as V3K_PRECISE_SHADER_MATH) when it relies on exact results, e.g. for its lighting
+        // Metal fast math "on demand" (MVK_CONFIG_FAST_MATH_ON_DEMAND): fragment shaders use it, vertex
+        // shaders ask for precise math themselves (SignedZeroInfNanPreserve, see spirv_recompiler.cpp) so
+        // character models are not bent. A game can ask for precise math everywhere (per-game setting on
+        // iOS, passed as V3K_PRECISE_SHADER_MATH) when it relies on exact results, e.g. for its lighting
         const char *precise_env = getenv("V3K_PRECISE_SHADER_MATH");
         const bool precise_math = precise_env && precise_env[0] == '1';
-        const int32_t fast_math = precise_math ? 0 : 1;
+        const int32_t fast_math = precise_math ? 0 : 2;
         if (precise_math)
             LOG_INFO("Precise shader math (Metal fast math off)");
 #ifndef NDEBUG

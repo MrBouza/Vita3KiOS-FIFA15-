@@ -320,6 +320,11 @@ int main(int argc, char *argv[]) {
         thermal::keep_cool() = ios::keep_cool_enabled();
         // Accurate CPU, for games whose fix asks for it (game fixes list: accurate-cpu=on)
         set_ios_accurate_cpu(v3k_game_fix_flag(title_id.c_str(), "accurate-cpu") == 1);
+        // Read when the renderer starts: vertex attribute realignment for Metal (on unless a game's fix
+        // says vertex-realign=off) and precise shader math (a fix can ask for it: precise-math=on)
+        setenv("V3K_VERTEX_REALIGN", v3k_game_fix_flag(title_id.c_str(), "vertex-realign") == 0 ? "0" : "1", 1);
+        if (v3k_game_fix_flag(title_id.c_str(), "precise-math") == 1)
+            setenv("V3K_PRECISE_SHADER_MATH", "1", 1);
         const bool mapping_was_on = v3k_game_uses_memory_mapping(title_id.c_str());
         const bool async_was_on = v3k_game_uses_async_shaders(title_id.c_str());
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);

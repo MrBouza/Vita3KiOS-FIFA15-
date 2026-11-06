@@ -134,7 +134,8 @@ void restride_stream(const uint8_t *&stream, uint32_t &size, uint32_t stride) {
 // attribute sizes of regformat inputs.
 static const MetalStreamLayout &cached_metal_layout(const SceGxmVertexProgram &program, int stream) {
     static thread_local std::unordered_map<uint64_t, MetalStreamLayout> cache;
-    const uint64_t key = (program.key_hash ^ (static_cast<uint64_t>(program.program.address()) * 0x9E3779B97F4A7C15ULL)) * 31 + static_cast<uint64_t>(stream);
+    const uint64_t key = ((program.key_hash ^ (static_cast<uint64_t>(program.program.address()) * 0x9E3779B97F4A7C15ULL)) * 31 + static_cast<uint64_t>(stream)) * 2
+        + (metal_realign_aligned_streams() ? 1 : 0);
     auto it = cache.find(key);
     if (it == cache.end()) {
         if (cache.size() > 4096)
@@ -355,14 +356,14 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
             bool read_from_mapping = context.state.features.enable_memory_mapping;
 #ifdef __APPLE__
             // Vulkan allows any stride and offset, but Metal only allows multiples of 4: copy those streams
-            // Odd strides are copied with the stride rounded up to 4; when their attributes sit at
-            // unaligned offsets too, the copy gives each attribute an aligned slot (metal_stream_layout)
+            // Odd strides are copied with the stride rounded up to 4; when attributes sit at unaligned
+            // offsets, the copy gives each attribute an aligned slot (metal_stream_layout)
             const MetalStreamLayout &metal_layout = cached_metal_layout(vertex_program, i);
             const bool restride = vertex_program.streams[i].stride % 4 != 0 && !metal_layout.repack;
             if (restride || metal_layout.repack || (state.vertex_streams[i].data.address() & 3) != 0)
                 read_from_mapping = false;
             if (metal_layout.repack)
-                LOG_INFO_ONCE("Realigning vertex attributes of odd-stride streams for Metal (stride {} -> {})", metal_layout.src_stride, metal_layout.stride);
+                LOG_INFO_ONCE("Realigning vertex attributes for Metal (stride {} -> {})", metal_layout.src_stride, metal_layout.stride);
 #endif
             if (read_from_mapping) {
                 auto [buffer, offset] = context.state.get_matching_mapping(state.vertex_streams[i].data.cast<void>());

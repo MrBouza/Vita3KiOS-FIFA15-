@@ -306,7 +306,7 @@ struct GameSettingsView: View {
             })) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Precise shader math")
-                    Text("Turns off Metal's fast math for this game. Try it when lighting or effects look too bright or flicker; a little slower.")
+                    Text("Character models always use precise math. This also turns off fast math for lighting and effects: try it when they look too bright or flicker. A little slower.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

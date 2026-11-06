@@ -310,8 +310,8 @@ static bool apply_fix_setting(Config::CurrentConfig &cc, const std::string &key,
         cc.fps_hack = on;
     else if (key == "cpu-opt")
         cc.cpu_opt = on;
-    else if (key == "fast-cpu" || key == "accurate-cpu") {
-        // CPU modes, read at launch (v3k_game_fix_flag)
+    else if (key == "fast-cpu" || key == "accurate-cpu" || key == "vertex-realign" || key == "precise-math") {
+        // CPU modes and renderer switches, read at launch (v3k_game_fix_flag)
     } else if (key == "v-sync")
         cc.v_sync = on;
     else if (key == "stretch")

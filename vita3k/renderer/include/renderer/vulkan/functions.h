@@ -76,6 +76,9 @@ struct MetalStreamLayout {
     std::vector<MetalVertexSlot> slots; // only when repack
 };
 MetalStreamLayout metal_stream_layout(const SceGxmVertexProgram &program, uint32_t stream_index);
+// Whether attributes at unaligned offsets in streams with a valid stride are realigned too (on unless a
+// game's fix says vertex-realign=off, passed as V3K_VERTEX_REALIGN)
+bool metal_realign_aligned_streams();
 // Offset of an attribute in the stream as bound (its slot when repacked)
 uint32_t metal_attribute_offset(const MetalStreamLayout &layout, uint32_t attribute_index, uint32_t original_offset);
 // Copies a stream into the repacked layout
