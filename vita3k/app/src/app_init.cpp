@@ -396,9 +396,6 @@ static void apply_required_game_settings(EmuEnvState &emuenv, const std::string 
         cc.cpu_opt = true;
         LOG_WARN("{}: CPU optimisations stay on for this game (off, it runs at about 21 FPS)", app_path);
     }
-    // FSR cannot run on iOS (the screen is not an RGBA8 storage image): use the default filter
-    if (cc.screen_filter == "FSR")
-        cc.screen_filter = "Bilinear";
 }
 #endif
 

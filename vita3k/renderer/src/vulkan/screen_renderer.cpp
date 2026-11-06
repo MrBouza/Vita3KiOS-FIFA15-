@@ -165,7 +165,6 @@ bool ScreenRenderer::setup() {
 
     for (const auto &format : surface_formats) {
         // actually we don't care that much because we will just be copying what the game rendered
-        // Prefer RGBA8 because the FSR storage-image shader has an rgba8 format qualifier.
         if (format.format == vk::Format::eR8G8B8A8Unorm
             && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
             surface_format = format;
@@ -251,15 +250,10 @@ void ScreenRenderer::create_swapchain() {
     // Create Swapchain
     {
         vk::ImageUsageFlags surface_usage = vk::ImageUsageFlagBits::eColorAttachment;
-        vk::ImageUsageFlags fsr_flags = vk::ImageUsageFlagBits::eTransferDst;
-        if (!state.is_adreno_turnip)
-            // workaround for a Turnip driver bug: adding storage flag here breaks the swapchain
-            // and fsr works fine without this flag on Adreno
-            fsr_flags |= vk::ImageUsageFlagBits::eStorage;
-
-        if (surface_capabilities.supportedUsageFlags & vk::ImageUsageFlagBits::eStorage)
-            // needed for FSR
-            surface_usage |= fsr_flags;
+        // FSR clears the swapchain image and blits its result into it (it no longer writes the
+        // swapchain as a storage image, which Metal cannot do)
+        if (surface_capabilities.supportedUsageFlags & vk::ImageUsageFlagBits::eTransferDst)
+            surface_usage |= vk::ImageUsageFlagBits::eTransferDst;
 
         vk::CompositeAlphaFlagBitsKHR comp_alpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
         if (!(surface_capabilities.supportedCompositeAlpha & comp_alpha))
@@ -627,9 +621,8 @@ void ScreenRenderer::set_filter(const std::string_view &filter) {
 
     this->filter.reset();
     if (filter == "FSR") {
-        if (surface_format.format != vk::Format::eR8G8B8A8Unorm) {
-            // The FSR shaders write to an rgba8 storage image, which must match the swapchain format.
-            LOG_WARN("FSR requires an RGBA8 swapchain format, falling back to bilinear filtering.");
+        if (!state.support_fsr) {
+            LOG_WARN("FSR is not supported here, falling back to bilinear filtering.");
             this->filter = std::make_unique<BilinearScreenFilter>(*this);
         } else
             this->filter = std::make_unique<FSRScreenFilter>(*this);
