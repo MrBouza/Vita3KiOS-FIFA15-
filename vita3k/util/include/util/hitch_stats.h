@@ -40,9 +40,8 @@ namespace hitch {
 constexpr uint64_t HITCH_THRESHOLD_MS = 50;
 
 inline uint64_t now_ns() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::steady_clock::now().time_since_epoch())
-                                     .count());
+    const auto since_epoch = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch).count());
 }
 
 // Global counters, read and reset by the frame logger (any thread may add to them)
