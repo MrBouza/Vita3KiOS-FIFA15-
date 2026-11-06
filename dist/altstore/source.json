@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.1.1",
+          "buildVersion": "86",
+          "date": "2026-11-06T01:21:05Z",
+          "localizedDescription": "### New\n- Licenses: add a game's work.bin / .rif or paste its zRIF from the + menu (License section). Licenses inside a zip or folder are picked up automatically.\n- Save data import from a modded Vita or another Vita3K, as a zip or a folder, in any of the usual layouts. The current save is backed up to Files › Vita3KiOS › Save Backups first.\n\n### Fixes\n- Pausing really stops the GPU: no more heat while paused, and no more game closing after you leave the app while paused.\n- The game pauses as soon as Vita3K leaves the screen, and GPU errors while off screen no longer close the game or change its settings.\n- No more app crash when the GPU fails while the screen turns, on unsupported coprocessor instructions, or on a damaged game heap.\n- Archive installer: zips made on Windows, damaged or incomplete archives, unsupported compression and full storage are handled with a clear message instead of a half-installed game.\n- Crash reports name the code behind a bad memory access.\n\n### Performance and battery\n- Shader compilation and the renderer step down when the phone is hot or in Low Power Mode.\n- Steadier frame pacing when the phone is warm.\n- Fewer stutters from log writes during play.\n- The screen can dim and lock while a game is paused.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.1.1.ipa` below.\n\nBuild 86, commit 5abaa93.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.1/Vita3KiOS-1.1.1.ipa",
+          "size": 16560938,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.1.0",
           "buildVersion": "76",
           "date": "2026-11-04T09:46:28Z",
@@ -46,11 +55,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.1.0",
-      "versionDate": "2026-11-04T09:46:28Z",
-      "versionDescription": "## Vita3KiOS 1.1.0\n\n**New**\n- Pause button, and Pause/Resume in the game menu. The game menu pauses the game while it is open.\n- Memory mapping choice: Double buffer, Native buffer or Off (Settings › Graphics and per game).\n- Portrait mode: games start in landscape and turn upright once they are on screen.\n- Keep the phone cool (Settings › Performance, on by default).\n- Darker touch controls.\n\n**Fixes**\n- No crash after leaving the app for a while: nothing is drawn while paused or in the background.\n- Games no longer freeze when the phone is turned, and Quit no longer hangs or writes false crash reports.\n- Fewer GPU failures at boot. A damaged shader cache no longer stops a game from starting.\n- Textures and buffers no longer go stale with Native buffer (stray shapes, missing stadium stands in Madden NFL 13).\n- Textures cut from game-drawn images are read from the right place.\n- No crash when Metal cannot build a shader (One Piece Burning Blood).\n- Dead or Alive 5 Plus and other thread-heavy games: room for 64 game threads.\n- Madden NFL 13: surface sync works with Native buffer (recommended settings). No crash with surface sync and high accuracy.\n\n**Smoother**\n- Shader cache saves run in the background instead of hitching a frame.\n- Bigger texture cache, so fewer reloads.\n- Faster shader cache loading.\n- Lower GPU overhead per frame.\n\nKnown issue: Madden NFL 13 player faces still render deformed.",
-      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.0/Vita3KiOS-1.1.0.ipa",
-      "size": 16532038
+      "version": "1.1.1",
+      "versionDate": "2026-11-06T01:21:05Z",
+      "versionDescription": "### New\n- Licenses: add a game's work.bin / .rif or paste its zRIF from the + menu (License section). Licenses inside a zip or folder are picked up automatically.\n- Save data import from a modded Vita or another Vita3K, as a zip or a folder, in any of the usual layouts. The current save is backed up to Files › Vita3KiOS › Save Backups first.\n\n### Fixes\n- Pausing really stops the GPU: no more heat while paused, and no more game closing after you leave the app while paused.\n- The game pauses as soon as Vita3K leaves the screen, and GPU errors while off screen no longer close the game or change its settings.\n- No more app crash when the GPU fails while the screen turns, on unsupported coprocessor instructions, or on a damaged game heap.\n- Archive installer: zips made on Windows, damaged or incomplete archives, unsupported compression and full storage are handled with a clear message instead of a half-installed game.\n- Crash reports name the code behind a bad memory access.\n\n### Performance and battery\n- Shader compilation and the renderer step down when the phone is hot or in Low Power Mode.\n- Steadier frame pacing when the phone is warm.\n- Fewer stutters from log writes during play.\n- The screen can dim and lock while a game is paused.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.1.1.ipa` below.\n\nBuild 86, commit 5abaa93.",
+      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.1/Vita3KiOS-1.1.1.ipa",
+      "size": 16560938
     }
   ]
 }
