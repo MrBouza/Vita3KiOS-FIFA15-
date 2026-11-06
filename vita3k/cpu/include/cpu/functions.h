@@ -54,6 +54,9 @@ CPUContext save_context(CPUState &state);
 void load_context(CPUState &state, const CPUContext &ctx);
 std::size_t get_processor_id(CPUState &state);
 void invalidate_jit_cache(CPUState &state, Address start, size_t length);
+// iOS: a thread whose JIT code cache filled up moves to a large one (see DynarmicCPU). Returns the new
+// size in MiB, 0 if nothing changed. Only while the thread is not running guest code.
+std::size_t upgrade_code_cache_if_full(CPUState &state);
 
 uint32_t read_fpscr(CPUState &state);
 void write_fpscr(CPUState &state, uint32_t value);
@@ -86,6 +89,9 @@ std::size_t prewarm_ios_jit_code_cache_pool(std::size_t target_count, std::size_
 std::size_t ios_jit_code_cache_pool_progress();
 // Prepared code caches currently free in the pool
 std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size);
+// Large code caches, prepared at launch for threads whose 16 MiB cache fills up
+constexpr std::size_t IOS_LARGE_CODE_CACHE_SIZE = 128 * 1024 * 1024;
+constexpr std::size_t IOS_LARGE_CODE_CACHE_COUNT = 3;
 #endif
 #if defined(VITA3K_PLATFORM_IOS)
 // "Fast CPU": lets the recompiler take floating-point shortcuts (NaN handling, reciprocal precision,

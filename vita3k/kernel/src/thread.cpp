@@ -273,6 +273,12 @@ std::optional<uint32_t> ThreadState::run_guest(std::unique_lock<std::mutex> &loc
             if (cpu->abort_pending.exchange(false))
                 dispatch_abort();
             lock.lock();
+#if defined(VITA3K_PLATFORM_IOS)
+            // Between runs, under the thread's lock (no stop() on the JIT being replaced): a thread
+            // whose JIT code cache filled up moves to a large one
+            if (const std::size_t mib = upgrade_code_cache_if_full(*cpu))
+                LOG_INFO("Thread {} ({}) filled its JIT code cache: moved it to a {} MiB cache", id, name, mib);
+#endif
             // A finished step or a breakpoint holds the thread for the debugger
             if (stepped || hit_breakpoint(*cpu))
                 holds.debugger = true;

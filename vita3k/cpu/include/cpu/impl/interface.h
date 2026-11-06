@@ -75,4 +75,8 @@ struct CPUInterface {
     virtual void clear_exclusive() = 0;
 
     virtual std::size_t processor_id() const = 0;
+
+    // iOS: move this thread to a larger JIT code cache if its own filled up. Returns the new size in
+    // MiB, or 0 if nothing changed. Only call it while the thread is not running guest code.
+    virtual std::size_t upgrade_code_cache_if_full() { return 0; }
 };

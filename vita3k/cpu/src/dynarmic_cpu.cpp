@@ -143,6 +143,20 @@ std::size_t ios_jit_code_cache_pool_progress() {
 std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size) {
     return oaknut::detail::matching_region_count(cache_size);
 }
+
+// From vita3k/ios/patches/0002-dynarmic-cache-stats.patch
+namespace Dynarmic::Backend::Arm64 {
+extern thread_local std::uint64_t t_full_cache_clears;
+} // namespace Dynarmic::Backend::Arm64
+
+// Large caches handed out on iOS < 26, where oaknut maps them itself (no pool): keep the count bounded
+static std::atomic<std::size_t> ios_large_caches_mapped{ 0 };
+
+static bool large_code_cache_available() {
+    if (oaknut::detail::requires_universal_jit())
+        return ios_jit_code_cache_pool_available(IOS_LARGE_CODE_CACHE_SIZE) > 0;
+    return ios_large_caches_mapped.load() < IOS_LARGE_CODE_CACHE_COUNT;
+}
 #endif
 
 // A coprocessor instruction nobody handles: dynarmic's ARM64 backend compiles a "coprocessor
@@ -506,22 +520,24 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     // From Tsubomi: Vita3K owns one Dynarmic JIT per guest thread. On iOS 26+ each cache also has a
     // same-sized writable vm_remap alias, so the 128 MiB default scales poorly. 16 MiB stays above
     // Dynarmic's approximate 8 MiB minimum; the backend clears the cache when it fills up.
-    // The game's main thread gets the full 128 MiB: FIFA 15's runs more code than fits in 16 MiB, so
-    // its cache filled and was thrown away every 1-4 s in a match, each time freezing the game logic
-    // for up to a second while everything was compiled again. Its region is prepared on demand.
+    // A thread whose 16 MiB filled up moves to 128 MiB (upgrade_code_cache_if_full): FIFA 15's main
+    // thread runs more code than fits, so its cache was thrown away every 1-4 s in a match, each time
+    // freezing the game logic for up to a second while everything was compiled again.
     constexpr std::size_t IOS_CODE_CACHE_SIZE = 16 * 1024 * 1024;
-    constexpr std::size_t IOS_MAIN_THREAD_CODE_CACHE_SIZE = 128 * 1024 * 1024;
     config.code_cache_size = IOS_CODE_CACHE_SIZE;
     if (large_code_cache) {
 #if defined(__aarch64__)
         // iOS 26+: only regions prepared at launch can be used (the JIT script is detached by then).
-        // The pool keeps one 128 MiB region; if it is missing or in use, fall back to 16 MiB.
-        if (!oaknut::detail::requires_universal_jit() || ios_jit_code_cache_pool_available(IOS_MAIN_THREAD_CODE_CACHE_SIZE) > 0)
-            config.code_cache_size = IOS_MAIN_THREAD_CODE_CACHE_SIZE;
-        else
-            LOG_WARN("No 128 MiB JIT region prepared for the main thread: using {} MiB", IOS_CODE_CACHE_SIZE / (1024 * 1024));
+        // If none is left, fall back to 16 MiB.
+        if (large_code_cache_available()) {
+            config.code_cache_size = IOS_LARGE_CODE_CACHE_SIZE;
+            if (!oaknut::detail::requires_universal_jit())
+                ios_large_caches_mapped++;
+        } else
+            LOG_WARN("No {} MiB JIT region left: using {} MiB", IOS_LARGE_CODE_CACHE_SIZE / (1024 * 1024), IOS_CODE_CACHE_SIZE / (1024 * 1024));
 #endif
     }
+    jit_cache_size = config.code_cache_size;
 #endif
 
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
@@ -558,9 +574,16 @@ CPUStop DynarmicCPU::run() {
     svc_called = false;
     // Run until the JIT stops for something other than a step or a cache invalidation
     Dynarmic::HaltReason reason;
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+    // Clears happen on the host thread running the JIT: count the ones of this run for this CPU
+    const uint64_t clears_before = Dynarmic::Backend::Arm64::t_full_cache_clears;
+#endif
     do {
         reason = jit->Run();
     } while (reason == Dynarmic::HaltReason::Step || reason == Dynarmic::HaltReason::CacheInvalidation);
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+    full_cache_clears += Dynarmic::Backend::Arm64::t_full_cache_clears - clears_before;
+#endif
     // The import's NID is the word after the SVC, and a halted run stopped at the return address
     const uint32_t nid = svc_called ? *Ptr<uint32_t>(get_pc() + 4).get(*parent->mem) : 0;
     return { .kernel_call = svc_called, .nid = nid, .returned = halted };
@@ -568,7 +591,13 @@ CPUStop DynarmicCPU::run() {
 
 CPUStop DynarmicCPU::step() {
     svc_called = false;
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+    const uint64_t clears_before = Dynarmic::Backend::Arm64::t_full_cache_clears;
+#endif
     jit->Step();
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+    full_cache_clears += Dynarmic::Backend::Arm64::t_full_cache_clears - clears_before;
+#endif
     const uint32_t nid = svc_called ? *Ptr<uint32_t>(get_pc() + 4).get(*parent->mem) : 0;
     return { .kernel_call = svc_called, .nid = nid };
 }
@@ -711,6 +740,42 @@ std::size_t DynarmicCPU::processor_id() const {
 
 void DynarmicCPU::invalidate_jit_cache(Address start, size_t length) {
     jit->InvalidateCacheRange(start, length);
+}
+
+// iOS: every guest thread starts with a 16 MiB code cache (one region of the pool each). A thread that
+// fills it gets one of the few 128 MiB caches prepared at launch: otherwise Dynarmic throws all its
+// code away whenever it fills, and a thread running more code than fits (FIFA 15's main thread) keeps
+// compiling everything again, freezing the game for up to a second every few seconds. Called by the
+// kernel between runs, so no guest code is executing on this JIT.
+std::size_t DynarmicCPU::upgrade_code_cache_if_full() {
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+    if (full_cache_clears == 0 || large_code_cache || !large_code_cache_available())
+        return 0;
+    const CPUContext context = save_context();
+    const std::size_t previous_size = jit_cache_size;
+    large_code_cache = true;
+    std::unique_ptr<Dynarmic::A32::Jit> larger;
+    try {
+        larger = make_jit();
+    } catch (const std::exception &e) {
+        // no region after all (another thread took the last one): keep the current JIT
+        LOG_WARN("Could not move thread {} to a larger JIT code cache: {}", parent->thread_id, e.what());
+        large_code_cache = false;
+        jit_cache_size = previous_size;
+        return 0;
+    }
+    if (jit_cache_size < IOS_LARGE_CODE_CACHE_SIZE) {
+        // the region went to another thread meanwhile: keep the current JIT
+        large_code_cache = false;
+        jit_cache_size = previous_size;
+        return 0;
+    }
+    jit = std::move(larger);
+    load_context(context);
+    return IOS_LARGE_CODE_CACHE_SIZE / (1024 * 1024);
+#else
+    return 0;
+#endif
 }
 
 void DynarmicCPU::clear_exclusive() {

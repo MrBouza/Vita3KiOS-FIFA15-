@@ -47,6 +47,10 @@ class DynarmicCPU : public CPUInterface {
     bool log_code = false;
     bool cpu_opt;
     bool large_code_cache;
+    // times this CPU's code cache filled up and was thrown away (iOS)
+    uint64_t full_cache_clears = 0;
+    // code cache size of the current JIT (iOS)
+    std::size_t jit_cache_size = 0;
 
     std::unique_ptr<Dynarmic::A32::Jit> make_jit();
 
@@ -98,4 +102,5 @@ public:
     void clear_exclusive() override;
     std::size_t processor_id() const override;
     void invalidate_jit_cache(Address start, size_t length) override;
+    std::size_t upgrade_code_cache_if_full() override;
 };
