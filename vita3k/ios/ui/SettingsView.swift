@@ -291,26 +291,34 @@ struct EmulationSections: View {
             Toggle(isOn: binding(\.fpsHack) { model.setBool("fps-hack", $0) }) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("60 FPS mode")
-                    Text("Runs games that are locked to 30 FPS at 60. Works in many games; in some, the whole game speeds up 2×, so turn it off for those (or per game). A game's 60 FPS patch, if it has one, is the safer choice.")
+                    Text("Runs 30 FPS games at 60 when possible. Some games then run 2× too fast: turn it off for those (per game). A game's own 60 FPS patch is safer when there is one.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
         } header: {
             Text("Resolution & frame rate")
         } footer: {
-            Text("Above 1× (native, 960×544) games are rendered sharper but the GPU works harder: 1.5× or 2× suits most iPhones. For a softer, smoother picture at almost no cost, keep 1× and try the Bicubic or FXAA screen filter below. Applies from the next game launch; you can also set it per game.")
+            Text("Higher than 1× is sharper but harder on the GPU (more heat, lower FPS). 1.5× or 2× suits most iPhones. Applies from the next game launch.")
         }
 
         Section("Graphics") {
-            Picker("Screen filter", selection: binding(\.screenFilter) { model.setString("screen-filter", $0) }) {
+            Picker(selection: binding(\.screenFilter) { model.setString("screen-filter", $0) }) {
                 ForEach(filters, id: \.self) { Text($0).tag($0) }
+            } label: {
+                described("Screen filter", "How the picture is scaled to your screen. Nearest: sharp pixels. Bilinear: smooth. Bicubic: smoother. FXAA: smooths jagged edges.")
             }
-            Picker("Anisotropic filtering", selection: binding(\.anisotropicFiltering) { model.setNumber("anisotropic-filtering", Double($0)) }) {
+            Picker(selection: binding(\.anisotropicFiltering) { model.setNumber("anisotropic-filtering", Double($0)) }) {
                 ForEach(anisotropy, id: \.self) { Text("\($0)×").tag($0) }
+            } label: {
+                described("Anisotropic filtering", "Sharper floors and walls seen at an angle. Higher costs a little GPU.")
             }
-            Toggle("V-Sync", isOn: binding(\.vSync) { model.setBool("v-sync", $0) })
-            Toggle("Texture cache", isOn: binding(\.textureCache) { model.setBool("texture-cache", $0) })
-            Toggle("High accuracy", isOn: binding(\.highAccuracy) { model.setBool("high-accuracy", $0) })
+            // (No V-Sync switch: iOS always shows frames in step with the screen, so it did nothing)
+            Toggle(isOn: binding(\.textureCache) { model.setBool("texture-cache", $0) }) {
+                described("Texture cache", "Reuses textures instead of reloading them. Faster; turn off only if textures look wrong.")
+            }
+            Toggle(isOn: binding(\.highAccuracy) { model.setBool("high-accuracy", $0) }) {
+                described("High accuracy", "Draws blending and effects more exactly. Fixes some graphics, costs speed.")
+            }
             Picker(selection: binding(\.mappingMode) { mode in
                 model.settings.memoryMapping = mode != "disabled"
                 model.settings.nativeBuffer = mode == "page-table"
@@ -324,12 +332,14 @@ struct EmulationSections: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Toggle("Stretch to screen", isOn: binding(\.stretchDisplay) { model.setBool("stretch-display", $0) })
+            Toggle(isOn: binding(\.stretchDisplay) { model.setBool("stretch-display", $0) }) {
+                described("Stretch to screen", "Fills the whole screen instead of keeping the Vita's shape.")
+            }
             Toggle(isOn: binding(\.surfaceSync) { model.setBool("surface-sync", $0) }) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Surface sync")
                     Text(model.settings.memoryMapping
-                         ? "Lets games read back what they have drawn (bloom, reflections, some lighting). Off by default: it costs speed and can crash some games (Madden NFL 13). Better turned on per game, for the games that need it; Gravity Rush gets it automatically."
+                         ? "Lets games read back what they drew (bloom, reflections, lighting). Costs speed and breaks some games, so it's best turned on per game."
                          : "Needs GPU memory mapping, which is off: turn that on for surface sync to work.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -340,43 +350,45 @@ struct EmulationSections: View {
             Toggle(isOn: binding(\.asyncShaders) { model.setBool("async-shaders", $0) }) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Compile shaders in the background")
-                    Text("Removes most stutter when new effects appear; objects can pop in for a moment.")
+                    Text("Less stutter when new things appear. They can be missing for a moment.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
             Toggle(isOn: $fastCPU) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Fast CPU")
-                    Text("Lets the CPU recompiler take floating-point shortcuts. Faster in CPU-heavy games; turn it off if a game shows physics or animation glitches.")
+                    Text("Faster maths shortcuts. Turn it off if a game has physics or animation glitches.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
             Toggle(isOn: $keepCool) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Keep the phone cool")
-                    Text("Game threads stay on the fast cores without forcing them to top speed, and the renderer eases off while iOS reports the phone as hot. Off: maximum speed, more heat. Applies from the next game launch.")
+                    Text("Less heat and battery use, a bit less top speed. Eases off more when the phone gets hot or Low Power Mode is on. Applies from the next game launch.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
         } header: {
             Text("Performance")
         } footer: {
-            Text("Vita3KiOS also keeps game threads on the fast CPU cores, encodes GPU work in parallel and turns on iOS Game Mode automatically.")
+            Text("Game Mode and the fast CPU cores are used automatically.")
         }
 
         Section {
             Toggle(isOn: binding(\.shaderCache) { model.setBool("shader-cache", $0) }) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Shader cache")
-                    Text("Keeps compiled shaders between launches, so a game is smooth the second time.")
+                    Text("Saves compiled shaders, so the next launch stutters less.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Toggle("Show shader compile progress", isOn: binding(\.showCompileShaders) { model.setBool("show-compile-shaders", $0) })
+            Toggle(isOn: binding(\.showCompileShaders) { model.setBool("show-compile-shaders", $0) }) {
+                described("Show shader compile progress", "Shows a bar while saved shaders load at game start.")
+            }
             Toggle(isOn: binding(\.importTextures) { model.setBool("import-textures", $0) }) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Texture packs")
-                    Text("Loads replacement textures from the Vita3K folder › textures › <title ID> (HD and translation packs).")
+                    Text("Uses HD or translation texture packs from the textures › <title ID> folder.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -401,8 +413,12 @@ struct EmulationSections: View {
                 Text("✕ (Western games)").tag(1)
                 Text("○ (Japanese games)").tag(0)
             }
-            Toggle("CPU optimisations", isOn: binding(\.cpuOpt) { model.setBool("cpu-opt", $0) })
-            Toggle("PS TV mode", isOn: binding(\.pstvMode) { model.setBool("pstv-mode", $0) })
+            Toggle(isOn: binding(\.cpuOpt) { model.setBool("cpu-opt", $0) }) {
+                described("CPU optimisations", "Much faster. Turn off only to test a game that breaks.")
+            }
+            Toggle(isOn: binding(\.pstvMode) { model.setBool("pstv-mode", $0) }) {
+                described("PS TV mode", "Tells games they run on a PS TV. Some then use the controller's extra buttons; touch-only games may refuse to start.")
+            }
             NavigationLink {
                 PerformanceOverlaySettings()
             } label: {
@@ -420,7 +436,9 @@ struct EmulationSections: View {
                     if !editing { model.setNumber("audio-volume", Double(model.settings.audioVolume)) }
                 })
             }
-            Toggle("NGS audio", isOn: binding(\.ngsEnable) { model.setBool("ngs-enable", $0) })
+            Toggle(isOn: binding(\.ngsEnable) { model.setBool("ngs-enable", $0) }) {
+                described("NGS audio", "The Vita's sound mixer, used by many games for music and effects. Turn off only if a game hangs on audio (it will be silent).")
+            }
         }
     }
 
@@ -669,5 +687,14 @@ struct PerformanceOverlaySettings: View {
             }
         }
         .navigationTitle("Performance overlay")
+    }
+}
+
+/// A setting's name with a short explanation under it
+@ViewBuilder
+func described(_ title: String, _ detail: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+        Text(detail).font(.caption).foregroundStyle(.secondary)
     }
 }

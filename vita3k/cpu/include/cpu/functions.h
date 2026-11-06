@@ -77,13 +77,24 @@ bool get_log_mem(CPUState &state);
 // The CPU state running on this host thread, for signal handlers
 void set_current_cpu_state(CPUState *state);
 
+#if defined(VITA3K_PLATFORM_IOS)
+// JIT code caches on iOS. Each guest thread starts with a small one; a thread that fills it (and
+// would otherwise wipe and recompile everything every few seconds) moves to a big one.
+inline constexpr std::size_t IOS_SMALL_CODE_CACHE_SIZE = 16 * 1024 * 1024;
+inline constexpr std::size_t IOS_BIG_CODE_CACHE_SIZE = 64 * 1024 * 1024;
+// iOS 26+ prepares them all at launch. 48 small: games keep up to about 40 threads alive (Dead or
+// Alive 5 Plus); 2 big for the threads that run the most code (a game's main and render threads).
+// 896 MiB in all, less than the 1 GiB prepared before, so the pause at launch is not longer.
+inline constexpr std::size_t IOS_SMALL_CODE_CACHE_COUNT = 48;
+inline constexpr std::size_t IOS_BIG_CODE_CACHE_COUNT = 2;
+#endif
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
-// iOS 26+ JIT (from Tsubomi): prepares target_count code caches of cache_size bytes through the
-// attached StikDebug universal.js script. Returns how many are ready.
-std::size_t prewarm_ios_jit_code_cache_pool(std::size_t target_count, std::size_t cache_size);
-// How many regions the running prewarm has prepared so far
+// iOS 26+ JIT (from Tsubomi): prepares the code caches above through the attached StikDebug
+// universal.js script. Returns true when all of them are ready.
+bool prewarm_ios_jit_code_cache_pool();
+// How many caches the running prewarm has prepared so far
 std::size_t ios_jit_code_cache_pool_progress();
-// Prepared code caches currently free in the pool
+// Prepared code caches of a size currently free in the pool
 std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size);
 #endif
 #if defined(VITA3K_PLATFORM_IOS)

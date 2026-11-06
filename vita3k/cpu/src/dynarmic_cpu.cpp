@@ -37,6 +37,7 @@
 #include <sys/mman.h>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bit>
@@ -44,6 +45,8 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
 namespace {
@@ -62,8 +65,8 @@ void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t
         LOG_INFO("iOS JIT region pool miss: size={} bytes available={}", size, available);
         break;
     case oaknut::JitRegionPoolEvent::Prewarm:
-        ios_jit_regions_prepared = available;
-        LOG_INFO("iOS JIT region pool prewarm: size={} bytes available={}", size, available);
+        // (one cache prepared by the one-by-one path; progress is counted there)
+        ios_jit_regions_prepared++;
         break;
     case oaknut::JitRegionPoolEvent::SessionLost:
         LOG_CRITICAL("StikDebug JIT session lost - cannot prepare a new JIT region; reopen StikDebug and re-enable JIT");
@@ -75,17 +78,38 @@ void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t
 
 } // namespace
 
-// Prepares every missing region with a single request to the JIT script: one large RX mapping,
-// one writable alias, then cut into cache_size pieces for the pool. StikDebug pauses the app for each
-// request, so 32 separate requests froze the app for ~3.5 s at launch. Returns false (and leaves the
-// pool untouched) if the script refuses the large request, so the one-by-one path can take over.
-static bool prewarm_ios_jit_pool_in_one_request(std::size_t target_count, std::size_t cache_size) {
+struct IosCacheTier {
+    std::size_t size;
+    std::size_t count;
+};
+
+static constexpr IosCacheTier IOS_CACHE_TIERS[] = {
+    { IOS_SMALL_CODE_CACHE_SIZE, IOS_SMALL_CODE_CACHE_COUNT },
+    { IOS_BIG_CODE_CACHE_SIZE, IOS_BIG_CODE_CACHE_COUNT },
+};
+
+// Prepares every missing cache with a single request to the JIT script: one large RX mapping, one
+// writable alias, then cut into the small and big caches for the pool. StikDebug pauses the app for
+// each request (32 separate requests froze it for ~3.5 s at launch), and the pause grows with the
+// size prepared. Returns false (and leaves the pool untouched) if the script refuses the large
+// request, so the one-by-one path can take over.
+static bool prewarm_ios_jit_pool_in_one_request() {
     using namespace oaknut::detail;
-    const std::size_t have = matching_region_count(cache_size);
-    if (have >= target_count || !is_process_traced())
-        return have >= target_count;
-    const std::size_t count = target_count - have;
-    const std::size_t total = count * cache_size;
+    if (!is_process_traced())
+        return false;
+    std::vector<std::pair<std::size_t, std::size_t>> missing; // size, count
+    std::size_t total = 0;
+    std::size_t have_all = 0;
+    for (const auto &tier : IOS_CACHE_TIERS) {
+        const std::size_t have = matching_region_count(tier.size);
+        have_all += std::min(have, tier.count);
+        if (have < tier.count) {
+            missing.emplace_back(tier.size, tier.count - have);
+            total += (tier.count - have) * tier.size;
+        }
+    }
+    if (missing.empty())
+        return true;
 
     const auto started = std::chrono::steady_clock::now();
     void *mapping = mmap(nullptr, total, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
@@ -94,7 +118,7 @@ static bool prewarm_ios_jit_pool_in_one_request(std::size_t target_count, std::s
     auto *rx = static_cast<std::uint32_t *>(prepare_universal_jit_region(mapping, total));
     if (!rx) {
         munmap(mapping, total);
-        LOG_WARN("iOS JIT: the script did not prepare a {} MiB region in one request, preparing regions one by one", total / (1024 * 1024));
+        LOG_WARN("iOS JIT: the script did not prepare a {} MiB region in one request, preparing caches one by one", total / (1024 * 1024));
         return false;
     }
     vm_prot_t current_protection = 0, maximum_protection = 0;
@@ -103,36 +127,45 @@ static bool prewarm_ios_jit_pool_in_one_request(std::size_t target_count, std::s
             reinterpret_cast<vm_address_t>(rx), false, &current_protection, &maximum_protection, VM_INHERIT_NONE)
             != KERN_SUCCESS
         || vm_protect(mach_task_self(), writable, total, false, VM_PROT_READ | VM_PROT_WRITE) != KERN_SUCCESS) {
-        LOG_WARN("iOS JIT: could not map the batched region writable, preparing regions one by one");
+        LOG_WARN("iOS JIT: could not map the batched region writable, preparing caches one by one");
         return false;
     }
     auto *rw = reinterpret_cast<std::uint32_t *>(writable);
-    const std::size_t words = cache_size / sizeof(std::uint32_t);
     auto &pool = jit_region_pool();
-    for (std::size_t i = 0; i < count; i++) {
-        std::size_t available;
-        {
-            const std::lock_guard lock(pool.mutex);
-            pool.regions.push_back(PreparedJitRegion{ rx + i * words, rw + i * words, cache_size });
-            available = have + i + 1;
+    std::size_t offset_words = 0;
+    std::size_t prepared = have_all;
+    for (const auto &[size, count] : missing) {
+        const std::size_t words = size / sizeof(std::uint32_t);
+        for (std::size_t i = 0; i < count; i++) {
+            {
+                const std::lock_guard lock(pool.mutex);
+                pool.regions.push_back(PreparedJitRegion{ rx + offset_words, rw + offset_words, size });
+            }
+            offset_words += words;
+            ios_jit_regions_prepared = ++prepared;
         }
-        log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent::Prewarm, cache_size, available);
     }
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-    LOG_INFO("iOS JIT: prepared {} regions ({} MiB) in one request, {} ms", count, total / (1024 * 1024), ms);
+    LOG_INFO("iOS JIT: prepared {} MiB of code caches in one request, {} ms", total / (1024 * 1024), ms);
     return true;
 }
 
-std::size_t prewarm_ios_jit_code_cache_pool(std::size_t target_count, std::size_t cache_size) {
+bool prewarm_ios_jit_code_cache_pool() {
     oaknut::set_jit_region_pool_log_callback(&log_ios_jit_region_pool_event);
-    LOG_INFO("iOS JIT region pool prewarm starting: target={} size={} bytes ({} MiB each)",
-        target_count, cache_size, cache_size / (1024 * 1024));
-    prewarm_ios_jit_pool_in_one_request(target_count, cache_size);
-    // Anything still missing (or everything, if the batched request was refused) one region at a time
-    const std::size_t available = oaknut::prewarm_jit_region_pool(cache_size, target_count);
-    LOG_INFO("iOS JIT region pool prewarm complete: target={} available={} size={} bytes",
-        target_count, available, cache_size);
-    return available;
+    LOG_INFO("iOS JIT: preparing {} x {} MiB and {} x {} MiB code caches", IOS_SMALL_CODE_CACHE_COUNT,
+        IOS_SMALL_CODE_CACHE_SIZE / (1024 * 1024), IOS_BIG_CODE_CACHE_COUNT, IOS_BIG_CODE_CACHE_SIZE / (1024 * 1024));
+    prewarm_ios_jit_pool_in_one_request();
+    // Anything still missing (or everything, if the batched request was refused) one cache at a time
+    bool complete = true;
+    for (const auto &tier : IOS_CACHE_TIERS) {
+        const std::size_t available = oaknut::prewarm_jit_region_pool(tier.size, tier.count);
+        if (available < tier.count) {
+            LOG_CRITICAL("iOS JIT: only {} of {} code caches of {} MiB are ready", available, tier.count, tier.size / (1024 * 1024));
+            complete = false;
+        }
+    }
+    LOG_INFO("iOS JIT: code caches {}", complete ? "ready" : "incomplete");
+    return complete;
 }
 
 std::size_t ios_jit_code_cache_pool_progress() {
@@ -141,6 +174,12 @@ std::size_t ios_jit_code_cache_pool_progress() {
 
 std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size) {
     return oaknut::detail::matching_region_count(cache_size);
+}
+
+// Whether a code cache of this size can be made now: from the prepared pool on iOS 26+, always
+// before (oaknut maps it itself)
+static bool ios_code_cache_available(std::size_t cache_size) {
+    return !oaknut::detail::requires_universal_jit() || oaknut::detail::matching_region_count(cache_size) > 0;
 }
 #endif
 
@@ -492,10 +531,17 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     config.enable_cycle_counting = false;
 #if defined(VITA3K_PLATFORM_IOS)
     // From Tsubomi: Vita3K owns one Dynarmic JIT per guest thread. On iOS 26+ each cache also has a
-    // same-sized writable vm_remap alias, so the 128 MiB default scales poorly. 16 MiB stays above
-    // Dynarmic's approximate 8 MiB minimum; the backend clears the cache when it fills up.
-    constexpr std::size_t IOS_CODE_CACHE_SIZE = 16 * 1024 * 1024;
-    config.code_cache_size = IOS_CODE_CACHE_SIZE;
+    // same-sized writable vm_remap alias, so the 128 MiB default scales poorly. Threads start with
+    // 16 MiB (above Dynarmic's approximate 8 MiB minimum); one that fills it moves to a big cache.
+    if (code_cache_size == 0)
+        code_cache_size = IOS_SMALL_CODE_CACHE_SIZE;
+#if defined(__aarch64__)
+    // No small cache left in the prepared pool: a big one rather than no thread at all
+    if (code_cache_size == IOS_SMALL_CODE_CACHE_SIZE && !ios_code_cache_available(IOS_SMALL_CODE_CACHE_SIZE)
+        && ios_code_cache_available(IOS_BIG_CODE_CACHE_SIZE))
+        code_cache_size = IOS_BIG_CODE_CACHE_SIZE;
+#endif
+    config.code_cache_size = code_cache_size;
 #endif
 
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
@@ -529,6 +575,13 @@ CPUStop DynarmicCPU::run() {
     halted = false;
     break_ = false;
     svc_called = false;
+#if defined(VITA3K_PLATFORM_IOS)
+    {
+        // A stop asked for before this run is taken by this run
+        const std::lock_guard lock(jit_swap_mutex);
+        halt_pending = false;
+    }
+#endif
     // Run until the JIT stops for something other than a step or a cache invalidation
     Dynarmic::HaltReason reason;
     do {
@@ -536,8 +589,57 @@ CPUStop DynarmicCPU::run() {
     } while (reason == Dynarmic::HaltReason::Step || reason == Dynarmic::HaltReason::CacheInvalidation);
     // The import's NID is the word after the SVC, and a halted run stopped at the return address
     const uint32_t nid = svc_called ? *Ptr<uint32_t>(get_pc() + 4).get(*parent->mem) : 0;
+#if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
+    if (code_cache_size < IOS_BIG_CODE_CACHE_SIZE && !promotion_logged && jit->CodeCacheFullClears() > 0)
+        promote_code_cache();
+#endif
     return { .kernel_call = svc_called, .nid = nid, .returned = halted };
 }
+
+#if defined(VITA3K_PLATFORM_IOS)
+// This thread filled its code cache: carry on in a big one, with the same registers. Done between
+// two runs (the thread is in Vita3K's own code here, not in guest code), under the lock stop() takes.
+void DynarmicCPU::promote_code_cache() {
+#if defined(__aarch64__)
+    if (!ios_code_cache_available(IOS_BIG_CODE_CACHE_SIZE)) {
+        if (!promotion_logged)
+            LOG_WARN("A thread keeps filling its {} MiB JIT cache, and no bigger cache is left: it recompiles when it fills",
+                code_cache_size / (1024 * 1024));
+        promotion_logged = true;
+        return;
+    }
+    const auto regs = jit->Regs();
+    const auto ext_regs = jit->ExtRegs();
+    const uint32_t cpsr = jit->Cpsr();
+    const uint32_t fpscr = jit->Fpscr();
+    const std::size_t old_size = code_cache_size;
+    code_cache_size = IOS_BIG_CODE_CACHE_SIZE;
+    std::unique_ptr<Dynarmic::A32::Jit> bigger;
+    try {
+        bigger = make_jit();
+    } catch (const std::exception &e) {
+        code_cache_size = old_size;
+        LOG_WARN("Could not move a thread to a bigger JIT cache: {}", e.what());
+        promotion_logged = true;
+        return;
+    }
+    bigger->Regs() = regs;
+    bigger->ExtRegs() = ext_regs;
+    bigger->SetCpsr(cpsr);
+    bigger->SetFpscr(fpscr);
+    {
+        const std::lock_guard lock(jit_swap_mutex);
+        jit.swap(bigger);
+        // A stop that reached the old JIT after it returned must still stop the next run
+        if (halt_pending)
+            jit->HaltExecution();
+    }
+    LOG_INFO("A thread filled its {} MiB JIT cache: it now has {} MiB (no more full-cache recompiles)", old_size / (1024 * 1024),
+        code_cache_size / (1024 * 1024));
+    // `bigger` now holds the old JIT; its cache goes back to the pool here
+#endif
+}
+#endif
 
 CPUStop DynarmicCPU::step() {
     svc_called = false;
@@ -576,6 +678,10 @@ bool DynarmicCPU::get_log_mem() {
 }
 
 void DynarmicCPU::stop() {
+#if defined(VITA3K_PLATFORM_IOS)
+    const std::lock_guard lock(jit_swap_mutex);
+    halt_pending = true;
+#endif
     jit->HaltExecution();
 }
 

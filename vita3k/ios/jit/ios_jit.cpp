@@ -63,12 +63,8 @@ namespace {
 std::atomic_bool g_jit_pool_ready{ false };
 std::atomic_bool g_unhandled_universal_jit_breakpoint{ false };
 
-constexpr std::size_t IOS_JIT_CACHE_SIZE = 16 * 1024 * 1024;
-// Tsubomi: Gravity Rush runs ~24 concurrently-live guest threads; keep headroom for thread churn
-// 64 x 16 MiB: games keep many threads alive at once (Disgaea 3 more than 32; Dead or Alive 5 Plus
-// had 37 running within half a second of boot and asked for more). Memory is only used when a region
-// is taken, and the batched setup at launch takes about as long for 64 as for 32 (one request).
-constexpr std::size_t IOS_JIT_POOL_TARGET = 64;
+// The code caches prepared at launch: see IOS_SMALL/BIG_CODE_CACHE_* in cpu/functions.h
+constexpr std::size_t IOS_JIT_POOL_TARGET = IOS_SMALL_CODE_CACHE_COUNT + IOS_BIG_CODE_CACHE_COUNT;
 
 int os_major_version() {
     char version[32]{};
@@ -202,9 +198,7 @@ bool prepare_jit_pool() {
 
     g_unhandled_universal_jit_breakpoint.store(false, std::memory_order_relaxed);
     try {
-        const std::size_t warmed = prewarm_ios_jit_code_cache_pool(IOS_JIT_POOL_TARGET, IOS_JIT_CACHE_SIZE);
-        if (warmed < IOS_JIT_POOL_TARGET) {
-            LOG_CRITICAL("iOS JIT region pool is under target: target={} available={}", IOS_JIT_POOL_TARGET, warmed);
+        if (!prewarm_ios_jit_code_cache_pool()) {
             if (auto logger = spdlog::default_logger())
                 logger->flush();
             return false;
@@ -249,7 +243,8 @@ int jit_pool_target() {
 int jit_pool_available() {
 #if defined(__aarch64__)
     if (os_major_version() >= 26)
-        return static_cast<int>(ios_jit_code_cache_pool_available(IOS_JIT_CACHE_SIZE));
+        return static_cast<int>(ios_jit_code_cache_pool_available(IOS_SMALL_CODE_CACHE_SIZE)
+            + ios_jit_code_cache_pool_available(IOS_BIG_CODE_CACHE_SIZE));
 #endif
     return -1;
 }

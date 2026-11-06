@@ -136,20 +136,23 @@ set(DYNARMIC_NO_BUNDLED_FMT ON CACHE BOOL "")
 set(DYNARMIC_FRONTENDS "A32" CACHE STRING "")
 if(IOS)
 	# iOS JIT (from Tsubomi by 125hz): dynarmic code caches are StikDebug-prepared RX mappings with
-	# a writable alias on iOS 26+. Applied to the submodule checkout, once.
-	set(DYNARMIC_IOS_PATCH "${CMAKE_SOURCE_DIR}/vita3k/ios/patches/0001-oaknut-ios-rwx-jit.patch")
-	execute_process(COMMAND git apply --reverse --check "${DYNARMIC_IOS_PATCH}"
-		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dynarmic"
-		RESULT_VARIABLE DYNARMIC_IOS_PATCH_PRESENT OUTPUT_QUIET ERROR_QUIET)
-	if(NOT DYNARMIC_IOS_PATCH_PRESENT EQUAL 0)
-		execute_process(COMMAND git apply "${DYNARMIC_IOS_PATCH}"
+	# a writable alias on iOS 26+ (0001), and a count of full-cache wipes so a thread that keeps
+	# filling its cache can move to a bigger one (0002). Applied to the submodule checkout in order, once.
+	foreach(DYNARMIC_IOS_PATCH_NAME 0001-oaknut-ios-rwx-jit.patch 0002-dynarmic-code-cache-full-count.patch)
+		set(DYNARMIC_IOS_PATCH "${CMAKE_SOURCE_DIR}/vita3k/ios/patches/${DYNARMIC_IOS_PATCH_NAME}")
+		execute_process(COMMAND git apply --reverse --check "${DYNARMIC_IOS_PATCH}"
 			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dynarmic"
-			RESULT_VARIABLE DYNARMIC_IOS_PATCH_RESULT)
-		if(NOT DYNARMIC_IOS_PATCH_RESULT EQUAL 0)
-			message(FATAL_ERROR "Could not apply ${DYNARMIC_IOS_PATCH} to external/dynarmic")
+			RESULT_VARIABLE DYNARMIC_IOS_PATCH_PRESENT OUTPUT_QUIET ERROR_QUIET)
+		if(NOT DYNARMIC_IOS_PATCH_PRESENT EQUAL 0)
+			execute_process(COMMAND git apply "${DYNARMIC_IOS_PATCH}"
+				WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dynarmic"
+				RESULT_VARIABLE DYNARMIC_IOS_PATCH_RESULT)
+			if(NOT DYNARMIC_IOS_PATCH_RESULT EQUAL 0)
+				message(FATAL_ERROR "Could not apply ${DYNARMIC_IOS_PATCH} to external/dynarmic")
+			endif()
+			message(STATUS "Applied ${DYNARMIC_IOS_PATCH_NAME} to dynarmic")
 		endif()
-		message(STATUS "Applied the iOS JIT patch to dynarmic")
-	endif()
+	endforeach()
 endif()
 add_subdirectory(dynarmic)
 

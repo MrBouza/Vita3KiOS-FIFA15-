@@ -229,6 +229,10 @@ void DisplayState::deinit() {
     last_setframe_vblank_count = 0;
 
     fps_hack = false;
+    frames_set = 0;
+    fps_hack_thread = 0;
+    fps_hack_frames_at_wait = 0;
+    fps_hack_skipped = false;
     // pretty sure we set this on game boot
     fullscreen = false;
 }

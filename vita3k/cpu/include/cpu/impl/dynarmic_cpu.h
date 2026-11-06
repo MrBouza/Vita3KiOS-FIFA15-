@@ -23,6 +23,7 @@
 #include <cpu/impl/interface.h>
 
 #include <memory>
+#include <mutex>
 
 class ArmDynarmicCallback;
 class ArmDynarmicCP15;
@@ -46,6 +47,18 @@ class DynarmicCPU : public CPUInterface {
     bool log_mem = false;
     bool log_code = false;
     bool cpu_opt;
+
+#if defined(VITA3K_PLATFORM_IOS)
+    // Size of this thread's JIT code cache. A thread that fills its cache moves to a bigger one
+    // (see promote_code_cache): the cache is wiped and everything recompiled each time it fills,
+    // which games running a lot of code on one thread felt as a hitch every few seconds.
+    std::size_t code_cache_size = 0;
+    bool promotion_logged = false;
+    // stop() may come from another thread while the JIT is being replaced
+    std::mutex jit_swap_mutex;
+    bool halt_pending = false;
+    void promote_code_cache();
+#endif
 
     std::unique_ptr<Dynarmic::A32::Jit> make_jit();
 

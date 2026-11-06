@@ -48,6 +48,7 @@ enum LibraryHost {
             NotificationCenter.default.addObserver(forName: Notification.Name("V3KLaunchRequest"), object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { takeLaunchRequest() }
             }
+            observeReturnForJIT()
         }
         // A launch link or quick action may have opened the app; give JIT setup a moment to begin
         DispatchQueue.main.asyncAfter(deadline: .now() + (firstShow ? 0.6 : 0.3)) { takeLaunchRequest() }
@@ -61,12 +62,63 @@ enum LibraryHost {
             // Prepare JIT right away (StikDebug briefly pauses the app while it works), and start the
             // menu music only once that's done, so the music doesn't stutter as it begins
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                v3k_jit_request()
-                model.reload()
-                startMusicWhenJITIsReady()
+                requestJIT()
             }
         } else {
             MenuMusic.shared.libraryShown()
+            // StikDebug opens Vita3K first and attaches its script a few seconds later (it shows
+            // "Connecting..." meanwhile): the one check above came too early and JIT stayed off for
+            // the whole session. Keep looking for the debugger for a while instead.
+            if firstShow && !v3k_is_jit_enabled() { watchForJITScript(until: Date().addingTimeInterval(120)) }
+        }
+    }
+
+    private static func requestJIT() {
+        v3k_jit_request()
+        model.reload()
+        startMusicWhenJITIsReady()
+    }
+
+    private static var watchingForJIT = false
+
+    /// Prepares JIT as soon as a debugger attaches, checking twice a second until the deadline (and
+    /// again whenever Vita3K comes back on screen, see init of the observer below)
+    static func watchForJITScript(until deadline: Date) {
+        guard !watchingForJIT else { return }
+        watchingForJIT = true
+        func check() {
+            if v3k_is_jit_enabled() || v3k_jit_preparing() {
+                watchingForJIT = false
+                model.reload()
+                return
+            }
+            if v3k_jit_can_request() {
+                watchingForJIT = false
+                v3k_log_ui("JIT: debugger attached after launch, preparing JIT now")
+                // Not during a game: the library is where the pause is expected
+                if window?.isHidden == false {
+                    MenuMusic.shared.libraryHidden()
+                    requestJIT()
+                }
+                return
+            }
+            if Date() > deadline {
+                watchingForJIT = false
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { check() }
+        }
+        check()
+    }
+
+    /// Coming back from StikDebug (or the app switcher) with JIT still off: look for the debugger again
+    static func observeReturnForJIT() {
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                if hasShown && !v3k_is_jit_enabled() && window?.isHidden == false {
+                    watchForJITScript(until: Date().addingTimeInterval(60))
+                }
+            }
         }
     }
 

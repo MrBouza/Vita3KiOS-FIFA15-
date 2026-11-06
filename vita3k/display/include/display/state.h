@@ -78,6 +78,14 @@ struct DisplayState {
     // however this is not always the case, some games may not be affected (if they look at the Vcount)
     // or run twice as fast (if they only rely on these function calls for their timings)
     bool fps_hack = false;
+    // FPS hack for games that make 30 FPS with two one-frame waits in a row (only the vcount of
+    // the "wait 2 frames" calls was halved before, so the hack did nothing in those games): the
+    // thread that shows the frames skips every second wait that comes without a new frame.
+    // Only that thread, so timer threads waiting on vblanks keep their pace.
+    std::atomic<uint64_t> frames_set = 0;
+    int fps_hack_thread = 0;
+    uint64_t fps_hack_frames_at_wait = 0;
+    bool fps_hack_skipped = false;
 
     // should contain the list of sync objects / swapchain images (in the order they appear in the cycle)
     std::vector<PredictedDisplayFrame> predicted_frames;

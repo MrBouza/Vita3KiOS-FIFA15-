@@ -280,13 +280,12 @@ struct GameSettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                toggle("High accuracy", \.highAccuracy, "high-accuracy", "More accurate blending and effects, slower.")
-                toggle("Texture cache", \.textureCache, "texture-cache", nil)
-                toggle("Compile shaders in the background", \.asyncShaders, "async-shaders", "Less stutter; objects may pop in for a moment while their shaders compile.")
-                toggle("Shader cache", \.shaderCache, "shader-cache", "Keeps compiled shaders so the next launch is smooth.")
-                toggle("CPU optimisations", \.cpuOpt, "cpu-opt", nil)
-                toggle("V-Sync", \.vSync, "v-sync", nil)
-                toggle("FPS hack", \.fpsHack, "fps-hack", "Makes some 30 FPS games run at 60. Can speed up game logic.")
+                toggle("High accuracy", \.highAccuracy, "high-accuracy", "Draws blending and effects more exactly. Fixes some graphics, costs speed.")
+                toggle("Texture cache", \.textureCache, "texture-cache", "Reuses textures instead of reloading them. Faster; turn off only if textures look wrong or stale.")
+                toggle("Compile shaders in the background", \.asyncShaders, "async-shaders", "Less stutter. New objects can be missing for a moment.")
+                toggle("Shader cache", \.shaderCache, "shader-cache", "Saves compiled shaders, so the next launch stutters less.")
+                toggle("CPU optimisations", \.cpuOpt, "cpu-opt", "Much faster. Turn off only to test a game that breaks.")
+                toggle("60 FPS mode", \.fpsHack, "fps-hack", "Runs 30 FPS games at 60 when possible. Some games then run 2× too fast: turn it off for those.")
                 Toggle(isOn: Binding(get: { !settings.disableSurfaceSync }, set: { on in
                     settings.disableSurfaceSync = !on
                     store("disable-surface-sync", on ? "false" : "true")
@@ -294,12 +293,12 @@ struct GameSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Surface sync")
                         Text(settings.memoryMapping
-                             ? "Lets the game read back what it has drawn (bloom, reflections, lighting). Slower when on."
+                             ? "Lets the game read back what it drew (bloom, reflections, lighting). Fixes those effects, costs speed."
                              : "Needs GPU memory mapping (above).")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                toggle("Stretch to screen", \.stretchDisplay, "stretch-display", nil)
+                toggle("Stretch to screen", \.stretchDisplay, "stretch-display", "Fills the whole screen instead of keeping the Vita's shape.")
             }
             Toggle(isOn: Binding(get: { preciseMath }, set: { on in
                 preciseMath = on
@@ -751,9 +750,9 @@ enum MemoryMappingMode: String, CaseIterable, Identifiable {
     }
     var detail: String {
         switch self {
-        case .doubleBuffer: return "Default. The GPU reads the game's memory from a copy kept in sync: fastest CPU side, fixes wrong colours and stretched textures."
-        case .nativeBuffer: return "The game and the GPU share the same memory pages: can fix models and effects the GPU builds from game memory (stretched or deformed bodies). The CPU side is a little slower."
-        case .off: return "Data is copied for every draw. Slower; fixes a few games that break with mapping (Persona 4 Golden). Surface sync needs mapping."
+        case .doubleBuffer: return "Default and fastest. Use this unless a game looks wrong."
+        case .nativeBuffer: return "Game and GPU share memory. Can fix stretched or broken 3D models; a little slower."
+        case .off: return "Slowest. Only for games that break with the other two. Surface sync won't work."
         }
     }
 }
