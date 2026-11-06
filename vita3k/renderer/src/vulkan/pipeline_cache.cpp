@@ -29,6 +29,7 @@
 #include <shader/spirv_recompiler.h>
 
 #include <util/fs.h>
+#include <util/hitch_stats.h>
 #include <util/log.h>
 
 #include <SDL3/SDL_cpuinfo.h>
@@ -1335,11 +1336,15 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
         fragment_program_gxm.compile_threads_on.fetch_add(1, std::memory_order_relaxed);
 
         pipeline_compile_queue.enqueue(pipeline_compile_queue_token, request);
+        hitch::async_pipelines.fetch_add(1, std::memory_order_relaxed);
 
         return nullptr;
     } else {
         // can't wait, compile it right now
+        const uint64_t compile_start = hitch::now_ns();
         vk::Pipeline result = compile_pipeline(type, render_pass, vertex_program_gxm, fragment_program_gxm, record, context.shader_hints, mem);
+        hitch::sync_pipelines.fetch_add(1, std::memory_order_relaxed);
+        hitch::sync_pipeline_ns.fetch_add(hitch::now_ns() - compile_start, std::memory_order_relaxed);
 
         const auto time_s = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         next_pipeline_cache_save = time_s + pipeline_cache_save_delay;

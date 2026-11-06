@@ -19,6 +19,7 @@
 #include <mem/state.h>
 
 #include <util/align.h>
+#include <util/hitch_stats.h>
 #include <util/log.h>
 
 #include <algorithm>
@@ -352,7 +353,7 @@ static void release_host_page(MemState &state, Address vaddr, bool write) {
     unprotect_inner(state, page_begin, page);
 }
 
-bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcept {
+static bool handle_access_violation_impl(MemState &state, uint8_t *addr, bool write) noexcept {
     const uintptr_t memory_addr = reinterpret_cast<uintptr_t>(state.memory.get());
     const uintptr_t fault_addr = reinterpret_cast<uintptr_t>(addr);
 
@@ -387,7 +388,8 @@ bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcep
             release_host_page(state, vaddr, write);
             static std::atomic<int> logged{ 0 };
             if (logged.fetch_add(1) < 20)
-                LOG_WARN("The game {} unallocated guest memory at 0x{:X}: gave it a zeroed page", write ? "wrote to" : "read", vaddr);
+                LOG_WARN("The game {} unallocated guest memory at 0x{:X}: gave it a zeroed page. Last imports of this thread:{}",
+                    write ? "wrote to" : "read", vaddr, hitch::recent_imports());
             return true;
         }
 #endif
@@ -401,7 +403,11 @@ bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcep
     if (it == state.protect_tree.end() || vaddr < it->first || vaddr >= it->first + it->second.size) {
         // keep going: unprotect the page, and let the segments that shared it know
         release_host_page(state, vaddr, write);
-        LOG_WARN_ONCE("Write to a protected host page outside any tracked region (address 0x{:X}): released the page", vaddr);
+        // The null page is the usual case (a null pointer in the game): name the imports that led there
+        static std::atomic<int> logged{ 0 };
+        if (logged.fetch_add(1) < 12)
+            LOG_WARN("{} a protected host page outside any tracked region (address 0x{:X}{}): released the page. Last imports of this thread:{}",
+                write ? "Write to" : "Read of", vaddr, vaddr < state.host_page_size ? ", the null page" : "", hitch::recent_imports());
         return true;
     }
 
@@ -416,6 +422,16 @@ bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcep
     state.protect_tree.erase(it);
 
     return true;
+}
+
+bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcept {
+    const uint64_t start = hitch::now_ns();
+    const bool handled = handle_access_violation_impl(state, addr, write);
+    if (handled) {
+        hitch::faults.fetch_add(1, std::memory_order_relaxed);
+        hitch::fault_ns.fetch_add(hitch::now_ns() - start, std::memory_order_relaxed);
+    }
+    return handled;
 }
 
 bool add_protect(MemState &state, Address addr, const uint32_t size, const MemPerm perm, const ProtectCallback &callback) {

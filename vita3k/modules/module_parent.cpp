@@ -32,10 +32,12 @@
 #include <packages/license.h>
 #include <packages/sce_types.h>
 #include <util/find.h>
+#include <util/hitch_stats.h>
 #include <util/lock_and_find.h>
 #include <util/log.h>
 #include <util/string_utils.h>
 
+#include <algorithm>
 #include <unordered_set>
 
 static constexpr bool LOG_UNK_NIDS_ALWAYS = false;
@@ -148,6 +150,47 @@ static void log_import_call(char emulation_level, uint32_t nid, SceUID thread_id
     }
 }
 
+// Frame boundaries: the game's render thread queues a finished frame (GXM), and the display queue
+// callback (or a game without GXM) sets the frame buffer. Each thread keeps its own frame clock.
+constexpr uint32_t NID_SCE_GXM_DISPLAY_QUEUE_ADD_ENTRY = 0xEC5C26B5;
+constexpr uint32_t NID_SCE_DISPLAY_SET_FRAME_BUF = 0x7A410B64;
+
+// Stutter diagnostics: log any frame slower than hitch::HITCH_THRESHOLD_MS with where its time went
+static void end_of_frame(hitch::ThreadImports &imports, SceUID thread_id, uint32_t marker) {
+    thread_local uint64_t last_frame = 0;
+    thread_local uint64_t hitches_logged = 0;
+    thread_local uint64_t last_faults = 0, last_fault_ns = 0, last_sync = 0, last_sync_ns = 0, last_async = 0;
+    const uint64_t now = hitch::now_ns();
+    const uint64_t faults = hitch::faults.load(), fault_ns = hitch::fault_ns.load();
+    const uint64_t sync = hitch::sync_pipelines.load(), sync_ns = hitch::sync_pipeline_ns.load();
+    const uint64_t async = hitch::async_pipelines.load();
+    const uint64_t frame_ns = last_frame ? now - last_frame : 0;
+
+    if (frame_ns > hitch::HITCH_THRESHOLD_MS * 1000000 && hitches_logged < 600) {
+        hitches_logged++;
+        const uint64_t hle_ns = std::min(imports.frame_hle_ns, frame_ns);
+        std::string top;
+        for (const auto &record : imports.frame_top) {
+            if (record.us == 0)
+                break;
+            top += fmt::format("{}{}", top.empty() ? "" : ", ", hitch::describe(record));
+        }
+        LOG_INFO("Hitch: frame took {:.0f} ms on thread {} ({}) | in HLE calls {:.0f} ms ({} calls; longest: {}) | game code {:.0f} ms | "
+                 "memory faults {} ({:.1f} ms) | pipelines compiled on the render thread {} ({:.1f} ms), async {}",
+            frame_ns / 1e6, thread_id, hitch::name_of(marker), hle_ns / 1e6, imports.frame_calls, top.empty() ? "none" : top, (frame_ns - hle_ns) / 1e6,
+            faults - last_faults, (fault_ns - last_fault_ns) / 1e6,
+            sync - last_sync, (sync_ns - last_sync_ns) / 1e6, async - last_async);
+    }
+
+    last_frame = now;
+    last_faults = faults;
+    last_fault_ns = fault_ns;
+    last_sync = sync;
+    last_sync_ns = sync_ns;
+    last_async = async;
+    imports.reset_frame();
+}
+
 void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread_id) {
     // HLE - call our C++ function
     if (emuenv.kernel.debugger.watch_import_calls) {
@@ -159,9 +202,18 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
         auto lr = read_lr(cpu);
         log_import_call('H', nid, thread_id, hle_nid_blacklist, lr);
     }
+    if (!hitch::import_name_fn.load(std::memory_order_relaxed))
+        hitch::import_name_fn.store(&import_name, std::memory_order_relaxed);
     const ImportFn *fn = resolve_import(nid);
     if (fn) {
+        const uint32_t caller = read_lr(cpu);
+        const uint64_t start = hitch::now_ns();
         (*fn)(emuenv, cpu, thread_id);
+        const uint64_t elapsed = hitch::now_ns() - start;
+        hitch::ThreadImports &imports = hitch::this_thread_imports();
+        imports.add({ .nid = nid, .ret = read_reg(cpu, 0), .lr = caller, .us = static_cast<uint32_t>(std::min<uint64_t>(elapsed / 1000, UINT32_MAX)) });
+        if (nid == NID_SCE_GXM_DISPLAY_QUEUE_ADD_ENTRY || nid == NID_SCE_DISPLAY_SET_FRAME_BUF)
+            end_of_frame(imports, thread_id, nid);
     } else {
         const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
         // make the function return 0

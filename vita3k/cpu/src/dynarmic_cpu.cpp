@@ -18,6 +18,7 @@
 #include "cpu/common.h"
 #include <cpu/impl/dynarmic_cpu.h>
 #include <cpu/state.h>
+#include <util/hitch_stats.h>
 #include <util/log.h>
 
 #include <mem/ptr.h>
@@ -386,6 +387,15 @@ public:
         LOG_ERROR("Unimplemented instruction at address {}:\n{}", log_hex(addr), save_context(*parent).description());
     }
 
+    // The first bad instruction of a thread usually follows the HLE call that sent it off course
+    void log_imports_once() {
+        thread_local bool logged = false;
+        if (!logged) {
+            logged = true;
+            LOG_WARN("Thread {} ran into a bad instruction. Last imports of this thread:{}", parent->thread_id, hitch::recent_imports());
+        }
+    }
+
     void ExceptionRaised(uint32_t pc, Dynarmic::A32::Exception exception) override {
         switch (exception) {
         case Dynarmic::A32::Exception::Breakpoint:
@@ -394,7 +404,7 @@ public:
             cpu->set_pc(cpu->is_thumb_mode() ? pc | 1 : pc);
             break;
         case Dynarmic::A32::Exception::NoExecuteFault:
-            LOG_CRITICAL("PC is 0x{:x}, stopping thread {}\n{}", pc, parent->thread_id, cpu->save_context().description());
+            LOG_CRITICAL("PC is 0x{:x}, stopping thread {}\n{}\nLast imports of this thread:{}", pc, parent->thread_id, cpu->save_context().description(), hitch::recent_imports());
             [[fallthrough]];
         case Dynarmic::A32::Exception::WaitForInterrupt:
             cpu->halted = true;
@@ -410,10 +420,12 @@ public:
             break;
         case Dynarmic::A32::Exception::UndefinedInstruction:
             LOG_WARN("Undefined instruction at address 0x{:X}, instruction 0x{:X} ({})", pc, MemoryReadCode(pc).value(), disassemble(*parent, pc, nullptr));
+            log_imports_once();
             InterpreterFallback(pc, 1);
             break;
         case Dynarmic::A32::Exception::UnpredictableInstruction:
             LOG_WARN("Unpredictable instruction at address 0x{:X}, instruction 0x{:X} ({})", pc, MemoryReadCode(pc).value(), disassemble(*parent, pc, nullptr));
+            log_imports_once();
             InterpreterFallback(pc, 1);
             break;
         case Dynarmic::A32::Exception::DecodeError:
