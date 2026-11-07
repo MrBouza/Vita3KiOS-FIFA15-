@@ -21,6 +21,7 @@
 #include <renderer/texture_cache.h>
 
 #include <gxm/functions.h>
+#include <mem/functions.h>
 #include <mem/ptr.h>
 #include <util/align.h>
 #include <util/log.h>
@@ -527,6 +528,12 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
             break;
         case SCE_GXM_TEXTURE_BASE_FORMAT_YUV420P2:
         case SCE_GXM_TEXTURE_BASE_FORMAT_YUV420P3:
+            // Video frames: the decoder's output buffer can be a stub address the game never mapped
+            // (CHAOS;CHILD). Converting it read outside guest memory and crashed the app: skip the frame
+            if (!is_valid_addr_range(mem, gxm_texture.data_addr << 2, (gxm_texture.data_addr << 2) + layout_width * layout_height * 3 / 2)) {
+                LOG_WARN_ONCE("Video texture at 0x{:08X} is not in mapped memory: frame skipped", gxm_texture.data_addr << 2);
+                return;
+            }
             texture_data_decompressed.resize(pixels_per_stride * memory_height * 4);
             yuv420_texture_to_rgb(yuv_conversion_cache, texture_data_decompressed.data(),
                 static_cast<const uint8_t *>(pixels), pixels_per_stride, memory_height, layout_width, layout_height,
@@ -536,6 +543,10 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
             upload_format = SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8;
             break;
         case SCE_GXM_TEXTURE_BASE_FORMAT_YUV422:
+            if (!is_valid_addr_range(mem, gxm_texture.data_addr << 2, (gxm_texture.data_addr << 2) + layout_width * layout_height * 2)) {
+                LOG_WARN_ONCE("YUV422 texture at 0x{:08X} is not in mapped memory: skipped", gxm_texture.data_addr << 2);
+                return;
+            }
             texture_data_decompressed.resize(pixels_per_stride * memory_height * 4);
             yuv422_texture_to_rgba(texture_data_decompressed.data(), static_cast<const uint8_t *>(pixels), pixels_per_stride, memory_height, fmt);
             pixels = texture_data_decompressed.data();
