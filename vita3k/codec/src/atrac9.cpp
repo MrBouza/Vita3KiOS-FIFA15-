@@ -91,10 +91,19 @@ bool Atrac9DecoderState::send(const uint8_t *data, uint32_t size) {
 
     int decode_used = 0;
 
-    const int res = Atrac9Decode(decoder_handle, data, reinterpret_cast<short *>(result.data()), &decode_used);
+    int res = Atrac9Decode(decoder_handle, data, reinterpret_cast<short *>(result.data()), &decode_used);
     if (res != At9Status::ERR_SUCCESS) {
-        LOG_ERROR("Decode failure with code {}", log_hex(res));
-        return false;
+        // LibAtrac9 only advances its position inside the superframe on success, so after one bad frame
+        // (seek, skipped data, a movie starting mid-superframe) every later frame fails as well.
+        // Go back to the start of a superframe and try this data once more so the stream can recover.
+        flush();
+        decode_used = 0;
+        res = Atrac9Decode(decoder_handle, data, reinterpret_cast<short *>(result.data()), &decode_used);
+        if (res != At9Status::ERR_SUCCESS) {
+            flush();
+            LOG_WARN_ONCE("ATRAC9 decode failure with code {}: resyncing to the next superframe", log_hex(res));
+            return false;
+        }
     }
 
     es_size_used = static_cast<uint32_t>(decode_used);
