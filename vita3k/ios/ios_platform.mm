@@ -179,12 +179,23 @@ void set_activity_callback(void (*callback)(bool active)) {
 // background (the game's audio device and the menu music have stopped by then).
 static std::atomic<bool> audio_session_released{ false };
 
-static void release_audio_session() {
+static void release_audio_session(unsigned attempt = 0) {
     if (audio_session_released)
         return;
     NSError *error = nil;
-    if ([AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error])
+    if ([AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error]) {
         audio_session_released = true;
+        return;
+    }
+    // Deactivation is refused while anything is still playing. Keep trying while Vita3K is off
+    // screen, so the session is not left active (which stops other apps' videos) after one failure.
+    NSLog(@"Vita3K: audio session release failed (attempt %u): %@", attempt + 1, error);
+    if (attempt >= 40)
+        return;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (!app_activity::gpu_allowed().load() && !audio_session_released)
+            release_audio_session(attempt + 1);
+    });
 }
 
 static void reclaim_audio_session() {
