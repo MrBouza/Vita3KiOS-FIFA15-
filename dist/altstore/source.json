@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.2.0",
+          "buildVersion": "109",
+          "date": "2026-11-07T18:33:24Z",
+          "localizedDescription": "Fixes bent and stretched character models in 3D games. FSR works again. The on-screen keyboard now appears for game text prompts. Fixes a crash on some in-game videos and audio decoding that kept failing after one bad frame. The app now keeps trying to hand audio back to iOS so videos in other apps can play. Many game compatibility fixes ported from Vita3K-Plus. JIT starts even if StikDebug attaches late, with bigger caches for busy threads. Clearer crash reports. Credits added for MrBouza and Vita3K-Plus.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.2.0.ipa` below.\n\nBuild 109, commit fcb1624.",
+          "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.2.0/Vita3KiOS-1.2.0.ipa",
+          "size": 16576636,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.1.2",
           "buildVersion": "88",
           "date": "2026-11-06T12:16:05Z",
@@ -64,11 +73,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.1.2",
-      "versionDate": "2026-11-06T12:16:05Z",
-      "versionDescription": "### Fixes\n- Vita3K now hands the iPhone's audio back to other apps as soon as it leaves the screen, and takes it again when you return. It used to hold on to it until it was closed, which is the likely cause of videos not playing in other apps until a restart. If that still happens on this version, please report it with your iOS version and whether closing Vita3K from the app switcher fixes it.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.1.2.ipa` below.\n\nBuild 88, commit ae3a386.",
-      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.1.2/Vita3KiOS-1.1.2.ipa",
-      "size": 16562260
+      "version": "1.2.0",
+      "versionDate": "2026-11-07T18:33:24Z",
+      "versionDescription": "Fixes bent and stretched character models in 3D games. FSR works again. The on-screen keyboard now appears for game text prompts. Fixes a crash on some in-game videos and audio decoding that kept failing after one bad frame. The app now keeps trying to hand audio back to iOS so videos in other apps can play. Many game compatibility fixes ported from Vita3K-Plus. JIT starts even if StikDebug attaches late, with bigger caches for busy threads. Clearer crash reports. Credits added for MrBouza and Vita3K-Plus.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Vita3KiOS-1.2.0.ipa` below.\n\nBuild 109, commit fcb1624.",
+      "downloadURL": "https://github.com/oledz-i/Vita3KiOS/releases/download/v1.2.0/Vita3KiOS-1.2.0.ipa",
+      "size": 16576636
     }
   ]
 }
