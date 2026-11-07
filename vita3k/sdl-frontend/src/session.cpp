@@ -68,6 +68,21 @@ void update_keyboard(EmuEnvState &emuenv, SDL_Window *window) {
     });
 }
 
+// Overlays (dialogs, the pause menu) are drawn in the game's viewport, which is letterboxed when the
+// window's shape differs from the Vita's (black bars on a phone): map positions through it, like the
+// game's touchscreen does. drawable_x/y are in drawable pixels.
+void set_overlay_position(EmuEnvState &emuenv, float drawable_x, float drawable_y) {
+    const auto &display = emuenv.display;
+    auto &overlay = emuenv.ctrl.overlay_mouse;
+    if (display.viewport_w > 0 && display.viewport_h > 0) {
+        overlay.x.store((drawable_x - display.viewport_x) * 960.f / display.viewport_w, std::memory_order_relaxed);
+        overlay.y.store((drawable_y - display.viewport_y) * 544.f / display.viewport_h, std::memory_order_relaxed);
+    } else if (display.viewport_drawable_w > 0 && display.viewport_drawable_h > 0) {
+        overlay.x.store(drawable_x * 960.f / display.viewport_drawable_w, std::memory_order_relaxed);
+        overlay.y.store(drawable_y * 544.f / display.viewport_drawable_h, std::memory_order_relaxed);
+    }
+}
+
 void update_mouse_input(EmuEnvState &emuenv, SDL_Window *window) {
     auto &touch = emuenv.touch;
     auto &overlay = emuenv.ctrl.overlay_mouse;
@@ -109,10 +124,14 @@ void update_mouse_input(EmuEnvState &emuenv, SDL_Window *window) {
     touch.mouse_button_left = focused && (buttons & SDL_BUTTON_LMASK) != 0;
     touch.mouse_button_right = focused && (buttons & SDL_BUTTON_RMASK) != 0;
 
-    overlay.x.store(window_width > 0 ? window_x * 960.f / window_width : window_x,
-        std::memory_order_relaxed);
-    overlay.y.store(window_height > 0 ? window_y * 544.f / window_height : window_y,
-        std::memory_order_relaxed);
+    if (emuenv.display.viewport_drawable_w > 0) {
+        set_overlay_position(emuenv, touch.mouse_x, touch.mouse_y);
+    } else {
+        overlay.x.store(window_width > 0 ? window_x * 960.f / window_width : window_x,
+            std::memory_order_relaxed);
+        overlay.y.store(window_height > 0 ? window_y * 544.f / window_height : window_y,
+            std::memory_order_relaxed);
+    }
     overlay.pressed.store(touch.mouse_button_left, std::memory_order_relaxed);
 #endif
 }
@@ -359,6 +378,9 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
         app::LaunchRuntimeMetrics runtime_metrics{};
 
         bool running = !pending_launch_request.has_value();
+#if defined(VITA3K_PLATFORM_IOS)
+        bool ios_keyboard_requested = false;
+#endif
         while (running) {
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
@@ -414,8 +436,13 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
                 case SDL_EVENT_FINGER_CANCELED: {
                     handle_touch_event(emuenv.touch, event.tfinger);
                     auto &mouse = emuenv.ctrl.overlay_mouse;
-                    mouse.x.store(event.tfinger.x * 960.f, std::memory_order_relaxed);
-                    mouse.y.store(event.tfinger.y * 544.f, std::memory_order_relaxed);
+                    if (emuenv.display.viewport_drawable_w > 0) {
+                        set_overlay_position(emuenv, event.tfinger.x * emuenv.display.viewport_drawable_w,
+                            event.tfinger.y * emuenv.display.viewport_drawable_h);
+                    } else {
+                        mouse.x.store(event.tfinger.x * 960.f, std::memory_order_relaxed);
+                        mouse.y.store(event.tfinger.y * 544.f, std::memory_order_relaxed);
+                    }
                     mouse.pressed.store(event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION, std::memory_order_relaxed);
                     break;
                 }
@@ -450,6 +477,22 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
 
             update_mouse_input(emuenv, window);
             update_keyboard(emuenv, window);
+
+#if defined(VITA3K_PLATFORM_IOS)
+            // The on-screen keyboard follows the game's text input (sceImeDialog, sceIme): shown once
+            // when it starts, hidden when it ends. Typed text, Backspace and Return (submit) arrive
+            // as the text and key events handled above.
+            if (window) {
+                const bool ime_active = is_any_ime_active(emuenv);
+                if (ime_active != ios_keyboard_requested) {
+                    ios_keyboard_requested = ime_active;
+                    if (ime_active)
+                        SDL_StartTextInput(window);
+                    else
+                        SDL_StopTextInput(window);
+                }
+            }
+#endif
 
             if (!pending_launch_request) {
                 if (auto request = emuenv.take_app_launch_request()) {
