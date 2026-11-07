@@ -143,6 +143,7 @@ If Vita3KiOS is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-f
 - **[Vita3K](https://github.com/Vita3K/Vita3K)** and its contributors: the emulator this app is built on. Please support the upstream project.
 - **[Tsubomi](https://github.com/125hz/Tsubomi)** by **125hz**: the iOS 26 JIT implementation and JIT region pool, guest memory pre-reservation, the iOS audio session setup and the high-density game window.
 - **[MrBouza](https://github.com/MrBouza)**: fixed FSR on iOS (PR #1), added the on-screen keyboard for game text input (PR #2), and fixed the 16 MB JIT cache limit.
+- **[Vita3K-Plus](https://github.com/nckstwrt/Vita3K-Plus)** by **nckstwrt**: many game compatibility fixes (graphics, audio, saves, timing) ported from this Vita3K fork. Also GPL.
 - **[dynarmic](https://github.com/merryhime/dynarmic)** and **oaknut** by merryhime, **[MoltenVK](https://github.com/KhronosGroup/MoltenVK)**, **[SDL](https://github.com/libsdl-org/SDL)**, and the other libraries in `external/`.
 
 ## Legal

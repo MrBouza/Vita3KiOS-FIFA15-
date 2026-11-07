@@ -487,6 +487,7 @@ struct CreditsSection: View {
             CreditRow(name: "Vita3K", detail: "The PS Vita emulator this app is built on, by the Vita3K team and contributors.", url: "https://github.com/Vita3K/Vita3K")
             CreditRow(name: "Tsubomi by 125hz", detail: "iOS 26 JIT (dynarmic/oaknut patch and region pool), guest memory pre-reservation, audio session and display fixes.", url: "https://github.com/125hz/Tsubomi")
             CreditRow(name: "MrBouza", detail: "Fixed FSR on iOS, added the on-screen keyboard for game text input, and fixed the 16 MB JIT cache limit.", url: "https://github.com/MrBouza")
+            CreditRow(name: "Vita3K-Plus by nckstwrt", detail: "Many game compatibility fixes (graphics, audio, saves, timing) ported from this Vita3K fork.", url: "https://github.com/nckstwrt/Vita3K-Plus")
             CreditRow(name: "dynarmic & oaknut", detail: "ARM recompiler and arm64 assembler, by merryhime and contributors.", url: "https://github.com/merryhime/dynarmic")
             CreditRow(name: "MoltenVK", detail: "Vulkan on Apple's Metal, by the Khronos Group.", url: "https://github.com/KhronosGroup/MoltenVK")
             CreditRow(name: "SDL", detail: "Windowing, input and audio.", url: "https://github.com/libsdl-org/SDL")
