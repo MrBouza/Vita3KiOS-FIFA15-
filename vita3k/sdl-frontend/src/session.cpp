@@ -28,6 +28,7 @@
 #include <config/state.h>
 #include <ctrl/functions.h>
 #include <ctrl/state.h>
+#include <display/state.h>
 #include <emuenv/state.h>
 #include <ime/functions.h>
 #include <motion/event_handler.h>
