@@ -124,6 +124,7 @@ struct IOState {
     DirEntries dir_entries;
 
     std::unordered_map<std::string, std::string> cachemap;
+    std::mutex cachemap_mutex;
     bool case_isens_find_enabled = false;
 
     std::mutex overlay_mutex;

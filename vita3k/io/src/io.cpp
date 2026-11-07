@@ -40,6 +40,7 @@
 #include <iostream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 #if defined(__aarch64__) && defined(__APPLE__)
 #define stat64 stat
@@ -147,7 +148,10 @@ void io_deinit(IOState &io) {
     io.title_id.clear();
     io.app_path.clear();
 
-    io.cachemap.clear();
+    {
+        const std::lock_guard<std::mutex> lock(io.cachemap_mutex);
+        io.cachemap.clear();
+    }
 
     {
         std::lock_guard<std::mutex> lock(io.overlay_mutex);
@@ -204,14 +208,20 @@ bool find_case_isens_path(IOState &io, VitaIoDevice &device, const fs::path &tra
     if (!fs::exists(final_path))
         return false;
 
+    // Collected first, then added under the lock (another thread may be looking a path up)
+    std::vector<std::pair<std::string, std::string>> found;
     for (const auto &file : fs::recursive_directory_iterator(final_path)) {
-        io.cachemap.emplace(string_utils::tolower(file.path().string()), file.path().string());
+        found.emplace_back(string_utils::tolower(file.path().string()), file.path().string());
     }
+    const std::lock_guard<std::mutex> lock(io.cachemap_mutex);
+    for (auto &[lower, original] : found)
+        io.cachemap.emplace(std::move(lower), std::move(original));
 
     return true;
 }
 
 fs::path find_in_cache(IOState &io, const std::string &system_path) {
+    const std::lock_guard<std::mutex> lock(io.cachemap_mutex);
     const auto find_path = io.cachemap.find(system_path);
 
     if (find_path != io.cachemap.end()) {

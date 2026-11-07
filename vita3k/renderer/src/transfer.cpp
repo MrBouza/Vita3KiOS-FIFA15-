@@ -15,6 +15,8 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#include <algorithm>
+
 #include <gxm/functions.h>
 #include <gxm/types.h>
 #include <renderer/commands.h>
@@ -341,7 +343,10 @@ COMMAND(handle_transfer_downscale) {
     };
 
     if (renderer.current_backend == Backend::Vulkan && renderer.features.enable_memory_mapping && !renderer.disable_surface_sync) {
-        if (dynamic_cast<vulkan::VKState &>(renderer).surface_cache.check_for_surface(mem, src->address.address(), downscale_operation, dst->address.address()))
+        // bytes read from the source: rows up to the last one of the region
+        const uint64_t rows = static_cast<uint64_t>(src->y) + src->height;
+        const uint32_t read_size = src->stride > 0 ? static_cast<uint32_t>(std::min<uint64_t>(static_cast<uint64_t>(src->stride) * rows, UINT32_MAX)) : 0;
+        if (dynamic_cast<vulkan::VKState &>(renderer).surface_cache.check_for_surface(mem, src->address.address(), downscale_operation, dst->address.address(), read_size))
             // let the vulkan surface cache handle it
             return;
     }
