@@ -1021,10 +1021,14 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         LOG_WARN("Failed to initialize Vulkan overlay renderer, overlays will be disabled");
     }
 
-    support_fsr &= static_cast<bool>(screen_renderer.surface_capabilities.supportedUsageFlags & vk::ImageUsageFlagBits::eStorage);
-    // The FSR storage shaders write rgba8; BGRA8 swapchain views are not format-compatible.
-    support_fsr &= screen_renderer.surface_format.format == vk::Format::eR8G8B8A8Unorm;
-    support_fsr &= static_cast<bool>(physical_device.getFormatProperties(screen_renderer.surface_format.format).optimalTilingFeatures & vk::FormatFeatureFlagBits::eStorageImage);
+    // FSR writes rgba8 storage images of its own and blits the result to the swapchain image, which
+    // can then be any format (BGRA8 on Metal) as long as it can be cleared and blitted to
+    const vk::FormatFeatureFlags rgba8_features = physical_device.getFormatProperties(vk::Format::eR8G8B8A8Unorm).optimalTilingFeatures;
+    support_fsr &= static_cast<bool>(rgba8_features & vk::FormatFeatureFlagBits::eStorageImage);
+    support_fsr &= static_cast<bool>(rgba8_features & vk::FormatFeatureFlagBits::eBlitSrc);
+    support_fsr &= static_cast<bool>(screen_renderer.surface_capabilities.supportedUsageFlags & vk::ImageUsageFlagBits::eTransferDst);
+    support_fsr &= static_cast<bool>(physical_device.getFormatProperties(screen_renderer.surface_format.format).optimalTilingFeatures & vk::FormatFeatureFlagBits::eBlitDst);
+    LOG_INFO("FSR screen filter: {}", support_fsr ? "available" : "not available on this GPU");
 
     return init();
 }

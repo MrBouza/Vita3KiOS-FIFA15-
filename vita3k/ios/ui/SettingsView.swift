@@ -277,9 +277,7 @@ struct EmulationSections: View {
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
     private let anisotropy = [1, 2, 4, 8, 16]
-    // No FSR: it needs a storage-capable RGBA8 swapchain, which Metal does not offer, so Vita3K
-    // falls back to bilinear
-    private let filters = ["Nearest", "Bilinear", "Bicubic", "FXAA"]
+    private let filters = ["Nearest", "Bilinear", "Bicubic", "FXAA", "FSR"]
 
     var body: some View {
         Section {
@@ -305,7 +303,7 @@ struct EmulationSections: View {
             Picker(selection: binding(\.screenFilter) { model.setString("screen-filter", $0) }) {
                 ForEach(filters, id: \.self) { Text($0).tag($0) }
             } label: {
-                described("Screen filter", "How the picture is scaled to your screen. Nearest: sharp pixels. Bilinear: smooth. Bicubic: smoother. FXAA: smooths jagged edges.")
+                described("Screen filter", "How the picture is scaled to your screen. Nearest: sharp pixels. Bilinear: smooth. Bicubic: smoother. FXAA: smooths jagged edges. FSR: AMD upscaling, sharper than Bilinear at a small GPU cost.")
             }
             Picker(selection: binding(\.anisotropicFiltering) { model.setNumber("anisotropic-filtering", Double($0)) }) {
                 ForEach(anisotropy, id: \.self) { Text("\($0)×").tag($0) }
