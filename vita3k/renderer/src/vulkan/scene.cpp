@@ -40,6 +40,26 @@ void set_uniform_buffer(VKContext &context, MemState &mem, const ShaderProgram *
     }
 
     const uint32_t data_size_upload = std::min<uint32_t>(size, program->uniform_buffer_sizes.at(block_num) * 4);
+    if (vertex_shader && data && data_size_upload >= 16) {
+        // DIAGNOSTIC (Psycho-Pass): vertex uniform buffers (the character/text sprites need a projection matrix)
+        static std::mutex diag_mutex;
+        static std::unordered_set<uint64_t> diag_seen;
+        const std::lock_guard<std::mutex> diag_lock(diag_mutex);
+        const auto *f = reinterpret_cast<const float *>(data.get(mem));
+        uint64_t h = (static_cast<uint64_t>(block_num) << 56) ^ data_size_upload;
+        for (uint32_t i = 0; i < std::min<uint32_t>(data_size_upload / 4, 16); i++) {
+            uint32_t u;
+            memcpy(&u, f + i, 4);
+            h = h * 1099511628211ULL ^ u;
+        }
+        if (diag_seen.size() < 40 && diag_seen.insert(h).second) {
+            std::string vals;
+            for (uint32_t i = 0; i < std::min<uint32_t>(data_size_upload / 4, 20); i++)
+                vals += fmt::format(" {:.4g}", f[i]);
+            LOG_INFO("[UBODIAG] vertex block {} at 0x{:08X} size {} (program wants {} words):{}", block_num, data.address(), size,
+                program->uniform_buffer_sizes.at(block_num), vals);
+        }
+    }
     if (context.state.features.enable_memory_mapping) {
         if (context.state.mapping_method == MappingMethod::DoubleBuffer) {
             // we must always cover everything as some small part of the buffer may get changed only
