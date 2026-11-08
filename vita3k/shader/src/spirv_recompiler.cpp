@@ -145,6 +145,7 @@ static spv::Id create_array_if_needed(spv::Builder &b, const spv::Id param_id, c
 static spv::Id get_type_basic(spv::Builder &b, const Input &input) {
     switch (input.type) {
         // clang-format off
+    case DataType::C10: // 10-bit fixed point: read as float, packed to fx10 when stored in a register
     case DataType::F16:
     case DataType::F32:
          return b.makeFloatType(32);
