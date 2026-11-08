@@ -63,9 +63,6 @@ namespace {
 std::atomic_bool g_jit_pool_ready{ false };
 std::atomic_bool g_unhandled_universal_jit_breakpoint{ false };
 
-// The code caches prepared at launch: see IOS_SMALL/BIG_CODE_CACHE_* in cpu/functions.h
-constexpr std::size_t IOS_JIT_POOL_TARGET = IOS_SMALL_CODE_CACHE_COUNT + IOS_BIG_CODE_CACHE_COUNT;
-
 int os_major_version() {
     char version[32]{};
     size_t size = sizeof(version);
@@ -134,7 +131,7 @@ void install_fatal_signal_logger() {
     alt_stack.ss_size = alt_stack_storage.size();
     sigaltstack(&alt_stack, nullptr);
 
-    struct sigaction sa{};
+    struct sigaction sa {};
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigemptyset(&sa.sa_mask);
     sa.sa_sigaction = fatal_signal_handler;
@@ -144,7 +141,7 @@ void install_fatal_signal_logger() {
 }
 
 bool debugger_attached() {
-    struct kinfo_proc info{};
+    struct kinfo_proc info {};
     std::size_t size = sizeof(info);
     int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
     return sysctl(mib, 4, &info, &size, nullptr, 0) == 0 && (info.kp_proc.p_flag & P_TRACED) != 0;
@@ -237,7 +234,12 @@ int jit_pool_progress() {
 }
 
 int jit_pool_target() {
-    return static_cast<int>(IOS_JIT_POOL_TARGET);
+    // the code caches prepared at launch (fewer on low-memory devices): see cpu/functions.h
+#if defined(__aarch64__)
+    return static_cast<int>(ios_small_code_cache_count() + ios_big_code_cache_count());
+#else
+    return static_cast<int>(IOS_SMALL_CODE_CACHE_COUNT + IOS_BIG_CODE_CACHE_COUNT);
+#endif
 }
 
 int jit_pool_available() {

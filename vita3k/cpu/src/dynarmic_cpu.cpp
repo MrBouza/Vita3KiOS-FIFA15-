@@ -34,6 +34,7 @@
 
 #include <chrono>
 #include <mach/mach.h>
+#include <os/proc.h>
 #include <sys/mman.h>
 #endif
 
@@ -83,10 +84,61 @@ struct IosCacheTier {
     std::size_t count;
 };
 
-static constexpr IosCacheTier IOS_CACHE_TIERS[] = {
-    { IOS_SMALL_CODE_CACHE_SIZE, IOS_SMALL_CODE_CACHE_COUNT },
-    { IOS_BIG_CODE_CACHE_SIZE, IOS_BIG_CODE_CACHE_COUNT },
+namespace {
+
+// The app's own memory use (what iOS counts against its limit), in MiB
+std::size_t ios_footprint_mib() {
+    task_vm_info_data_t vm_info{};
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&vm_info), &count) != KERN_SUCCESS)
+        return 0;
+    return static_cast<std::size_t>(vm_info.phys_footprint / (1024 * 1024));
+}
+
+struct IosCacheCounts {
+    std::size_t small;
+    std::size_t big;
 };
+
+// Chosen once, before any cache is prepared, from what iOS lets the app use. Measured before the
+// prewarm: about 2 GiB on 4 GB devices (iPhone 11), 6 GiB on 8 GB devices
+const IosCacheCounts &ios_cache_counts() {
+    static const IosCacheCounts counts = [] {
+        const std::size_t available_mib = os_proc_available_memory() / (1024 * 1024);
+        IosCacheCounts chosen{ IOS_SMALL_CODE_CACHE_COUNT, IOS_BIG_CODE_CACHE_COUNT };
+        const char *tier = "full";
+        if (available_mib != 0 && available_mib < 1600) {
+            // 3 GB devices: 24 x 16 + 1 x 64 = 448 MiB
+            chosen = { 24, 1 };
+            tier = "very low memory";
+        } else if (available_mib != 0 && available_mib < 2600) {
+            // 4 GB devices: 30 x 16 + 2 x 64 = 608 MiB (FIFA 15 keeps about 25 small caches busy)
+            chosen = { 30, 2 };
+            tier = "low memory";
+        }
+        LOG_INFO("iOS JIT: {} MiB of memory available before the code caches: {} pool ({} x {} MiB, {} x {} MiB)", available_mib, tier,
+            chosen.small, IOS_SMALL_CODE_CACHE_SIZE / (1024 * 1024), chosen.big, IOS_BIG_CODE_CACHE_SIZE / (1024 * 1024));
+        return chosen;
+    }();
+    return counts;
+}
+
+std::vector<IosCacheTier> ios_cache_tiers() {
+    return {
+        { IOS_SMALL_CODE_CACHE_SIZE, ios_cache_counts().small },
+        { IOS_BIG_CODE_CACHE_SIZE, ios_cache_counts().big },
+    };
+}
+
+} // namespace
+
+std::size_t ios_small_code_cache_count() {
+    return ios_cache_counts().small;
+}
+
+std::size_t ios_big_code_cache_count() {
+    return ios_cache_counts().big;
+}
 
 // Prepares every missing cache with a single request to the JIT script: one large RX mapping, one
 // writable alias, then cut into the small and big caches for the pool. StikDebug pauses the app for
@@ -100,7 +152,7 @@ static bool prewarm_ios_jit_pool_in_one_request() {
     std::vector<std::pair<std::size_t, std::size_t>> missing; // size, count
     std::size_t total = 0;
     std::size_t have_all = 0;
-    for (const auto &tier : IOS_CACHE_TIERS) {
+    for (const auto &tier : ios_cache_tiers()) {
         const std::size_t have = matching_region_count(tier.size);
         have_all += std::min(have, tier.count);
         if (have < tier.count) {
@@ -152,12 +204,14 @@ static bool prewarm_ios_jit_pool_in_one_request() {
 
 bool prewarm_ios_jit_code_cache_pool() {
     oaknut::set_jit_region_pool_log_callback(&log_ios_jit_region_pool_event);
-    LOG_INFO("iOS JIT: preparing {} x {} MiB and {} x {} MiB code caches", IOS_SMALL_CODE_CACHE_COUNT,
-        IOS_SMALL_CODE_CACHE_SIZE / (1024 * 1024), IOS_BIG_CODE_CACHE_COUNT, IOS_BIG_CODE_CACHE_SIZE / (1024 * 1024));
+    const std::size_t available_before = os_proc_available_memory() / (1024 * 1024);
+    const std::size_t footprint_before = ios_footprint_mib();
+    LOG_INFO("iOS JIT: preparing {} x {} MiB and {} x {} MiB code caches", ios_small_code_cache_count(),
+        IOS_SMALL_CODE_CACHE_SIZE / (1024 * 1024), ios_big_code_cache_count(), IOS_BIG_CODE_CACHE_SIZE / (1024 * 1024));
     prewarm_ios_jit_pool_in_one_request();
     // Anything still missing (or everything, if the batched request was refused) one cache at a time
     bool complete = true;
-    for (const auto &tier : IOS_CACHE_TIERS) {
+    for (const auto &tier : ios_cache_tiers()) {
         const std::size_t available = oaknut::prewarm_jit_region_pool(tier.size, tier.count);
         if (available < tier.count) {
             LOG_CRITICAL("iOS JIT: only {} of {} code caches of {} MiB are ready", available, tier.count, tier.size / (1024 * 1024));
@@ -165,6 +219,10 @@ bool prewarm_ios_jit_code_cache_pool() {
         }
     }
     LOG_INFO("iOS JIT: code caches {}", complete ? "ready" : "incomplete");
+    // What the caches really cost: they count against the memory limit only if their pages are resident
+    const std::size_t available_after = os_proc_available_memory() / (1024 * 1024);
+    const std::size_t footprint_after = ios_footprint_mib();
+    LOG_INFO("iOS JIT: memory available {} -> {} MiB, app footprint {} -> {} MiB", available_before, available_after, footprint_before, footprint_after);
     return complete;
 }
 
