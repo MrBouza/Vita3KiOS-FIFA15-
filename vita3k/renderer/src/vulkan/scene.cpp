@@ -25,6 +25,7 @@
 
 #include <util/log.h>
 
+#include <chrono>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -502,6 +503,16 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         const SceGxmProgram &fprog = *context.record.fragment_program.get(mem)->program.get(mem);
         const uint64_t key = (static_cast<uint64_t>(r.color_surface.data.address()) << 32) ^ diag_frag_tex0_addr
             ^ (static_cast<uint64_t>(fp->blending_hash) * 0x9E3779B97F4A7C15ULL);
+        // in order: a window of consecutive draws, 25 seconds after the first draw (a text scene)
+        static const auto diag_start = std::chrono::steady_clock::now();
+        static int diag_seq = 0;
+        if (std::chrono::steady_clock::now() - diag_start > std::chrono::seconds(25) && diag_seq < 400) {
+            diag_seq++;
+            LOG_INFO("[DRAWSEQ] #{} scene {} target 0x{:08X} tex0 0x{:08X} fmt 0x{:08X} blend {} {}/{} prim {} count {} z {}/{}", diag_seq, context.scene_timestamp,
+                r.color_surface.data.address(), diag_frag_tex0_addr, fmt::underlying(context.shader_hints.fragment_textures[0]),
+                static_cast<bool>(b.blendEnable), vk::to_string(b.srcColorBlendFactor), vk::to_string(b.dstColorBlendFactor), fmt::underlying(type), count,
+                r.z_offset, r.z_scale);
+        }
         if (diag_seen.size() < 150 && diag_seen.insert(key).second)
             LOG_INFO("[DRAWDIAG] target 0x{:08X} tex0 0x{:08X} fmt 0x{:08X} | blend {} color {}*src {} {}*dst alpha {}*src {} {}*dst mask {:X} | native color {} frag color used {} | prim {} count {}",
                 r.color_surface.data.address(), diag_frag_tex0_addr, fmt::underlying(context.shader_hints.fragment_textures[0]),
