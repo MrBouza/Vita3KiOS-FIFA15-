@@ -20,12 +20,18 @@
 #include "../state.h"
 #include <SDL3/SDL_audio.h>
 #include <condition_variable>
+#include <mutex>
 
 class SDLAudioAdapter : public AudioAdapter {
 private:
     SDL_AudioDeviceID device_id = 0;
     int device_buffer_samples = 0;
-    SDL_AudioSpec dst_spec;
+    SDL_AudioSpec dst_spec{};
+    // device_id, paused and suspended: the device can be closed and reopened (suspend_output) while
+    // game threads use it
+    std::mutex device_mutex;
+    bool paused = false;
+    bool suspended = false;
 
     static void SDLCALL thread_wakeup_callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount);
 
@@ -35,6 +41,8 @@ public:
 
     bool init() override;
     void switch_state(const bool pause) override;
+    void suspend_output() override;
+    void resume_output() override;
     AudioOutPortPtr open_port(int nb_channels, int freq, int nb_sample) override;
     void audio_output(AudioOutPort &out_port, const void *buffer) override;
     void set_volume(AudioOutPort &out_port, float volume) override;

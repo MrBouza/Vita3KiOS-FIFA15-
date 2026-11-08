@@ -79,6 +79,9 @@ public:
     virtual void audio_output(AudioOutPort &out_port, const void *buffer) {}
     virtual void set_volume(AudioOutPort &out_port, float volume) {}
     virtual void switch_state(const bool pause) {}
+    // Release the output device while the app is off screen (iOS), and take it again on return
+    virtual void suspend_output() {}
+    virtual void resume_output() {}
     virtual int get_rest_sample(AudioOutPort &out_port) { return 0; };
     virtual void wake_all_ports() {}
     friend struct AudioState;
@@ -103,6 +106,8 @@ struct AudioState {
     void set_volume(AudioOutPort &out_port, float volume);
     void set_global_volume(float volume);
     void switch_state(const bool pause);
+    void suspend_output();
+    void resume_output();
     int get_rest_sample(AudioOutPort &out_port);
     void wake_all_ports();
 };

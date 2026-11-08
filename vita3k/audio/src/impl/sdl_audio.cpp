@@ -66,10 +66,53 @@ bool SDLAudioAdapter::init() {
 }
 
 void SDLAudioAdapter::switch_state(const bool pause) {
+    std::lock_guard<std::mutex> lock(device_mutex);
+    paused = pause;
+    if (device_id == 0)
+        return; // suspended: applied when the device is reopened
     if (pause)
         SDL_CHECK_VOID(SDL_PauseAudioDevice(device_id));
     else
         SDL_CHECK_VOID(SDL_ResumeAudioDevice(device_id));
+}
+
+// iOS: a paused SDL device still keeps its audio queue running (playing silence), so the app could not
+// hand the audio session back when it left the screen (other apps' videos stayed blocked). And when the
+// session was handed back anyway, iOS stopped the queue behind SDL's back and SDL never restarted it:
+// the game had no sound on return. Closing the device stops the queue cleanly (SDL also deactivates its
+// session), and reopening it on return starts a fresh one; the game's streams are bound to it again.
+void SDLAudioAdapter::suspend_output() {
+    std::lock_guard<std::mutex> lock(device_mutex);
+    if (device_id == 0)
+        return;
+    SDL_CloseAudioDevice(device_id); // also unbinds the streams, which keep their data
+    device_id = 0;
+    suspended = true;
+    LOG_INFO("Audio output released (off screen)");
+}
+
+void SDLAudioAdapter::resume_output() {
+    std::lock_guard<std::mutex> state_lock(state.mutex);
+    std::lock_guard<std::mutex> lock(device_mutex);
+    if (!suspended)
+        return;
+    suspended = false;
+    device_id = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr);
+    if (device_id == 0) {
+        LOG_ERROR("Audio output could not be reopened: {}", SDL_GetError());
+        return;
+    }
+    SDL_GetAudioDeviceFormat(device_id, &dst_spec, &device_buffer_samples);
+    for (auto &[_, port_ptr] : state.out_ports) {
+        auto &port = static_cast<SDLAudioOutPort &>(*port_ptr);
+        // Drop what queued up off screen, so the sound does not lag behind the game from now on
+        SDL_ClearAudioStream(port.stream.get());
+        if (!SDL_BindAudioStream(device_id, port.stream.get()))
+            LOG_ERROR("Audio stream could not be bound again: {}", SDL_GetError());
+    }
+    if (paused)
+        SDL_PauseAudioDevice(device_id);
+    LOG_INFO("Audio output reopened ({} streams)", state.out_ports.size());
 }
 
 AudioOutPortPtr SDLAudioAdapter::open_port(int nb_channels, int freq, int nb_sample) {
@@ -78,10 +121,15 @@ AudioOutPortPtr SDLAudioAdapter::open_port(int nb_channels, int freq, int nb_sam
         .channels = nb_channels,
         .freq = freq
     };
-    SDL_CHECK(SDL_GetAudioDeviceFormat(device_id, &dst_spec, &device_buffer_samples));
+    std::unique_lock<std::mutex> device_lock(device_mutex);
+    if (device_id != 0)
+        SDL_CHECK(SDL_GetAudioDeviceFormat(device_id, &dst_spec, &device_buffer_samples));
     const AudioStreamPtr stream(SDL_CreateAudioStream(&src_spec, &dst_spec), SDL_DestroyAudioStream);
     SDL_CHECK(stream);
-    SDL_CHECK(SDL_BindAudioStream(device_id, stream.get()));
+    // While suspended the stream is bound when the device is reopened
+    if (device_id != 0)
+        SDL_CHECK(SDL_BindAudioStream(device_id, stream.get()));
+    device_lock.unlock();
     auto port = std::make_shared<SDLAudioOutPort>(stream, *this);
     SDL_CHECK(SDL_SetAudioStreamGetCallback(stream.get(), SDLAudioAdapter::thread_wakeup_callback, port.get()));
     port->channels = nb_channels;

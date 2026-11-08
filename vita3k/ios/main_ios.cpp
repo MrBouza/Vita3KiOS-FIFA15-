@@ -33,6 +33,7 @@
 #include "jit/ios_jit.h"
 
 #include <app/session_controller.h>
+#include <audio/state.h>
 #include <cpu/functions.h>
 #include <display/state.h>
 #include <emuenv/app_launch_request.h>
@@ -87,8 +88,16 @@ extern "C" void v3k_set_game_paused(int reason, bool paused) {
 // before iOS starts refusing GPU work. SDL's background event does the same a little later.
 static void on_app_activity(bool active) {
     LOG_INFO("Vita3K {} the screen{}", active ? "is back on" : "is leaving", active ? "" : ": the game and the GPU pause");
-    if (app::AppSessionController *session = g_session.load())
+    app::AppSessionController *session = g_session.load();
+    EmuEnvState *emuenv = ios::get_emuenv();
+    // The game's audio device is closed while off screen, so the audio session can be handed back to
+    // other apps right away, and reopened (with a fresh audio queue) before the game resumes
+    if (active && session && emuenv)
+        emuenv->audio.resume_output();
+    if (session)
         session->set_pause_reason(app::AppSessionPauseReason::Background, !active);
+    if (!active && session && emuenv)
+        emuenv->audio.suspend_output();
 }
 
 // Paused for any reason (pause button, game menu, off screen)
