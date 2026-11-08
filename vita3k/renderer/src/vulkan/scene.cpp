@@ -524,15 +524,46 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         const SceGxmProgram &fprog = *context.record.fragment_program.get(mem)->program.get(mem);
         const uint64_t key = (static_cast<uint64_t>(r.color_surface.data.address()) << 32) ^ diag_frag_tex0_addr
             ^ (static_cast<uint64_t>(fp->blending_hash) * 0x9E3779B97F4A7C15ULL);
-        // in order: a window of consecutive draws, 25 seconds after the first draw (a text scene)
-        static const auto diag_start = std::chrono::steady_clock::now();
-        static int diag_seq = 0;
-        if (std::chrono::steady_clock::now() - diag_start > std::chrono::seconds(25) && diag_seq < 400) {
-            diag_seq++;
-            LOG_INFO("[DRAWSEQ] #{} scene {} target 0x{:08X} tex0 0x{:08X} fmt 0x{:08X} blend {} {}/{} prim {} count {} z {}/{}", diag_seq, context.scene_timestamp,
-                r.color_surface.data.address(), diag_frag_tex0_addr, fmt::underlying(context.shader_hints.fragment_textures[0]),
+        // in order: 120 consecutive draws every 10 seconds, so whatever is on screen gets recorded
+        extern uint32_t diag_frag_tex0_w, diag_frag_tex0_h;
+        static auto diag_next = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        static int diag_left = 0, diag_capture = 0;
+        if (diag_left == 0 && diag_capture < 40 && std::chrono::steady_clock::now() >= diag_next) {
+            diag_capture++;
+            diag_left = 120;
+            diag_next = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        }
+        if (diag_left > 0) {
+            diag_left--;
+            // where the draw lands: bounding box of attribute register 0 when it is a float position
+            std::string bbox;
+            const SceGxmVertexProgram &vp = *context.record.vertex_program.get(mem);
+            for (const SceGxmVertexAttribute &a : vp.attributes) {
+                if (a.regIndex != 0 || a.format != SCE_GXM_ATTRIBUTE_FORMAT_F32 || a.componentCount < 2 || a.streamIndex >= vp.streams.size())
+                    continue;
+                const auto &st = r.vertex_streams[a.streamIndex];
+                const uint32_t stride = vp.streams[a.streamIndex].stride;
+                if (!st.data)
+                    break;
+                const auto *bytes = st.data.get(mem);
+                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+                for (uint32_t v = 0; v < std::min<uint32_t>(count, 64); v++) {
+                    const uint32_t vi = indices_ptr ? (format == SCE_GXM_INDEX_FORMAT_U16 ? static_cast<const uint16_t *>(indices_ptr)[v] : static_cast<const uint32_t *>(indices_ptr)[v]) : v;
+                    float xy[2];
+                    memcpy(xy, bytes + vi * stride + a.offset, 8);
+                    x0 = std::min(x0, xy[0]);
+                    y0 = std::min(y0, xy[1]);
+                    x1 = std::max(x1, xy[0]);
+                    y1 = std::max(y1, xy[1]);
+                }
+                bbox = fmt::format(" pos [{:.4g},{:.4g}]-[{:.4g},{:.4g}]", x0, y0, x1, y1);
+                break;
+            }
+            const auto *vrd = context.record.vertex_program.get(mem)->renderer_data.get();
+            LOG_INFO("[DRAWSEQ] cap {} scene {} target 0x{:08X} tex0 0x{:08X} {}x{} fmt 0x{:08X} blend {} {}/{} prim {} count {}{} vs {} fs {}", diag_capture, context.scene_timestamp,
+                r.color_surface.data.address(), diag_frag_tex0_addr, diag_frag_tex0_w, diag_frag_tex0_h, fmt::underlying(context.shader_hints.fragment_textures[0]),
                 static_cast<bool>(b.blendEnable), vk::to_string(b.srcColorBlendFactor), vk::to_string(b.dstColorBlendFactor), fmt::underlying(type), count,
-                r.z_offset, r.z_scale);
+                bbox, hex_string(vrd->hash).substr(0, 8), hex_string(fp->hash).substr(0, 8));
         }
         if (diag_seen.size() < 150 && diag_seen.insert(key).second)
             LOG_INFO("[DRAWDIAG] target 0x{:08X} tex0 0x{:08X} fmt 0x{:08X} | blend {} color {}*src {} {}*dst alpha {}*src {} {}*dst mask {:X} | native color {} frag color used {} | prim {} count {}",

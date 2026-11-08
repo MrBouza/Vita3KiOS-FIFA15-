@@ -35,6 +35,7 @@ namespace renderer::vulkan {
 
 // DIAGNOSTIC: address of the texture bound to fragment unit 0 (read by the draw log in scene.cpp)
 Address diag_frag_tex0_addr = 0;
+uint32_t diag_frag_tex0_w = 0, diag_frag_tex0_h = 0;
 
 // return if this format can be used to read a depth stencil buffer
 // Only return the formats we support and make sense for now
@@ -149,8 +150,11 @@ void sync_texture(VKContext &context, MemState &mem, std::size_t index, SceGxmTe
                 lookup_result.has_value() ? fmt::format(" (view format {})", vk::to_string(lookup_result->format)) : "");
     }
 
-    if (index == 0)
+    if (index == 0) {
         diag_frag_tex0_addr = texture.data_addr << 2;
+        diag_frag_tex0_w = gxm::get_width(texture);
+        diag_frag_tex0_h = gxm::get_height(texture);
+    }
 
     if (!is_vertex && !lookup_result.has_value() && gxm::get_base_format(format) == SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8 && gxm::get_width(texture) <= 32) {
         // DIAGNOSTIC (Psycho-Pass text): the small textures the dialogue quads sample, and their content
