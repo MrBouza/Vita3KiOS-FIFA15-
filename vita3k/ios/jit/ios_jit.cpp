@@ -131,7 +131,7 @@ void install_fatal_signal_logger() {
     alt_stack.ss_size = alt_stack_storage.size();
     sigaltstack(&alt_stack, nullptr);
 
-    struct sigaction sa {};
+    struct sigaction sa{};
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigemptyset(&sa.sa_mask);
     sa.sa_sigaction = fatal_signal_handler;
@@ -141,7 +141,7 @@ void install_fatal_signal_logger() {
 }
 
 bool debugger_attached() {
-    struct kinfo_proc info {};
+    struct kinfo_proc info{};
     std::size_t size = sizeof(info);
     int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
     return sysctl(mib, 4, &info, &size, nullptr, 0) == 0 && (info.kp_proc.p_flag & P_TRACED) != 0;
