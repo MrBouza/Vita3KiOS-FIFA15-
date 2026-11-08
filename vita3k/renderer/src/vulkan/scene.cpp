@@ -23,6 +23,7 @@
 #include <config/state.h>
 #include <spdlog/fmt/bin_to_hex.h>
 
+#include <util/hash.h>
 #include <util/log.h>
 
 #include <chrono>
@@ -777,7 +778,7 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         static int diag_p8 = 0, diag_other = 0;
         const bool p8 = gxm::get_base_format(context.shader_hints.fragment_textures[0]) == SCE_GXM_TEXTURE_BASE_FORMAT_P8;
         int &n = p8 ? diag_p8 : diag_other;
-        if (n < 4) {
+        if (n < 8) {
             n++;
             const SceGxmVertexProgram &vp = *context.record.vertex_program.get(mem);
             std::string attrs;
@@ -799,7 +800,10 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
                 }
                 data = fmt::format(" stride {}{}", stride, data);
             }
-            LOG_INFO("[VTXDIAG] {} draw prim {} count {}:{} |{}", p8 ? "P8" : "other", fmt::underlying(type), count, attrs, data);
+            const auto *vrd = context.record.vertex_program.get(mem)->renderer_data.get();
+            const auto *frd = context.record.fragment_program.get(mem)->renderer_data.get();
+            LOG_INFO("[VTXDIAG] {} draw prim {} count {}:{} |{} | vertex shader {} fragment shader {}", p8 ? "P8" : "other", fmt::underlying(type), count, attrs, data,
+                hex_string(vrd->hash), hex_string(frd->hash));
         }
     }
     bind_vertex_streams(context, mem, instance_count, max_index);
