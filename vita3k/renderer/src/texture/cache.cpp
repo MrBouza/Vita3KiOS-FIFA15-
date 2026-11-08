@@ -449,6 +449,47 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
                 palette_texture_to_rgba_4(reinterpret_cast<uint32_t *>(texture_data_decompressed.data()),
                     static_cast<const uint8_t *>(pixels), pixels_per_stride, memory_height, get_texture_palette(gxm_texture, mem));
             }
+#if defined(VITA3K_PLATFORM_IOS)
+            {
+                // iOS: apply the palette texture's swizzle here and sample it unswizzled (see
+                // translate_swizzle). Psycho-Pass draws its text and characters with P8 textures
+                // using swizzles (ARGB, 1RGB), and they did not show through Metal.
+                static constexpr uint8_t ONE = 4;
+                static constexpr uint8_t sources[8][4] = {
+                    { 0, 1, 2, 3 }, // ABGR
+                    { 2, 1, 0, 3 }, // ARGB
+                    { 3, 2, 1, 0 }, // RGBA
+                    { 1, 2, 3, 0 }, // BGRA
+                    { 0, 1, 2, ONE }, // 1BGR
+                    { 2, 1, 0, ONE }, // 1RGB
+                    { 3, 2, 1, ONE }, // RGB1
+                    { 1, 2, 3, ONE }, // BGR1
+                };
+                const uint32_t mode = (gxm::get_format(gxm_texture) & SCE_GXM_TEXTURE_SWIZZLE_MASK) >> 12;
+                uint8_t *data = texture_data_decompressed.data();
+                const size_t count = texture_data_decompressed.size() / 4;
+                uint32_t max_alpha = 0;
+                size_t visible = 0;
+                if (mode < 8) {
+                    const uint8_t *src_idx = sources[mode];
+                    for (size_t i = 0; i < count; i++) {
+                        uint8_t *px = data + i * 4;
+                        const uint8_t in[5] = { px[0], px[1], px[2], px[3], 255 };
+                        for (int c = 0; c < 4; c++)
+                            px[c] = in[src_idx[c]];
+                        max_alpha = std::max<uint32_t>(max_alpha, px[3]);
+                        visible += px[3] != 0;
+                    }
+                }
+                static int diag_logged = 0;
+                if (diag_logged < 40) {
+                    diag_logged++;
+                    LOG_INFO("[TEXDIAG] {} texture {}x{} swizzle {} at 0x{:08X} palette 0x{:08X}: max alpha {}, {} of {} pixels visible",
+                        base_format == SCE_GXM_TEXTURE_BASE_FORMAT_P8 ? "P8" : "P4", gxm::get_width(gxm_texture), gxm::get_height(gxm_texture), mode,
+                        gxm_texture.data_addr << 2, gxm_texture.palette_addr << 6, max_alpha, visible, count);
+                }
+            }
+#endif
             pixels = texture_data_decompressed.data();
             bytes_per_pixel = 4;
             bpp = 32;

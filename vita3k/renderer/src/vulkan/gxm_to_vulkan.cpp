@@ -686,6 +686,11 @@ static vk::ComponentMapping translate_swizzleyuv422(SceGxmTextureSwizzleYUV422Mo
 vk::ComponentMapping translate_swizzle(SceGxmTextureFormat format) {
     const SceGxmTextureBaseFormat base_format = gxm::get_base_format(format);
     const uint32_t swizzle = format & SCE_GXM_TEXTURE_SWIZZLE_MASK;
+#if defined(VITA3K_PLATFORM_IOS)
+    // iOS: palette textures get their swizzle applied when they are decoded (texture/cache.cpp)
+    if (base_format == SCE_GXM_TEXTURE_BASE_FORMAT_P8 || base_format == SCE_GXM_TEXTURE_BASE_FORMAT_P4)
+        return swizzle_rgba;
+#endif
     switch (base_format) {
     // 1 Component.
     case SCE_GXM_TEXTURE_BASE_FORMAT_U8:
