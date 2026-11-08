@@ -752,6 +752,36 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     }
 
     // bind the vertex streams
+    {
+        // DIAGNOSTIC (Psycho-Pass): vertex layout and the first vertices of palette-texture draws vs other draws
+        static int diag_p8 = 0, diag_other = 0;
+        const bool p8 = gxm::get_base_format(context.shader_hints.fragment_textures[0]) == SCE_GXM_TEXTURE_BASE_FORMAT_P8;
+        int &n = p8 ? diag_p8 : diag_other;
+        if (n < 4) {
+            n++;
+            const SceGxmVertexProgram &vp = *context.record.vertex_program.get(mem);
+            std::string attrs;
+            for (const SceGxmVertexAttribute &a : vp.attributes)
+                attrs += fmt::format(" [reg {} stream {} off {} fmt {} x{}]", a.regIndex, a.streamIndex, a.offset, fmt::underlying(a.format), a.componentCount);
+            std::string data;
+            const auto &st = context.record.vertex_streams[0];
+            if (st.data && !vp.streams.empty()) {
+                const uint32_t stride = vp.streams[0].stride;
+                const auto *bytes = st.data.get(mem);
+                for (uint32_t v = 0; v < std::min<uint32_t>(4, count); v++) {
+                    const uint32_t vi = indices_ptr ? (format == SCE_GXM_INDEX_FORMAT_U16 ? static_cast<const uint16_t *>(indices_ptr)[v] : static_cast<const uint32_t *>(indices_ptr)[v]) : v;
+                    data += fmt::format(" v{}:", vi);
+                    for (uint32_t w = 0; w < std::min<uint32_t>(stride / 4, 6); w++) {
+                        float f;
+                        memcpy(&f, bytes + vi * stride + w * 4, 4);
+                        data += fmt::format(" {:.3g}", f);
+                    }
+                }
+                data = fmt::format(" stride {}{}", stride, data);
+            }
+            LOG_INFO("[VTXDIAG] {} draw prim {} count {}:{} |{}", p8 ? "P8" : "other", fmt::underlying(type), count, attrs, data);
+        }
+    }
     bind_vertex_streams(context, mem, instance_count, max_index);
 
     if (ordered_fetch) {
