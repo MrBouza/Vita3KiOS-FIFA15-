@@ -775,10 +775,13 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     // bind the vertex streams
     {
         // DIAGNOSTIC (Psycho-Pass): vertex layout and the first vertices of palette-texture draws vs other draws
-        static int diag_p8 = 0, diag_other = 0;
+        static int diag_p8 = 0, diag_other = 0, diag_sprite_rgba = 0;
         const bool p8 = gxm::get_base_format(context.shader_hints.fragment_textures[0]) == SCE_GXM_TEXTURE_BASE_FORMAT_P8;
-        int &n = p8 ? diag_p8 : diag_other;
-        if (n < 8) {
+        // the dialogue quads: same sprite shaders as the palette draws, but an RGBA texture
+        const auto *diag_frd = context.record.fragment_program.get(mem)->renderer_data.get();
+        const bool sprite_rgba = !p8 && hex_string(diag_frd->hash).starts_with("db65c676");
+        int &n = p8 ? diag_p8 : (sprite_rgba ? diag_sprite_rgba : diag_other);
+        if (n < (sprite_rgba ? 40 : 8)) {
             n++;
             const SceGxmVertexProgram &vp = *context.record.vertex_program.get(mem);
             std::string attrs;
@@ -789,20 +792,25 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
             if (st.data && !vp.streams.empty()) {
                 const uint32_t stride = vp.streams[0].stride;
                 const auto *bytes = st.data.get(mem);
-                for (uint32_t v = 0; v < std::min<uint32_t>(4, count); v++) {
+                for (uint32_t v = 0; v < std::min<uint32_t>(sprite_rgba ? 6 : 4, count); v++) {
                     const uint32_t vi = indices_ptr ? (format == SCE_GXM_INDEX_FORMAT_U16 ? static_cast<const uint16_t *>(indices_ptr)[v] : static_cast<const uint32_t *>(indices_ptr)[v]) : v;
                     data += fmt::format(" v{}:", vi);
                     for (uint32_t w = 0; w < std::min<uint32_t>(stride / 4, 6); w++) {
                         float f;
                         memcpy(&f, bytes + vi * stride + w * 4, 4);
-                        data += fmt::format(" {:.3g}", f);
+                        uint32_t u;
+                        memcpy(&u, &f, 4);
+                        if (sprite_rgba && w == 5)
+                            data += fmt::format(" #{:08X}", u);
+                        else
+                            data += fmt::format(" {:.4g}", f);
                     }
                 }
                 data = fmt::format(" stride {}{}", stride, data);
             }
             const auto *vrd = context.record.vertex_program.get(mem)->renderer_data.get();
             const auto *frd = context.record.fragment_program.get(mem)->renderer_data.get();
-            LOG_INFO("[VTXDIAG] {} draw prim {} count {}:{} |{} | vertex shader {} fragment shader {}", p8 ? "P8" : "other", fmt::underlying(type), count, attrs, data,
+            LOG_INFO("[VTXDIAG] {} draw prim {} count {}:{} |{} | vertex shader {} fragment shader {}", p8 ? "P8" : (sprite_rgba ? "RGBA sprite" : "other"), fmt::underlying(type), count, attrs, data,
                 hex_string(vrd->hash), hex_string(frd->hash));
         }
     }

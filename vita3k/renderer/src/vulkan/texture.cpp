@@ -27,6 +27,7 @@
 #include <util/align.h>
 #include <vkutil/vkutil.h>
 
+#include <cstring>
 #include <mutex>
 #include <unordered_set>
 
@@ -150,6 +151,34 @@ void sync_texture(VKContext &context, MemState &mem, std::size_t index, SceGxmTe
 
     if (index == 0)
         diag_frag_tex0_addr = texture.data_addr << 2;
+
+    if (!is_vertex && !lookup_result.has_value() && gxm::get_base_format(format) == SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8 && gxm::get_width(texture) <= 32) {
+        // DIAGNOSTIC (Psycho-Pass text): the small textures the dialogue quads sample, and their content
+        static int diag_small = 0;
+        if (diag_small < 30) {
+            diag_small++;
+            uint32_t words[4];
+            memcpy(words, &texture, sizeof(words));
+            const Address addr = texture.data_addr << 2;
+            const uint32_t stride = gxm::get_stride_in_bytes(texture);
+            const uint8_t *px = Ptr<const uint8_t>(addr).get(mem);
+            std::string rows;
+            uint32_t alpha_nonzero = 0;
+            for (uint32_t y = 0; y < std::min<uint32_t>(gxm::get_height(texture), 4); y++) {
+                rows += " |";
+                for (uint32_t x = 0; x < std::min<uint32_t>(gxm::get_width(texture), 8); x++) {
+                    const uint8_t *p = px + y * stride + x * 4;
+                    rows += fmt::format(" {:02X}{:02X}{:02X}{:02X}", p[0], p[1], p[2], p[3]);
+                }
+            }
+            for (uint32_t y = 0; y < gxm::get_height(texture); y++)
+                for (uint32_t x = 0; x < gxm::get_width(texture); x++)
+                    alpha_nonzero += px[y * stride + x * 4 + 3] != 0;
+            LOG_INFO("[SMALLTEX] {}x{} type 0x{:X} at 0x{:08X} stride {} words {:08X} {:08X} {:08X} {:08X} alpha>0 texels {} data{}",
+                gxm::get_width(texture), gxm::get_height(texture), fmt::underlying(texture.texture_type()), addr, stride,
+                words[0], words[1], words[2], words[3], alpha_nonzero, rows);
+        }
+    }
 
     if (lookup_result.has_value()) {
         // get the sampler now
