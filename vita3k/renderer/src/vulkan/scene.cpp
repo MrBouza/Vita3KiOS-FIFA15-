@@ -323,7 +323,11 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
     }
     max_stream_idx++;
 
-    if (context.state.mapping_method == MappingMethod::DoubleBuffer) {
+    // With memory mapping, SceGxm does not size the vertex streams (the GPU reads them in place).
+    // Size them here: double buffer syncs that range, and on Metal some streams are still copied
+    // (unaligned stride, offset or attributes). Those copies used a size of 0 with Native buffer,
+    // so the GPU read garbage vertices (Killzone Mercenary: exploding geometry)
+    if (context.state.features.enable_memory_mapping) {
         for (int i = 0; i < max_stream_idx; i++)
             state.vertex_streams[i].size = 0;
 
@@ -338,7 +342,7 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
             state.vertex_streams[attribute.streamIndex].size = std::max<size_t>(state.vertex_streams[attribute.streamIndex].size, data_length);
         }
 
-        for (int i = 0; i < max_stream_idx; i++) {
+        for (int i = 0; context.state.mapping_method == MappingMethod::DoubleBuffer && i < max_stream_idx; i++) {
             if (state.vertex_streams[i].data)
                 // on the PS Vita, shader stores are used most of the time to write to a vertex buffer
                 context.state.buffer_trapping.access_buffer(state.vertex_streams[i].data.address(), static_cast<uint32_t>(state.vertex_streams[i].size), mem, context.state.has_shader_store);
@@ -682,6 +686,19 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
                 }
             }
             max_index = trapped_buffer->extra;
+        }
+        // the highest index decides how much of each vertex stream a copy needs (see bind_vertex_streams).
+        // Scan it for every draw: the cached value above is only refreshed when the trap fires
+        if (indices_ptr && count > 0) {
+            uint32_t scanned = 0;
+            if (format == SCE_GXM_INDEX_FORMAT_U16) {
+                const uint16_t *data = static_cast<const uint16_t *>(indices_ptr);
+                scanned = *std::max_element(data, data + count);
+            } else {
+                const uint32_t *data = static_cast<const uint32_t *>(indices_ptr);
+                scanned = *std::max_element(data, data + count);
+            }
+            max_index = std::max(max_index, scanned);
         }
 #ifdef __APPLE__
         if ((offset & 3) != 0) {
