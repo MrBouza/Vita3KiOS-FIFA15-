@@ -27,6 +27,9 @@
 #include <util/align.h>
 #include <vkutil/vkutil.h>
 
+#include <mutex>
+#include <unordered_set>
+
 namespace renderer::vulkan {
 
 // return if this format can be used to read a depth stencil buffer
@@ -125,6 +128,21 @@ void sync_texture(VKContext &context, MemState &mem, std::size_t index, SceGxmTe
     if (!lookup_result.has_value() && !texture_is_cube && is_depth_stencil_compatible_format(base_format, is_depth_surface)) {
         // Try to retrieve depth/stencil cache
         lookup_result = context.state.surface_cache.retrieve_depth_stencil_as_texture(texture, &texture_viewport);
+    }
+
+    {
+        // DIAGNOSTIC (Psycho-Pass text): each distinct texture the game samples, and where it came from
+        static std::mutex diag_mutex;
+        static std::unordered_set<uint64_t> diag_seen;
+        const std::lock_guard<std::mutex> diag_lock(diag_mutex);
+        const char *source = !lookup_result.has_value() ? "memory" : (is_depth_surface ? "depth surface" : "render target");
+        const uint64_t key = (static_cast<uint64_t>(format) << 32) ^ (static_cast<uint64_t>(gxm::get_width(texture)) << 16) ^ gxm::get_height(texture)
+            ^ (static_cast<uint64_t>(lookup_result.has_value() ? (is_depth_surface ? 2 : 1) : 0) << 62) ^ (static_cast<uint64_t>(texture.data_addr) << 20);
+        if (diag_seen.size() < 400 && diag_seen.insert(key).second)
+            LOG_INFO("[TEXDIAG] {} texture unit {}: format 0x{:08X} {}x{} type {} at 0x{:08X} from {}{}", is_vertex ? "vertex" : "fragment",
+                is_vertex ? index - SCE_GXM_MAX_TEXTURE_UNITS : index, fmt::underlying(format), gxm::get_width(texture), gxm::get_height(texture),
+                fmt::underlying(texture.texture_type()), texture.data_addr << 2, source,
+                lookup_result.has_value() ? fmt::format(" (view format {})", vk::to_string(lookup_result->format)) : "");
     }
 
     if (lookup_result.has_value()) {

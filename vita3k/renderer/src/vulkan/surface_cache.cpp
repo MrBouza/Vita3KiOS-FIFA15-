@@ -448,6 +448,18 @@ SurfaceRetrieveResult VKSurfaceCache::retrieve_color_surface_for_framebuffer(Mem
     cmd_buffer.clearColorImage(image.image, vk::ImageLayout::eTransferDstOptimal, clear_color, vkutil::color_subresource_range);
     image.transition_to(cmd_buffer, vkutil::ImageLayout::ColorAttachmentReadWrite);
 
+    {
+        // DIAGNOSTIC (Psycho-Pass text): each render target the game draws into
+        static int diag_logged = 0;
+        if (diag_logged < 200) {
+            diag_logged++;
+            LOG_INFO("[TEXDIAG] render target at 0x{:08X} {}x{} stride {} format 0x{:08X} ({}) {} -> {}{}", address, original_width, original_height,
+                color->strideInPixels, fmt::underlying(color->colorFormat), fmt::underlying(base_format),
+                tiling == SurfaceTiling::Linear ? "linear" : (tiling == SurfaceTiling::Tiled ? "tiled" : "swizzled"), vk::to_string(vk_format),
+                is_srgb ? " sRGB" : "");
+        }
+    }
+
     last_written_surface = &info_added;
     info_added.need_surface_sync.reset();
     info_added.need_surface_sync = std::make_shared<bool>(false);
