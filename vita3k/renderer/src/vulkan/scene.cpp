@@ -389,6 +389,10 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
 #endif
                 context.vertex_stream_ring_buffer.allocate(context.prerender_cmd, stream_size, stream);
                 context.vertex_stream_offsets[i] = context.vertex_stream_ring_buffer.data_offset;
+                // with memory mapping this slot may still hold a mapped buffer from an earlier draw: the
+                // offset above is into the ring buffer, so bind the ring buffer (it was left out, and the
+                // GPU read the copy's offset inside the wrong buffer: Killzone Mercenary's exploding geometry)
+                context.vertex_stream_buffers[i] = context.vertex_stream_ring_buffer.handle();
             }
 
             state.vertex_streams[i].data = nullptr;
