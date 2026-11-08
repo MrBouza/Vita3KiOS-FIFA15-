@@ -25,8 +25,10 @@
 
 #include <util/log.h>
 
+#include <mutex>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace renderer::vulkan {
 
@@ -489,21 +491,23 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     void *indices_ptr = indices.get(mem);
 
     {
-        // DIAGNOSTIC (Psycho-Pass text): the state of draws sampling a palette texture (text, characters)
-        // and of a few other draws, to compare
-        static int diag_p8 = 0, diag_other = 0;
-        const SceGxmTextureBaseFormat tex0 = gxm::get_base_format(context.shader_hints.fragment_textures[0]);
-        const bool p8 = tex0 == SCE_GXM_TEXTURE_BASE_FORMAT_P8;
-        if ((p8 && diag_p8 < 40) || (!p8 && diag_other < 40)) {
-            (p8 ? diag_p8 : diag_other)++;
-            const GxmRecordState &r = context.record;
-            LOG_INFO("[DRAWDIAG] {} draw: prim {} count {} target 0x{:08X} depth 0x{:08X} | depth func {} write {} | stencil func {} ref {} mask {:X} | frag mode {} | z off {} scale {} flat {} | clip mode {} ({},{})-({},{}) | mask bit {} | colorfmt 0x{:08X}",
-                p8 ? "P8" : "other", fmt::underlying(type), count, r.color_surface.data.address(), r.depth_stencil_surface.depth_data.address(),
-                fmt::underlying(r.front_depth_func), fmt::underlying(r.front_depth_write_mode), fmt::underlying(r.front_stencil_state_op.func),
-                r.front_stencil_state_values.ref, r.front_stencil_state_values.compare_mask, fmt::underlying(r.front_side_fragment_program_mode),
-                r.z_offset, r.z_scale, r.viewport_flat, fmt::underlying(r.region_clip_mode), r.region_clip_min.x, r.region_clip_min.y,
-                r.region_clip_max.x, r.region_clip_max.y, r.writing_mask, fmt::underlying(r.color_surface.colorFormat));
-        }
+        // DIAGNOSTIC (Psycho-Pass text): every distinct (target, texture, blend) combination drawn
+        extern Address diag_frag_tex0_addr;
+        static std::mutex diag_mutex;
+        static std::unordered_set<uint64_t> diag_seen;
+        const std::lock_guard<std::mutex> diag_lock(diag_mutex);
+        const GxmRecordState &r = context.record;
+        const auto *fp = static_cast<const VKFragmentProgram *>(context.record.fragment_program.get(mem)->renderer_data.get());
+        const vk::PipelineColorBlendAttachmentState &b = fp->blending;
+        const SceGxmProgram &fprog = *context.record.fragment_program.get(mem)->program.get(mem);
+        const uint64_t key = (static_cast<uint64_t>(r.color_surface.data.address()) << 32) ^ diag_frag_tex0_addr
+            ^ (static_cast<uint64_t>(fp->blending_hash) * 0x9E3779B97F4A7C15ULL);
+        if (diag_seen.size() < 150 && diag_seen.insert(key).second)
+            LOG_INFO("[DRAWDIAG] target 0x{:08X} tex0 0x{:08X} fmt 0x{:08X} | blend {} color {}*src {} {}*dst alpha {}*src {} {}*dst mask {:X} | native color {} frag color used {} | prim {} count {}",
+                r.color_surface.data.address(), diag_frag_tex0_addr, fmt::underlying(context.shader_hints.fragment_textures[0]),
+                static_cast<bool>(b.blendEnable), vk::to_string(b.srcColorBlendFactor), vk::to_string(b.colorBlendOp), vk::to_string(b.dstColorBlendFactor),
+                vk::to_string(b.srcAlphaBlendFactor), vk::to_string(b.alphaBlendOp), vk::to_string(b.dstAlphaBlendFactor),
+                static_cast<uint32_t>(b.colorWriteMask), fprog.is_native_color(), fprog.is_frag_color_used(), fmt::underlying(type), count);
     }
 
     context.check_for_macroblock_change(true);

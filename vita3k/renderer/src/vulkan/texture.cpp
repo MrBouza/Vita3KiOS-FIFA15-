@@ -32,6 +32,9 @@
 
 namespace renderer::vulkan {
 
+// DIAGNOSTIC: address of the texture bound to fragment unit 0 (read by the draw log in scene.cpp)
+Address diag_frag_tex0_addr = 0;
+
 // return if this format can be used to read a depth stencil buffer
 // Only return the formats we support and make sense for now
 // (technically we can read a D24S8 or D32 as R8R8R8R8, but it is not implemented
@@ -144,6 +147,9 @@ void sync_texture(VKContext &context, MemState &mem, std::size_t index, SceGxmTe
                 fmt::underlying(texture.texture_type()), texture.data_addr << 2, source,
                 lookup_result.has_value() ? fmt::format(" (view format {})", vk::to_string(lookup_result->format)) : "");
     }
+
+    if (index == 0)
+        diag_frag_tex0_addr = texture.data_addr << 2;
 
     if (lookup_result.has_value()) {
         // get the sampler now
