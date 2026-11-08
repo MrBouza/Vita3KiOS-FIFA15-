@@ -488,6 +488,24 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
 
     void *indices_ptr = indices.get(mem);
 
+    {
+        // DIAGNOSTIC (Psycho-Pass text): the state of draws sampling a palette texture (text, characters)
+        // and of a few other draws, to compare
+        static int diag_p8 = 0, diag_other = 0;
+        const SceGxmTextureBaseFormat tex0 = gxm::get_base_format(context.shader_hints.fragment_textures[0]);
+        const bool p8 = tex0 == SCE_GXM_TEXTURE_BASE_FORMAT_P8;
+        if ((p8 && diag_p8 < 40) || (!p8 && diag_other < 40)) {
+            (p8 ? diag_p8 : diag_other)++;
+            const GxmRecordState &r = context.record;
+            LOG_INFO("[DRAWDIAG] {} draw: prim {} count {} target 0x{:08X} depth 0x{:08X} | depth func {} write {} | stencil func {} ref {} mask {:X} | frag mode {} | z off {} scale {} flat {} | clip mode {} ({},{})-({},{}) | mask bit {} | colorfmt 0x{:08X}",
+                p8 ? "P8" : "other", fmt::underlying(type), count, r.color_surface.data.address(), r.depth_stencil_surface.depth_data.address(),
+                fmt::underlying(r.front_depth_func), fmt::underlying(r.front_depth_write_mode), fmt::underlying(r.front_stencil_state_op.func),
+                r.front_stencil_state_values.ref, r.front_stencil_state_values.compare_mask, fmt::underlying(r.front_side_fragment_program_mode),
+                r.z_offset, r.z_scale, r.viewport_flat, fmt::underlying(r.region_clip_mode), r.region_clip_min.x, r.region_clip_min.y,
+                r.region_clip_max.x, r.region_clip_max.y, r.writing_mask, fmt::underlying(r.color_surface.colorFormat));
+        }
+    }
+
     context.check_for_macroblock_change(true);
 
     const bool maskupdate = gxm_fragment_program.is_maskupdate;
