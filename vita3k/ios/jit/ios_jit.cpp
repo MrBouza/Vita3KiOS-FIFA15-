@@ -63,9 +63,6 @@ namespace {
 std::atomic_bool g_jit_pool_ready{ false };
 std::atomic_bool g_unhandled_universal_jit_breakpoint{ false };
 
-// The code caches prepared at launch: see IOS_SMALL/BIG_CODE_CACHE_* in cpu/functions.h
-constexpr std::size_t IOS_JIT_POOL_TARGET = IOS_SMALL_CODE_CACHE_COUNT + IOS_BIG_CODE_CACHE_COUNT;
-
 int os_major_version() {
     char version[32]{};
     size_t size = sizeof(version);
@@ -237,7 +234,12 @@ int jit_pool_progress() {
 }
 
 int jit_pool_target() {
-    return static_cast<int>(IOS_JIT_POOL_TARGET);
+    // the code caches prepared at launch (fewer on low-memory devices): see cpu/functions.h
+#if defined(__aarch64__)
+    return static_cast<int>(ios_small_code_cache_count() + ios_big_code_cache_count());
+#else
+    return static_cast<int>(IOS_SMALL_CODE_CACHE_COUNT + IOS_BIG_CODE_CACHE_COUNT);
+#endif
 }
 
 int jit_pool_available() {

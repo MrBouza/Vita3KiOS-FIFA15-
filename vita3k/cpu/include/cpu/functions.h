@@ -87,6 +87,11 @@ inline constexpr std::size_t IOS_BIG_CODE_CACHE_SIZE = 64 * 1024 * 1024;
 // 896 MiB in all, less than the 1 GiB prepared before, so the pause at launch is not longer.
 inline constexpr std::size_t IOS_SMALL_CODE_CACHE_COUNT = 48;
 inline constexpr std::size_t IOS_BIG_CODE_CACHE_COUNT = 2;
+// The prepared caches count against the app's memory limit, which on 4 GB devices left about 1.1 GiB
+// for the game (FIFA 15 was killed for memory on an iPhone 11). Devices with a low limit prepare fewer:
+// these return the counts actually used, chosen once from the memory available at launch.
+std::size_t ios_small_code_cache_count();
+std::size_t ios_big_code_cache_count();
 #endif
 #if defined(VITA3K_PLATFORM_IOS) && defined(__aarch64__)
 // iOS 26+ JIT (from Tsubomi): prepares the code caches above through the attached StikDebug
