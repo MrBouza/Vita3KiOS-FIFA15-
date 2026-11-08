@@ -139,6 +139,16 @@ void AudioState::switch_state(const bool pause) {
     adapter->switch_state(pause);
 }
 
+void AudioState::suspend_output() {
+    if (adapter)
+        adapter->suspend_output();
+}
+
+void AudioState::resume_output() {
+    if (adapter)
+        adapter->resume_output();
+}
+
 int AudioState::get_rest_sample(AudioOutPort &out_port) {
     return adapter->get_rest_sample(out_port);
 }
