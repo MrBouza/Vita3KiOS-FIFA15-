@@ -666,8 +666,25 @@ void buffer_address_access(spv::Builder &b, const SpirvShaderParameters &params,
         // The offset may be negative (buffer bases are ~ -4), so recover the index by rounding to the nearest 2^28 boundary and keep the offset as a signed remainder
         const spv::Id biased = b.createBinOp(spv::OpIAdd, i32, addr, b.makeIntConstant(1 << 27));
         buffer_idx_val = b.createBinOp(spv::OpShiftRightLogical, i32, biased, b.makeIntConstant(28));
+
+        // From Vita3K-Plus (nckstwrt): keep the decoded buffer index inside the bound buffers
+        if (params.buffer_count > 0) {
+            const spv::Id max_idx = b.makeIntConstant(params.buffer_count - 1);
+            const spv::Id too_big = b.createBinOp(spv::OpSGreaterThan, b.makeBoolType(), buffer_idx_val, max_idx);
+            buffer_idx_val = b.createTriOp(spv::OpSelect, i32, too_big, max_idx, buffer_idx_val);
+            const spv::Id negative = b.createBinOp(spv::OpSLessThan, b.makeBoolType(), buffer_idx_val, zero);
+            buffer_idx_val = b.createTriOp(spv::OpSelect, i32, negative, zero, buffer_idx_val);
+        }
+
         const spv::Id idx_hi = b.createBinOp(spv::OpShiftLeftLogical, i32, buffer_idx_val, b.makeIntConstant(28));
         addr = b.createBinOp(spv::OpISub, i32, addr, idx_hi);
+
+        // an offset this far out is garbage: read offset 0 rather than a random GPU address
+        constexpr int safe_offset_max = 0x1000000;
+        const spv::Id off_hi = b.createBinOp(spv::OpSGreaterThan, b.makeBoolType(), addr, b.makeIntConstant(safe_offset_max));
+        const spv::Id off_lo = b.createBinOp(spv::OpSLessThan, b.makeBoolType(), addr, b.makeIntConstant(-safe_offset_max));
+        const spv::Id off_bad = b.createBinOp(spv::OpLogicalOr, b.makeBoolType(), off_hi, off_lo);
+        addr = b.createTriOp(spv::OpSelect, i32, off_bad, zero, addr);
     } else {
         buffer_idx_val = b.makeIntConstant(buffer_idx);
     }
@@ -678,6 +695,13 @@ void buffer_address_access(spv::Builder &b, const SpirvShaderParameters &params,
     buffer_address = add_uvec2_int(b, buffer_address, addr);
 
     if (component_size == sizeof(uint32_t)) {
+        // From Vita3K-Plus (nckstwrt): the Vita ignores the low 2 bits of a 32-bit access address.
+        // Apple GPUs do not, so an unaligned address read shifted data (exploding geometry in Killzone)
+        const spv::Id u32 = b.makeUintType(32);
+        spv::Id aligned_low_bits = b.createCompositeExtract(buffer_address, u32, 0);
+        aligned_low_bits = b.createBinOp(spv::OpBitwiseAnd, u32, aligned_low_bits, b.makeUintConstant(~0b11u));
+        buffer_address = b.createCompositeInsert(aligned_low_bits, buffer_address, b.getTypeId(buffer_address), 0);
+
         int buffer_idx_vec4 = 0;
         if (nb_components >= 4) {
             // first copy them 4 by 4 (using the fact that we can do 4-byte aligned reads)

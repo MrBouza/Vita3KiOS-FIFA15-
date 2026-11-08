@@ -84,6 +84,9 @@ struct SpirvShaderParameters {
     // when not using buffer device address, contains the storage buffer type
     spv::Id buffer_container;
 
+    // number of uniform buffers addressed through buffer device addresses (memory mapping only)
+    uint16_t buffer_count = 0;
+
     // ids for the given fields in the uniform block container
     int buffer_addresses_id;
     int viewport_ratio_id;
