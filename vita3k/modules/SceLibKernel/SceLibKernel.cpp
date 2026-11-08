@@ -41,7 +41,9 @@
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
+#include <map>
 #include <type_traits>
+#include <vector>
 
 enum class TimerFlags : uint32_t {
     FIFO_THREAD = 0x00000000,
@@ -149,8 +151,28 @@ EXPORT(int, sceClibMemcmpConstTime) {
     return UNIMPLEMENTED();
 }
 
+// Page table mode: a range can span host buffers (see mem/functions.h), copy it page by page then
+static bool clib_range_split(EmuEnvState &emuenv, Address addr, SceSize len) {
+    return emuenv.mem.use_page_table && !is_host_contiguous(emuenv.mem, addr, len);
+}
+
+static void clib_move(EmuEnvState &emuenv, Ptr<void> dst, const void *src, SceSize len) {
+    const Address src_addr = Ptr<const void>(src, emuenv.mem).address();
+    if (!clib_range_split(emuenv, dst.address(), len) && !clib_range_split(emuenv, src_addr, len)) {
+        memmove(dst.get(emuenv.mem), src, len);
+        return;
+    }
+    std::vector<uint8_t> data(len);
+    read_guest_memory(emuenv.mem, src_addr, data.data(), len);
+    write_guest_memory(emuenv.mem, dst.address(), data.data(), len);
+}
+
 EXPORT(Ptr<void>, sceClibMemcpy, Ptr<void> dst, const void *src, SceSize len) {
     TRACY_FUNC(sceClibMemcpy, dst, src, len);
+    if (emuenv.mem.use_page_table) {
+        clib_move(emuenv, dst, src, len);
+        return dst;
+    }
     memcpy(dst.get(emuenv.mem), src, len);
     return dst;
 }
@@ -189,6 +211,10 @@ EXPORT(Ptr<void>, sceClibMemcpy_safe, Ptr<void> dst, const Ptr<void> src, SceSiz
 
 EXPORT(Ptr<void>, sceClibMemmove, Ptr<void> dst, const void *src, SceSize len) {
     TRACY_FUNC(sceClibMemmove, dst, src, len);
+    if (emuenv.mem.use_page_table) {
+        clib_move(emuenv, dst, src, len);
+        return dst;
+    }
     memmove(dst.get(emuenv.mem), src, len);
     return dst;
 }
@@ -200,6 +226,10 @@ EXPORT(int, sceClibMemmoveChk) {
 
 EXPORT(Ptr<void>, sceClibMemset, Ptr<void> dst, int ch, SceSize len) {
     TRACY_FUNC(sceClibMemset, dst, ch, len);
+    if (clib_range_split(emuenv, dst.address(), len)) {
+        fill_guest_memory(emuenv.mem, dst.address(), ch, len);
+        return dst;
+    }
     memset(dst.get(emuenv.mem), ch, len);
     return dst;
 }
@@ -207,14 +237,6 @@ EXPORT(Ptr<void>, sceClibMemset, Ptr<void> dst, int ch, SceSize len) {
 EXPORT(int, sceClibMemsetChk) {
     TRACY_FUNC(sceClibMemsetChk);
     return UNIMPLEMENTED();
-}
-
-EXPORT(Ptr<void>, sceClibMspaceCalloc, Ptr<void> space, uint32_t elements, uint32_t size) {
-    TRACY_FUNC(sceClibMspaceCalloc, space, elements, size);
-    const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
-
-    void *address = mspace_calloc(space.get(emuenv.mem), elements, size);
-    return Ptr<void>(address, emuenv.mem);
 }
 
 #if defined(VITA3K_PLATFORM_IOS)
@@ -227,26 +249,89 @@ void vita3k_dlmalloc_error(int line) {
 }
 #endif
 
+// A game heap is managed by the host's dlmalloc, which keeps absolute host pointers. With memory
+// mapping in page table mode ("Native buffer" on iOS), part of the heap can later be mapped for the
+// GPU and move to another host buffer: resolving the heap through the page table on each call then
+// mixed two copies of it, and host pointers converted back to guest addresses pointed nowhere
+// (Killzone Mercenary: "game heap damaged", corrupted vertex data). Each heap now stays in the host
+// memory it was created in, and addresses convert with the heap's own base.
+namespace {
+struct MspaceInfo {
+    Address guest_base;
+    uint8_t *host_base;
+    uint32_t capacity;
+};
+std::map<Address, MspaceInfo> mspaces; // by guest address of the mspace handle (kernel mutex held)
+
+const MspaceInfo *find_mspace(Address space) {
+    const auto it = mspaces.find(space);
+    return it == mspaces.end() ? nullptr : &it->second;
+}
+
+void *mspace_host(const MspaceInfo &info, Address addr) {
+    return info.host_base + (addr - info.guest_base);
+}
+
+Address mspace_guest(const MspaceInfo &info, const void *host) {
+    return host ? static_cast<Address>(info.guest_base + (static_cast<const uint8_t *>(host) - info.host_base)) : 0;
+}
+
+} // namespace
+
+EXPORT(Ptr<void>, sceClibMspaceCalloc, Ptr<void> space, uint32_t elements, uint32_t size) {
+    TRACY_FUNC(sceClibMspaceCalloc, space, elements, size);
+    const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
+
+    const MspaceInfo *info = find_mspace(space.address());
+    if (!info) {
+        void *address = mspace_calloc(space.get(emuenv.mem), elements, size);
+        return Ptr<void>(address, emuenv.mem);
+    }
+    void *address = mspace_calloc(mspace_host(*info, space.address()), elements, size);
+    const Address guest = mspace_guest(*info, address);
+    if (guest && emuenv.mem.use_page_table)
+        fill_guest_memory(emuenv.mem, guest, 0, elements * size);
+    return Ptr<void>(guest);
+}
+
 EXPORT(Ptr<void>, sceClibMspaceCreate, Ptr<void> base, uint32_t capacity) {
     TRACY_FUNC(sceClibMspaceCreate, base, capacity);
     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
 
-    mspace space = create_mspace_with_base(base.get(emuenv.mem), capacity, 0);
-    return Ptr<void>(space, emuenv.mem);
+    uint8_t *host_base = base.cast<uint8_t>().get(emuenv.mem);
+    mspace space = create_mspace_with_base(host_base, capacity, 0);
+    if (!space)
+        return Ptr<void>(0);
+    if (emuenv.mem.use_page_table && !is_host_contiguous(emuenv.mem, base.address(), capacity))
+        LOG_WARN("Game heap at 0x{:08X} ({} KiB) spans GPU-mapped and normal memory: it is kept in one place", base.address(), capacity / 1024);
+    const MspaceInfo info{ base.address(), host_base, capacity };
+    const Address guest_space = mspace_guest(info, space);
+    mspaces[guest_space] = info;
+    return Ptr<void>(guest_space);
 }
 
 EXPORT(uint32_t, sceClibMspaceDestroy, Ptr<void> space) {
     TRACY_FUNC(sceClibMspaceDestroy, space);
     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
 
-    return static_cast<uint32_t>(destroy_mspace(space.get(emuenv.mem)));
+    const MspaceInfo *info = find_mspace(space.address());
+    if (!info)
+        return static_cast<uint32_t>(destroy_mspace(space.get(emuenv.mem)));
+    const auto result = destroy_mspace(mspace_host(*info, space.address()));
+    mspaces.erase(space.address());
+    return static_cast<uint32_t>(result);
 }
 
 EXPORT(void, sceClibMspaceFree, Ptr<void> space, Ptr<void> address) {
     TRACY_FUNC(sceClibMspaceFree, space, address);
     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
 
-    mspace_free(space.get(emuenv.mem), address.get(emuenv.mem));
+    const MspaceInfo *info = find_mspace(space.address());
+    if (!info) {
+        mspace_free(space.get(emuenv.mem), address.get(emuenv.mem));
+        return;
+    }
+    mspace_free(mspace_host(*info, space.address()), address ? mspace_host(*info, address.address()) : nullptr);
 }
 
 EXPORT(int, sceClibMspaceIsHeapEmpty) {
@@ -258,8 +343,12 @@ EXPORT(Ptr<void>, sceClibMspaceMalloc, Ptr<void> space, uint32_t size) {
     TRACY_FUNC(sceClibMspaceMalloc, space, size);
     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
 
-    void *address = mspace_malloc(space.get(emuenv.mem), size);
-    return Ptr<void>(address, emuenv.mem);
+    const MspaceInfo *info = find_mspace(space.address());
+    if (!info) {
+        void *address = mspace_malloc(space.get(emuenv.mem), size);
+        return Ptr<void>(address, emuenv.mem);
+    }
+    return Ptr<void>(mspace_guest(*info, mspace_malloc(mspace_host(*info, space.address()), size)));
 }
 
 EXPORT(int, sceClibMspaceMallocStats) {
@@ -281,16 +370,42 @@ EXPORT(Ptr<void>, sceClibMspaceMemalign, Ptr<void> space, uint32_t alignment, ui
     TRACY_FUNC(sceClibMspaceMemalign, space, alignment, size);
     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
 
-    void *address = mspace_memalign(space.get(emuenv.mem), alignment, size);
-    return Ptr<void>(address, emuenv.mem);
+    const MspaceInfo *info = find_mspace(space.address());
+    if (!info) {
+        void *address = mspace_memalign(space.get(emuenv.mem), alignment, size);
+        return Ptr<void>(address, emuenv.mem);
+    }
+    return Ptr<void>(mspace_guest(*info, mspace_memalign(mspace_host(*info, space.address()), alignment, size)));
 }
 
 EXPORT(Ptr<void>, sceClibMspaceRealloc, Ptr<void> space, Ptr<void> address, uint32_t size) {
     TRACY_FUNC(sceClibMspaceRealloc, space, address, size);
     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
 
-    void *new_address = mspace_realloc(space.get(emuenv.mem), address.get(emuenv.mem), size);
-    return Ptr<void>(new_address, emuenv.mem);
+    const MspaceInfo *info = find_mspace(space.address());
+    if (!info) {
+        void *new_address = mspace_realloc(space.get(emuenv.mem), address.get(emuenv.mem), size);
+        return Ptr<void>(new_address, emuenv.mem);
+    }
+    void *msp = mspace_host(*info, space.address());
+    if (!address)
+        return Ptr<void>(mspace_guest(*info, mspace_malloc(msp, size)));
+    if (!emuenv.mem.use_page_table) {
+        void *new_address = mspace_realloc(msp, mspace_host(*info, address.address()), size);
+        return Ptr<void>(mspace_guest(*info, new_address));
+    }
+    // page table: the game's data is in the page table view, which dlmalloc's copy may not match
+    void *old_host = mspace_host(*info, address.address());
+    const uint32_t old_size = static_cast<uint32_t>(mspace_usable_size(old_host));
+    void *new_host = mspace_malloc(msp, size);
+    if (!new_host)
+        return Ptr<void>(0);
+    const Address new_guest = mspace_guest(*info, new_host);
+    std::vector<uint8_t> data(std::min(old_size, size));
+    read_guest_memory(emuenv.mem, address.address(), data.data(), static_cast<uint32_t>(data.size()));
+    write_guest_memory(emuenv.mem, new_guest, data.data(), static_cast<uint32_t>(data.size()));
+    mspace_free(msp, old_host);
+    return Ptr<void>(new_guest);
 }
 
 EXPORT(int, sceClibMspaceReallocalign) {

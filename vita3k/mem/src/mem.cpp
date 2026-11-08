@@ -475,6 +475,64 @@ bool is_protecting(MemState &state, Address addr, MemPerm *perm) {
     return false;
 }
 
+Address host_to_guest_address(const MemState &state, const void *host) {
+    const uintptr_t memory_addr = reinterpret_cast<uintptr_t>(state.memory.get());
+    const uintptr_t host_addr = reinterpret_cast<uintptr_t>(host);
+    if (host_addr >= memory_addr && host_addr < memory_addr + TOTAL_MEM_SIZE)
+        return static_cast<Address>(host_addr - memory_addr);
+    if (state.use_page_table) {
+        const std::unique_lock<std::mutex> lock(const_cast<MemState &>(state).protect_mutex);
+        const auto it = state.external_mapping.lower_bound(static_cast<uint64_t>(host_addr));
+        if (it != state.external_mapping.end() && host_addr < it->first + it->second.size)
+            return static_cast<Address>(host_addr - it->first + it->second.address);
+    }
+    // not guest memory: keep the old (wrapping) result so callers see the same value as before
+    return static_cast<Address>(host_addr - memory_addr);
+}
+
+static uint8_t *guest_page_host(const MemState &state, Address addr) {
+    if (!state.use_page_table)
+        return &state.memory[addr];
+    return state.page_table[addr / KiB(4)] + addr;
+}
+
+bool is_host_contiguous(const MemState &state, Address addr, uint32_t size) {
+    if (!state.use_page_table || size == 0)
+        return true;
+    const uint8_t *first = guest_page_host(state, addr);
+    const uint64_t end = static_cast<uint64_t>(addr) + size;
+    for (uint64_t page = (addr / KiB(4) + 1) * KiB(4); page < end; page += KiB(4)) {
+        if (guest_page_host(state, static_cast<Address>(page)) != first + (page - addr))
+            return false;
+    }
+    return true;
+}
+
+template <typename F>
+static void for_each_guest_chunk(const MemState &state, Address addr, uint32_t size, F &&f) {
+    uint32_t done = 0;
+    while (done < size) {
+        const Address at = addr + done;
+        const uint32_t chunk = std::min<uint32_t>(size - done, KiB(4) - (at % KiB(4)));
+        f(guest_page_host(state, at), done, chunk);
+        done += chunk;
+    }
+}
+
+void read_guest_memory(const MemState &state, Address src, void *dst, uint32_t size) {
+    auto *out = static_cast<uint8_t *>(dst);
+    for_each_guest_chunk(state, src, size, [&](const uint8_t *host, uint32_t offset, uint32_t chunk) { memcpy(out + offset, host, chunk); });
+}
+
+void write_guest_memory(MemState &state, Address dst, const void *src, uint32_t size) {
+    const auto *in = static_cast<const uint8_t *>(src);
+    for_each_guest_chunk(state, dst, size, [&](uint8_t *host, uint32_t offset, uint32_t chunk) { memcpy(host, in + offset, chunk); });
+}
+
+void fill_guest_memory(MemState &state, Address dst, int value, uint32_t size) {
+    for_each_guest_chunk(state, dst, size, [&](uint8_t *host, uint32_t, uint32_t chunk) { memset(host, value, chunk); });
+}
+
 void add_external_mapping(MemState &mem, Address addr, uint32_t size, uint8_t *addr_ptr) {
     assert((size & 4095) == 0);
     if (!mem.use_page_table)
@@ -495,12 +553,19 @@ void add_external_mapping(MemState &mem, Address addr, uint32_t size, uint8_t *a
     const Address host_page = std::max<Address>(STANDARD_PAGE_SIZE, static_cast<Address>(mem.host_page_size));
     const Address inner_begin = align(addr, host_page);
     const Address inner_end = align_down(addr + size, host_page);
+#if !defined(VITA3K_PLATFORM_IOS)
     if (inner_end > inner_begin) {
         // point the first page table entry at the original memory for protect_inner
         mem.page_table[inner_begin / KiB(4)] = mem.memory.get();
         protect_inner(mem, inner_begin, inner_end - inner_begin, MemPerm::None);
         mem.page_table[inner_begin / KiB(4)] = page_table_entry;
     }
+#else
+    // iOS: leave the original range accessible. A game heap (sceClibMspace) created before this
+    // mapping keeps its bookkeeping there (Killzone Mercenary), and protecting it broke the heap
+    (void)inner_begin;
+    (void)inner_end;
+#endif
 
     const std::unique_lock<std::mutex> lock(mem.protect_mutex);
     mem.external_mapping[addr_value] = { addr, size };

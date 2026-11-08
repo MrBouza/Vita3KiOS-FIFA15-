@@ -40,6 +40,9 @@ public:
         const uint8_t *const pointer_bytes = reinterpret_cast<const uint8_t *>(pointer);
         if (pointer_bytes == 0) {
             addr = 0;
+        } else if (mem.use_page_table) {
+            // the pointer can be inside a GPU mapping instead of the main memory block
+            addr = host_to_guest_address(mem, pointer_bytes);
         } else {
             addr = static_cast<Address>(pointer_bytes - &mem.memory[0]);
         }

@@ -56,6 +56,17 @@ Address alloc(MemState &state, uint32_t size, const char *name, Address start_ad
 Address alloc_aligned(MemState &state, uint32_t size, const char *name, unsigned int alignment, Address start_addr = user_main_memory_start);
 void protect_inner(MemState &state, Address addr, uint32_t size, const MemPerm perm);
 void unprotect_inner(MemState &state, Address addr, uint32_t size);
+// Page table mode (memory mapping "Native buffer" on iOS): GPU-mapped guest pages live in their own
+// host buffers, so a guest range is not always one contiguous host range, and a host pointer may
+// point into one of those buffers rather than into the main memory block.
+// guest address of a host pointer (main memory or a GPU mapping), 0 if it is neither
+Address host_to_guest_address(const MemState &state, const void *host);
+// whether [addr, addr + size) is one contiguous host range
+bool is_host_contiguous(const MemState &state, Address addr, uint32_t size);
+// copy/fill guest memory page by page, following the page table
+void read_guest_memory(const MemState &state, Address src, void *dst, uint32_t size);
+void write_guest_memory(MemState &state, Address dst, const void *src, uint32_t size);
+void fill_guest_memory(MemState &state, Address dst, int value, uint32_t size);
 bool add_protect(MemState &state, Address addr, const uint32_t size, const MemPerm perm, const ProtectCallback &callback);
 void open_access_parent_protect_segment(MemState &state, Address addr);
 void close_access_parent_protect_segment(MemState &state, Address addr);
