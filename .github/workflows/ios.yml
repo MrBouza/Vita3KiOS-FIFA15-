@@ -77,7 +77,12 @@ jobs:
       - name: Set up vcpkg
         run: |
           git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          # GitHub release downloads fail now and then (HTTP 504): retry instead of failing the build
+          for attempt in 1 2 3 4 5; do
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics && break
+            [ "$attempt" = 5 ] && exit 1
+            echo "vcpkg bootstrap failed (attempt $attempt), retrying in 30 s"; sleep 30
+          done
 
       # Prebuilt openssl/curl/zlib/boost: saves about 5 minutes
       - name: Cache vcpkg packages
@@ -117,7 +122,13 @@ jobs:
       - name: Build IPA
         run: |
           ccache -z
-          bash ./.ci/build-ios.sh artifacts
+          # downloads during configure (MoltenVK, FFmpeg) can fail with HTTP 504: try again, compiled
+          # objects are kept by ccache
+          for attempt in 1 2 3; do
+            bash ./.ci/build-ios.sh artifacts && break
+            [ "$attempt" = 3 ] && exit 1
+            echo "Build failed (attempt $attempt), retrying in 30 s"; sleep 30
+          done
           ccache -s
 
       - name: Upload IPA
