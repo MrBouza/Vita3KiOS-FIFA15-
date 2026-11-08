@@ -170,10 +170,6 @@ static shader::GeneratedShader load_shader_generic(shader::Target target, const 
     };
 
     const auto shader_path = get_shader_path(shader_type_str);
-#if defined(VITA3K_PLATFORM_IOS) && defined(VITA3K_IOS_SHADER_DUMP)
-    // Diagnostic build: always regenerate so every shader the game uses gets dumped
-    shader_cache = false;
-#endif
     if (shader_cache) {
         if (target == shader::Target::GLSLOpenGL) {
             std::string source = load_shader_generic<std::string>(shader_path);
@@ -193,7 +189,7 @@ static shader::GeneratedShader load_shader_generic(shader::Target target, const 
 
     auto shader_log_path = get_shaderlog_path("gxp");
 
-#if defined(VITA3K_PLATFORM_IOS) && !defined(VITA3K_IOS_SHADER_DUMP)
+#if defined(VITA3K_PLATFORM_IOS)
     // iOS: skip the debug dumps (gxp binary, disassembly, GLSL text). They are only for developers, and
     // writing them for every new shader stutters new scenes on a phone. The SPIR-V cache below is kept.
     const auto write_data_with_ext = [&](const std::string &, const std::string &) {

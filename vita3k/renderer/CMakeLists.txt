@@ -83,8 +83,3 @@ endif()
 if(TRACY_ENABLE_ON_CORE_COMPONENTS)
 	target_link_libraries(renderer PRIVATE tracy)
 endif()
-
-# Diagnostic build: dump every shader (gxp + disassembly) to vita/shaderlog
-if(VITA3K_PLATFORM_IOS)
-	target_compile_definitions(renderer PRIVATE VITA3K_IOS_SHADER_DUMP=1)
-endif()

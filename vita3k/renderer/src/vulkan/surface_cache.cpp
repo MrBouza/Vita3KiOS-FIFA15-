@@ -452,6 +452,7 @@ SurfaceRetrieveResult VKSurfaceCache::retrieve_color_surface_for_framebuffer(Mem
     info_added.need_surface_sync.reset();
     info_added.need_surface_sync = std::make_shared<bool>(false);
     info_added.dirty = std::make_shared<bool>(false);
+    info_added.gpu_read_sync_only = false;
 
     // we only support surface sync of linear surfaces for now
     if (!can_mprotect_mapped_memory) {
@@ -1331,7 +1332,6 @@ bool VKSurfaceCache::check_for_surface(MemState &mem, Address source_address, Ca
     }
 
     auto &surface = *it->second;
-    VKContext &context = *static_cast<VKContext *>(state.context);
     // if the frame is already rendered skip
     // Note: that's not the best behavior but it should be fine
     // also it prevents invalidated surfaces from causing issues
@@ -1339,61 +1339,112 @@ bool VKSurfaceCache::check_for_surface(MemState &mem, Address source_address, Ca
         return false;
 
     // we found something
-    if (!*surface.need_surface_sync) {
-        // first send the command to sync the surface with the GPU
-        *surface.need_surface_sync = true;
-
-        // we shouldn't have a command buffer being used, but just in case
-        vk::CommandBuffer prev_cmd = context.render_cmd;
-
-        // for the time being, just create a temp command buffer / fence
-        // That's not the best approach but I guess it works
-        vk::CommandBuffer surface_cmd = nullptr;
-        vk::Fence fence = state.device.createFence({});
-        ColorSurfaceCacheInfo *returned_info = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(state.multithread_pool_mutex);
-            surface_cmd = vkutil::create_single_time_command(state.device, state.multithread_command_pool);
-
-            context.render_cmd = surface_cmd;
-            last_written_surface = &surface;
-            returned_info = perform_surface_sync();
-            context.render_cmd = prev_cmd;
-
-            surface_cmd.end();
-        }
-        // submit this command
-        vk::SubmitInfo submit_info{};
-        submit_info.setCommandBuffers(surface_cmd);
-        {
-            std::lock_guard<std::mutex> lock(state.queue_mutex);
-            tolerate_device_lost("a surface copy submit", [&] { state.general_queue.submit(submit_info, fence); });
-        }
-
-        // now we need to wait for the fence, then destroy it along with the command buffer
-        // to prevent memory leaks
-        CallbackRequestFunction vk_callback = [&state = this->state, fence, surface_cmd]() {
-            auto result = tolerate_device_lost("a surface copy wait", [&] { return state.device.waitForFences(fence, vk::True, std::numeric_limits<uint64_t>::max()); });
-            if (result != vk::Result::eSuccess)
-                LOG_ERROR("Could not wait for fences.");
-
-            // destroy the objects
-            state.device.destroyFence(fence);
-
-            std::lock_guard<std::mutex> lock(state.multithread_pool_mutex);
-            state.device.freeCommandBuffers(state.multithread_command_pool, surface_cmd);
-        };
-        state.request_queue.push(CallbackRequest{ new CallbackRequestFunction(std::move(vk_callback)) });
-
-        if (returned_info)
-            state.request_queue.push(PostSurfaceSyncRequest{ returned_info });
-    }
+    if (!*surface.need_surface_sync)
+        submit_immediate_surface_sync(surface);
+    // the CPU reads it too now: later syncs must also write it back to guest RAM
+    surface.gpu_read_sync_only = false;
 
     // now push the callback
     state.request_queue.push(CallbackRequest{ new CallbackRequestFunction(std::move(callback)) });
 
     if (target_address)
         cpu_surfaces_changed.push_back(target_address);
+
+    return true;
+}
+
+void VKSurfaceCache::submit_immediate_surface_sync(ColorSurfaceCacheInfo &surface) {
+    VKContext &context = *static_cast<VKContext *>(state.context);
+
+    // first send the command to sync the surface with the GPU
+    *surface.need_surface_sync = true;
+
+    // we shouldn't have a command buffer being used, but just in case
+    vk::CommandBuffer prev_cmd = context.render_cmd;
+    // this can be called in the middle of a scene: keep the scene's own last written surface
+    ColorSurfaceCacheInfo *prev_last_written = last_written_surface;
+
+    // for the time being, just create a temp command buffer / fence
+    // That's not the best approach but I guess it works
+    vk::CommandBuffer surface_cmd = nullptr;
+    vk::Fence fence = state.device.createFence({});
+    ColorSurfaceCacheInfo *returned_info = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(state.multithread_pool_mutex);
+        surface_cmd = vkutil::create_single_time_command(state.device, state.multithread_command_pool);
+
+        context.render_cmd = surface_cmd;
+        last_written_surface = &surface;
+        returned_info = perform_surface_sync();
+        context.render_cmd = prev_cmd;
+        last_written_surface = (prev_last_written == &surface) ? nullptr : prev_last_written;
+
+        surface_cmd.end();
+    }
+    // submit this command
+    vk::SubmitInfo submit_info{};
+    submit_info.setCommandBuffers(surface_cmd);
+    {
+        std::lock_guard<std::mutex> lock(state.queue_mutex);
+        tolerate_device_lost("a surface copy submit", [&] { state.general_queue.submit(submit_info, fence); });
+    }
+
+    // now we need to wait for the fence, then destroy it along with the command buffer
+    // to prevent memory leaks
+    CallbackRequestFunction vk_callback = [&state = this->state, fence, surface_cmd]() {
+        auto result = tolerate_device_lost("a surface copy wait", [&] { return state.device.waitForFences(fence, vk::True, std::numeric_limits<uint64_t>::max()); });
+        if (result != vk::Result::eSuccess)
+            LOG_ERROR("Could not wait for fences.");
+
+        // destroy the objects
+        state.device.destroyFence(fence);
+
+        std::lock_guard<std::mutex> lock(state.multithread_pool_mutex);
+        state.device.freeCommandBuffers(state.multithread_command_pool, surface_cmd);
+    };
+    state.request_queue.push(CallbackRequest{ new CallbackRequestFunction(std::move(vk_callback)) });
+
+    if (returned_info)
+        state.request_queue.push(PostSurfaceSyncRequest{ returned_info });
+}
+
+bool VKSurfaceCache::sync_surface_for_gpu_read(Address address, uint32_t size) {
+    if (!state.features.enable_memory_mapping || state.disable_surface_sync || !state.context)
+        return false;
+
+    auto it = color_address_lookup.upper_bound(address);
+    if (it == color_address_lookup.begin())
+        return false;
+    --it;
+
+    // a smaller surface can shadow a larger one: check one entry back if needed
+    if (it->first != address) {
+        const bool first_contained = address >= it->first
+            && static_cast<uint64_t>(address) + size <= static_cast<uint64_t>(it->first) + it->second->total_bytes;
+        if (!first_contained && it != color_address_lookup.begin())
+            --it;
+    }
+
+    auto &surface = *it->second;
+    if (it->first != address) {
+        constexpr uint32_t min_surface_read_size = 16 * 1024;
+        const bool contained = address >= it->first
+            && static_cast<uint64_t>(address) + size <= static_cast<uint64_t>(it->first) + surface.total_bytes;
+        if (!contained || (size != 0 && size < min_surface_read_size))
+            return false;
+    }
+
+    // a surface not rendered recently is as up to date in memory as it gets
+    if (surface.last_frame_rendered + MAX_FRAMES_RENDERING <= state.frame_timestamp)
+        return false;
+
+    // once need_surface_sync is set, the end of every scene rendering this surface syncs it again,
+    // so only the first read needs an immediate copy
+    if (!*surface.need_surface_sync) {
+        LOG_INFO_ONCE("A shader reads the render target at 0x{:08X} as raw data: syncing it for the GPU", it->first);
+        surface.gpu_read_sync_only = true;
+        submit_immediate_surface_sync(surface);
+    }
 
     return true;
 }
@@ -1475,7 +1526,7 @@ ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
         last_written_surface->need_buffer_sync = false;
         last_written_surface->need_post_surface_sync = true;
     } else {
-        last_written_surface->need_buffer_sync = true;
+        last_written_surface->need_buffer_sync = !last_written_surface->gpu_read_sync_only;
         last_written_surface->need_post_surface_sync = !is_swizzle_identity;
         std::tie(buffer, offset) = state.get_matching_mapping(last_written_surface->data);
     }

@@ -113,6 +113,10 @@ struct ColorSurfaceCacheInfo : public SurfaceCacheInfo {
     // only for double buffer, do we need to sync the two views?
     bool need_buffer_sync = false;
 
+    // synced only because the GPU reads it back as raw data (a uniform buffer aliasing this
+    // render target): keep the data in the mapped GPU buffer, skip the write-back to guest RAM
+    bool gpu_read_sync_only = false;
+
     std::shared_ptr<bool> dirty = std::make_shared<bool>(false);
 
     ColorSurfaceCacheInfo() = default;
@@ -223,6 +227,13 @@ public:
     // that does not start there, that surface is synced too
     bool check_for_surface(MemState &mem, Address source_address, CallbackRequestFunction &callback, Address target_address, uint32_t source_size = 0);
     std::map<Address, ColorSurfaceCacheInfo *>::iterator find_color_surface_containing(Address address, uint32_t size);
+    // copy a surface image into its mapped memory now, in its own command buffer
+    void submit_immediate_surface_sync(ColorSurfaceCacheInfo &surface);
+    // From Vita3K-Plus (nckstwrt): the GPU is about to read guest memory as raw data (e.g. a
+    // uniform buffer). If it lies in a recently rendered color surface (Killzone Mercenary reads
+    // its render targets back as uniforms), sync that surface into memory so the shader reads
+    // what was rendered instead of stale data. Returns true if the address is such a surface.
+    bool sync_surface_for_gpu_read(Address address, uint32_t size);
 
     // If non-null, the return value must be sent as a PostSurfaceSyncRequest
     ColorSurfaceCacheInfo *perform_surface_sync();
