@@ -755,6 +755,14 @@ bool USSETranslatorVisitor::vldst(
 
     spv::Id base = m_b.createBinOp(spv::OpIAdd, i32_type, source_0, source_1);
 
+#if defined(VITA3K_PLATFORM_IOS)
+    // TEST BUILD: drop shader memory stores even with memory mapping on, to check whether they are
+    // what corrupts Killzone Mercenary's memory (heap damage + exploding geometry with Native buffer)
+    if (is_store && m_features.enable_memory_mapping) {
+        LOG_WARN("Test build: dropping a {} shader memory store", m_program.is_vertex() ? "vertex" : "fragment");
+        return true;
+    }
+#endif
     if (m_features.enable_memory_mapping) {
         utils::buffer_address_access(m_b, m_spirv_params, m_util_funcs, m_features, to_store, to_store_offset, base, get_data_type_size(type_to_ldst), current_number_to_fetch, -1, is_store);
     } else {
