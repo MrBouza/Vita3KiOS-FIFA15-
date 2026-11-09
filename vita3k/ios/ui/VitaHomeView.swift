@@ -84,7 +84,8 @@ struct VitaTheme: Identifiable, Hashable {
         guard xml.parse() else { return nil }
         let wallpapers = parser.images.map { dir + "/" + $0 }.filter { VitaFirmware.exists($0) }
         guard !wallpapers.isEmpty else { return nil }
-        let music = parser.music.map { dir + "/" + $0 }.filter { VitaFirmware.exists($0) }
+        var music: String?
+        if let file = parser.music, VitaFirmware.exists(dir + "/" + file) { music = dir + "/" + file }
         var color = Color.white
         if let hex = parser.fontColor, let value = UInt32(hex.replacingOccurrences(of: "0x", with: ""), radix: 16) {
             color = Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
