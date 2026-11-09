@@ -69,8 +69,7 @@ void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t
         // (one cache prepared by the one-by-one path; progress is counted there)
         ios_jit_regions_prepared++;
         break;
-    case oaknut::JitRegionPoolEvent::SessionLost:
-    {
+    case oaknut::JitRegionPoolEvent::SessionLost: {
         // After launch the JIT script is detached, so this means every prepared cache is in use (the game
         // has more threads alive than there are caches), not that StikDebug went away. Said once.
         static std::atomic_bool logged{ false };
