@@ -161,6 +161,8 @@ struct Context {
     CommandList command_list;
     CommandAllocFunc alloc_func;
     CommandFreeFunc free_func;
+    // An immediate context's commands, in host memory (see SceGxm.cpp)
+    std::vector<CommandSlot> command_ring;
 
     int render_finish_status = 0;
     int notification_finish_status = 0;

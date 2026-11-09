@@ -954,6 +954,9 @@ static void display_entry_thread(EmuEnvState &emuenv) {
     }
 }
 
+// Slots in an immediate context's command ring (56 bytes each: 3.5 MiB)
+static constexpr uint32_t IMMEDIATE_COMMAND_RING_SLOTS = 65536;
+
 static Ptr<void> gxmRunDeferredMemoryCallback(KernelState &kernel, const MemState &mem, std::mutex &global_lock, std::uint32_t &return_size, Ptr<SceGxmDeferredContextCallback> callback, Ptr<void> userdata,
     const std::uint32_t size, const SceUID thread_id) {
     const std::lock_guard<std::mutex> guard(global_lock);
@@ -1120,7 +1123,12 @@ struct SceGxmContext {
             actual_size = state.vdm_buffer_size;
 
             if (state.type == SCE_GXM_CONTEXT_TYPE_IMMEDIATE) {
-                command_allocator_size = state.vdm_buffer_size / sizeof(renderer::Command);
+                // Commands are host structures (with host pointers): they were placed in the game's VDM
+                // buffer, where anything the game wrote there became a bad pointer for the renderer, and
+                // the ring was small enough that busy frames fell back to a heap allocation per command.
+                // A ring of its own in host memory instead (from Vita3K-Plus)
+                renderer->command_ring.resize(IMMEDIATE_COMMAND_RING_SLOTS);
+                command_allocator_size = IMMEDIATE_COMMAND_RING_SLOTS;
                 command_next_free_pos = 0;
                 command_last_free_pos = command_allocator_size - 1;
             } else {
@@ -1179,7 +1187,7 @@ struct SceGxmContext {
             if (command_allocator_size > 0 && command_next_free_pos <= command_last_free_pos.load(std::memory_order_acquire)) {
                 size_t offset = command_next_free_pos % command_allocator_size;
                 command_next_free_pos++;
-                new_command = alloc_space.cast<renderer::Command>().get(mem) + offset;
+                new_command = reinterpret_cast<renderer::Command *>(renderer->command_ring.data()) + offset;
                 new (new_command) renderer::Command;
             } else {
                 new_command = new renderer::Command;

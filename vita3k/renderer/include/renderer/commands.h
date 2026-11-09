@@ -110,6 +110,11 @@ struct Command {
     Command *next = nullptr;
 };
 
+// Storage for one Command without constructing it (a context's command ring)
+struct alignas(Command) CommandSlot {
+    std::uint8_t storage[sizeof(Command)];
+};
+
 using CommandPool = std::vector<Command>;
 
 // It's to split a command list easier when ExecuteCommandList is used.
