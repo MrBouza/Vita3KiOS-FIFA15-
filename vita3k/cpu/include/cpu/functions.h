@@ -78,18 +78,23 @@ bool get_log_mem(CPUState &state);
 void set_current_cpu_state(CPUState *state);
 
 #if defined(VITA3K_PLATFORM_IOS)
-// JIT code caches on iOS. Each guest thread starts with a small one; a thread that fills it (and
-// would otherwise wipe and recompile everything every few seconds) moves to a big one.
+// JIT code caches on iOS. Each guest thread starts with a tiny one; a thread that fills it (and
+// would otherwise wipe and recompile everything) moves to a small one, then to a big one.
+// Most threads compile well under 4 MiB (Dynarmic only needs 1 MiB free to emit a block); in the
+// logs about one thread per game fills 16 MiB. Games with worker pools keep 50+ threads alive
+// (Dynasty Warriors 8 ran out of caches at 50 and could not start its workers).
+inline constexpr std::size_t IOS_TINY_CODE_CACHE_SIZE = 4 * 1024 * 1024;
 inline constexpr std::size_t IOS_SMALL_CODE_CACHE_SIZE = 16 * 1024 * 1024;
 inline constexpr std::size_t IOS_BIG_CODE_CACHE_SIZE = 64 * 1024 * 1024;
-// iOS 26+ prepares them all at launch. 48 small: games keep up to about 40 threads alive (Dead or
-// Alive 5 Plus); 2 big for the threads that run the most code (a game's main and render threads).
-// 896 MiB in all, less than the 1 GiB prepared before, so the pause at launch is not longer.
-inline constexpr std::size_t IOS_SMALL_CODE_CACHE_COUNT = 48;
+// iOS 26+ prepares them all at launch: 64 tiny + 32 small + 2 big = 98 threads, still 896 MiB in all
+// (the same pause at launch as the 48 small + 2 big used before, which allowed only 50 threads).
+inline constexpr std::size_t IOS_TINY_CODE_CACHE_COUNT = 64;
+inline constexpr std::size_t IOS_SMALL_CODE_CACHE_COUNT = 32;
 inline constexpr std::size_t IOS_BIG_CODE_CACHE_COUNT = 2;
 // The prepared caches count against the app's memory limit, which on 4 GB devices left about 1.1 GiB
 // for the game (FIFA 15 was killed for memory on an iPhone 11). Devices with a low limit prepare fewer:
 // these return the counts actually used, chosen once from the memory available at launch.
+std::size_t ios_tiny_code_cache_count();
 std::size_t ios_small_code_cache_count();
 std::size_t ios_big_code_cache_count();
 #endif

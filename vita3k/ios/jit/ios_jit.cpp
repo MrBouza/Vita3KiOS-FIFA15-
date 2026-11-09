@@ -236,16 +236,17 @@ int jit_pool_progress() {
 int jit_pool_target() {
     // the code caches prepared at launch (fewer on low-memory devices): see cpu/functions.h
 #if defined(__aarch64__)
-    return static_cast<int>(ios_small_code_cache_count() + ios_big_code_cache_count());
+    return static_cast<int>(ios_tiny_code_cache_count() + ios_small_code_cache_count() + ios_big_code_cache_count());
 #else
-    return static_cast<int>(IOS_SMALL_CODE_CACHE_COUNT + IOS_BIG_CODE_CACHE_COUNT);
+    return static_cast<int>(IOS_TINY_CODE_CACHE_COUNT + IOS_SMALL_CODE_CACHE_COUNT + IOS_BIG_CODE_CACHE_COUNT);
 #endif
 }
 
 int jit_pool_available() {
 #if defined(__aarch64__)
     if (os_major_version() >= 26)
-        return static_cast<int>(ios_jit_code_cache_pool_available(IOS_SMALL_CODE_CACHE_SIZE)
+        return static_cast<int>(ios_jit_code_cache_pool_available(IOS_TINY_CODE_CACHE_SIZE)
+            + ios_jit_code_cache_pool_available(IOS_SMALL_CODE_CACHE_SIZE)
             + ios_jit_code_cache_pool_available(IOS_BIG_CODE_CACHE_SIZE));
 #endif
     return -1;

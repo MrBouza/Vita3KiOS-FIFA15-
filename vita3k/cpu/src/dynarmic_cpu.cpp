@@ -70,10 +70,18 @@ void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t
         ios_jit_regions_prepared++;
         break;
     case oaknut::JitRegionPoolEvent::SessionLost:
-        LOG_CRITICAL("StikDebug JIT session lost - cannot prepare a new JIT region; reopen StikDebug and re-enable JIT");
-        if (auto logger = spdlog::default_logger())
-            logger->flush();
+    {
+        // After launch the JIT script is detached, so this means every prepared cache is in use (the game
+        // has more threads alive than there are caches), not that StikDebug went away. Said once.
+        static std::atomic_bool logged{ false };
+        if (!logged.exchange(true)) {
+            LOG_ERROR("No JIT code cache left for a new {} MiB cache: all prepared caches are in use (too many game threads at once)",
+                size / (1024 * 1024));
+            if (auto logger = spdlog::default_logger())
+                logger->flush();
+        }
         break;
+    }
     }
 }
 
@@ -96,6 +104,7 @@ std::size_t ios_footprint_mib() {
 }
 
 struct IosCacheCounts {
+    std::size_t tiny;
     std::size_t small;
     std::size_t big;
 };
@@ -105,19 +114,20 @@ struct IosCacheCounts {
 const IosCacheCounts &ios_cache_counts() {
     static const IosCacheCounts counts = [] {
         const std::size_t available_mib = os_proc_available_memory() / (1024 * 1024);
-        IosCacheCounts chosen{ IOS_SMALL_CODE_CACHE_COUNT, IOS_BIG_CODE_CACHE_COUNT };
+        IosCacheCounts chosen{ IOS_TINY_CODE_CACHE_COUNT, IOS_SMALL_CODE_CACHE_COUNT, IOS_BIG_CODE_CACHE_COUNT };
         const char *tier = "full";
         if (available_mib != 0 && available_mib < 1600) {
-            // 3 GB devices: 24 x 16 + 1 x 64 = 448 MiB
-            chosen = { 24, 1 };
+            // 3 GB devices: 40 x 4 + 14 x 16 + 1 x 64 = 448 MiB (55 threads)
+            chosen = { 40, 14, 1 };
             tier = "very low memory";
         } else if (available_mib != 0 && available_mib < 2600) {
-            // 4 GB devices: 30 x 16 + 2 x 64 = 608 MiB (FIFA 15 keeps about 25 small caches busy)
-            chosen = { 30, 2 };
+            // 4 GB devices: 48 x 4 + 18 x 16 + 2 x 64 = 608 MiB (68 threads; FIFA 15 keeps about 25 alive)
+            chosen = { 48, 18, 2 };
             tier = "low memory";
         }
-        LOG_INFO("iOS JIT: {} MiB of memory available before the code caches: {} pool ({} x {} MiB, {} x {} MiB)", available_mib, tier,
-            chosen.small, IOS_SMALL_CODE_CACHE_SIZE / (1024 * 1024), chosen.big, IOS_BIG_CODE_CACHE_SIZE / (1024 * 1024));
+        LOG_INFO("iOS JIT: {} MiB of memory available before the code caches: {} pool ({} x {} MiB, {} x {} MiB, {} x {} MiB)", available_mib, tier,
+            chosen.tiny, IOS_TINY_CODE_CACHE_SIZE / (1024 * 1024), chosen.small, IOS_SMALL_CODE_CACHE_SIZE / (1024 * 1024), chosen.big,
+            IOS_BIG_CODE_CACHE_SIZE / (1024 * 1024));
         return chosen;
     }();
     return counts;
@@ -125,12 +135,17 @@ const IosCacheCounts &ios_cache_counts() {
 
 std::vector<IosCacheTier> ios_cache_tiers() {
     return {
+        { IOS_TINY_CODE_CACHE_SIZE, ios_cache_counts().tiny },
         { IOS_SMALL_CODE_CACHE_SIZE, ios_cache_counts().small },
         { IOS_BIG_CODE_CACHE_SIZE, ios_cache_counts().big },
     };
 }
 
 } // namespace
+
+std::size_t ios_tiny_code_cache_count() {
+    return ios_cache_counts().tiny;
+}
 
 std::size_t ios_small_code_cache_count() {
     return ios_cache_counts().small;
@@ -206,8 +221,9 @@ bool prewarm_ios_jit_code_cache_pool() {
     oaknut::set_jit_region_pool_log_callback(&log_ios_jit_region_pool_event);
     const std::size_t available_before = os_proc_available_memory() / (1024 * 1024);
     const std::size_t footprint_before = ios_footprint_mib();
-    LOG_INFO("iOS JIT: preparing {} x {} MiB and {} x {} MiB code caches", ios_small_code_cache_count(),
-        IOS_SMALL_CODE_CACHE_SIZE / (1024 * 1024), ios_big_code_cache_count(), IOS_BIG_CODE_CACHE_SIZE / (1024 * 1024));
+    LOG_INFO("iOS JIT: preparing {} x {} MiB, {} x {} MiB and {} x {} MiB code caches", ios_tiny_code_cache_count(),
+        IOS_TINY_CODE_CACHE_SIZE / (1024 * 1024), ios_small_code_cache_count(), IOS_SMALL_CODE_CACHE_SIZE / (1024 * 1024),
+        ios_big_code_cache_count(), IOS_BIG_CODE_CACHE_SIZE / (1024 * 1024));
     prewarm_ios_jit_pool_in_one_request();
     // Anything still missing (or everything, if the batched request was refused) one cache at a time
     bool complete = true;
@@ -589,12 +605,14 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     config.enable_cycle_counting = false;
 #if defined(VITA3K_PLATFORM_IOS)
     // From Tsubomi: Vita3K owns one Dynarmic JIT per guest thread. On iOS 26+ each cache also has a
-    // same-sized writable vm_remap alias, so the 128 MiB default scales poorly. Threads start with
-    // 16 MiB (above Dynarmic's approximate 8 MiB minimum); one that fills it moves to a big cache.
+    // same-sized writable vm_remap alias, so the 128 MiB default scales poorly. Threads start with a
+    // tiny cache; one that fills it moves up a size (see promote_code_cache).
     if (code_cache_size == 0)
-        code_cache_size = IOS_SMALL_CODE_CACHE_SIZE;
+        code_cache_size = IOS_TINY_CODE_CACHE_SIZE;
 #if defined(__aarch64__)
-    // No small cache left in the prepared pool: a big one rather than no thread at all
+    // None of this size left in the prepared pool: the next size up rather than no thread at all
+    if (code_cache_size == IOS_TINY_CODE_CACHE_SIZE && !ios_code_cache_available(IOS_TINY_CODE_CACHE_SIZE))
+        code_cache_size = IOS_SMALL_CODE_CACHE_SIZE;
     if (code_cache_size == IOS_SMALL_CODE_CACHE_SIZE && !ios_code_cache_available(IOS_SMALL_CODE_CACHE_SIZE)
         && ios_code_cache_available(IOS_BIG_CODE_CACHE_SIZE))
         code_cache_size = IOS_BIG_CODE_CACHE_SIZE;
@@ -655,11 +673,14 @@ CPUStop DynarmicCPU::run() {
 }
 
 #if defined(VITA3K_PLATFORM_IOS)
-// This thread filled its code cache: carry on in a big one, with the same registers. Done between
+// This thread filled its code cache: carry on in the next size up, with the same registers. Done between
 // two runs (the thread is in Vita3K's own code here, not in guest code), under the lock stop() takes.
 void DynarmicCPU::promote_code_cache() {
 #if defined(__aarch64__)
-    if (!ios_code_cache_available(IOS_BIG_CODE_CACHE_SIZE)) {
+    std::size_t next_size = IOS_BIG_CODE_CACHE_SIZE;
+    if (code_cache_size < IOS_SMALL_CODE_CACHE_SIZE && ios_code_cache_available(IOS_SMALL_CODE_CACHE_SIZE))
+        next_size = IOS_SMALL_CODE_CACHE_SIZE;
+    if (!ios_code_cache_available(next_size)) {
         if (!promotion_logged)
             LOG_WARN("A thread keeps filling its {} MiB JIT cache, and no bigger cache is left: it recompiles when it fills",
                 code_cache_size / (1024 * 1024));
@@ -671,7 +692,7 @@ void DynarmicCPU::promote_code_cache() {
     const uint32_t cpsr = jit->Cpsr();
     const uint32_t fpscr = jit->Fpscr();
     const std::size_t old_size = code_cache_size;
-    code_cache_size = IOS_BIG_CODE_CACHE_SIZE;
+    code_cache_size = next_size;
     std::unique_ptr<Dynarmic::A32::Jit> bigger;
     try {
         bigger = make_jit();
