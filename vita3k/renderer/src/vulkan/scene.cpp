@@ -685,16 +685,26 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
             const uint8_t *bytes = stream.data.get(mem);
             const uint32_t stride = vp.streams[a.streamIndex].stride;
             const void *index_data = indices.get(mem);
-            float x0 = 1e30f, x1 = -1e30f;
+            // HUD pieces are flat: every vertex has the same z. 3D models (which some games, like Soul Sacrifice,
+            // project themselves, so they also reach the screen with w == 1) have varying z and are left alone
+            float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
             for (size_t v = 0; v < count; v++) {
                 const uint32_t vi = !index_data ? static_cast<uint32_t>(v)
                     : (format == SCE_GXM_INDEX_FORMAT_U16 ? static_cast<const uint16_t *>(index_data)[v] : static_cast<const uint32_t *>(index_data)[v]);
+                const uint8_t *p = bytes + static_cast<size_t>(vi) * stride + a.offset;
                 float x;
-                memcpy(&x, bytes + static_cast<size_t>(vi) * stride + a.offset, sizeof(x));
+                memcpy(&x, p, sizeof(x));
                 x0 = std::min(x0, x);
                 x1 = std::max(x1, x);
+                if (a.componentCount >= 3) {
+                    float z;
+                    memcpy(&z, p + 8, sizeof(z));
+                    z0 = std::min(z0, z);
+                    z1 = std::max(z1, z);
+                }
             }
-            if (x0 <= x1 && std::isfinite(x0) && std::isfinite(x1)) {
+            const bool flat = a.componentCount < 3 || z1 - z0 <= 1e-6f * std::max(1.0f, std::abs(z0));
+            if (flat && x0 <= x1 && std::isfinite(x0) && std::isfinite(x1)) {
                 vert_ublock.wide_hud_scale = vert_ublock.wide_x_scale;
                 vert_ublock.wide_hud_cx = (x0 + x1) * 0.5f;
                 vert_ublock.wide_hud_width = x1 - x0;
