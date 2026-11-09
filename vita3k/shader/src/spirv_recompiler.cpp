@@ -1014,7 +1014,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
 
     if (program_type == SceGxmProgramType::Vertex) {
         // Create the default reg uniform buffer
-        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32, f32 };
+        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32, f32, f32 };
         if (uniform_buffer_count > 0)
             uniform_composition.push_back(buffer_addresses_type);
         if (uniform_texture_count > 0) {
@@ -1039,6 +1039,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
         ADD_VERT_UNIFORM_MEMBER(z_offset);
         ADD_VERT_UNIFORM_MEMBER(z_scale);
         ADD_VERT_UNIFORM_MEMBER(wide_x_scale);
+        ADD_VERT_UNIFORM_MEMBER(wide_attr_shift);
 
 #undef ADD_VERT_UNIFORM_MEMBER
 #define ADD_EXT_UNIFORM_MEMBER(name)                                                                                                                                                \
@@ -2096,6 +2097,27 @@ static SpirvCode convert_gxp_to_spirv_impl(const SceGxmProgram &program, const s
         for (auto &var_to_reg : translation_state.var_to_regs) {
             create_input_variable(b, parameters, utils, features, translation_state, "", var_to_reg.pa ? RegisterBank::PRIMATTR : RegisterBank::SECATTR,
                 var_to_reg.offset, spv::NoResult, var_to_reg.size, var_to_reg.var, var_to_reg.dtype, var_to_reg.convert_to_float);
+        }
+
+        // widescreen hack: move 2D draws anchored to a projected 3D point (a player marker) with the widened view.
+        // Only when attribute register 0 is a float position; the shift is 0 except for those draws.
+        if (program.is_vertex() && translation_state.render_info_id != spv::NoResult && translation_state.hints->attributes) {
+            bool float_position = false;
+            for (const auto &attribute : *translation_state.hints->attributes)
+                if (attribute.regIndex == 0 && attribute.format == SCE_GXM_ATTRIBUTE_FORMAT_F32 && attribute.componentCount >= 2)
+                    float_position = true;
+            if (float_position) {
+                Operand pos_x;
+                pos_x.bank = RegisterBank::PRIMATTR;
+                pos_x.num = 0;
+                pos_x.type = DataType::F32;
+                pos_x.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
+                const spv::Id f32_type = b.makeFloatType(32);
+                const spv::Id x = utils::load(b, parameters, utils, features, pos_x, 0b1, 0);
+                spv::Id shift = utils::create_access_chain(b, spv::StorageClassUniform, translation_state.render_info_id, { b.makeIntConstant(VERT_UNIFORM_wide_attr_shift) });
+                shift = b.createLoad(shift, spv::NoPrecision);
+                utils::store(b, parameters, utils, features, pos_x, b.createBinOp(spv::OpFAdd, f32_type, x, shift), 0b1, 0);
+            }
         }
 
         // Initialize vertex output to 0

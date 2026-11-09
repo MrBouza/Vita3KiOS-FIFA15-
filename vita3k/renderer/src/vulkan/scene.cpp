@@ -641,6 +641,41 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         if (std::abs(target_aspect - vita_aspect) < 0.03f)
             vert_ublock.wide_x_scale = context.state.widescreen_x_scale;
     }
+    vert_ublock.wide_attr_shift = 0.0f;
+    if (vert_ublock.wide_x_scale != 1.0f) {
+        // 2D draws the game places at a projected 3D point: move their centre with the widened view, keep their size.
+        // Their positions are in pixels from the screen centre, so the centre moves from cx to cx * scale.
+        static constexpr std::array<uint8_t, 4> anchored_shaders[] = {
+            { 0x15, 0x42, 0x9e, 0xde }, // FIFA 15: player marker and other on-pitch icons
+        };
+        const auto &vhash = vert_render_data->hash;
+        bool anchored = false;
+        for (const auto &prefix : anchored_shaders)
+            anchored |= std::equal(prefix.begin(), prefix.end(), vhash.begin());
+        const SceGxmVertexProgram &vp = *context.record.vertex_program.get(mem);
+        for (const SceGxmVertexAttribute &a : vp.attributes) {
+            if (!anchored || a.regIndex != 0 || a.format != SCE_GXM_ATTRIBUTE_FORMAT_F32 || a.streamIndex >= vp.streams.size())
+                continue;
+            const auto &stream = context.record.vertex_streams[a.streamIndex];
+            if (!stream.data)
+                break;
+            const uint8_t *bytes = stream.data.get(mem);
+            const uint32_t stride = vp.streams[a.streamIndex].stride;
+            const void *index_data = indices.get(mem);
+            float x0 = 1e30f, x1 = -1e30f;
+            for (size_t v = 0; v < std::min<size_t>(count, 64); v++) {
+                const uint32_t vi = !index_data ? static_cast<uint32_t>(v)
+                    : (format == SCE_GXM_INDEX_FORMAT_U16 ? static_cast<const uint16_t *>(index_data)[v] : static_cast<const uint32_t *>(index_data)[v]);
+                float x;
+                memcpy(&x, bytes + static_cast<size_t>(vi) * stride + a.offset, sizeof(x));
+                x0 = std::min(x0, x);
+                x1 = std::max(x1, x);
+            }
+            if (x0 <= x1)
+                vert_ublock.wide_attr_shift = (x0 + x1) * 0.5f * (vert_ublock.wide_x_scale - 1.0f);
+            break;
+        }
+    }
 
     if (context.curr_vert_ublock.changed || memcmp(&context.prev_vert_ublock, &vert_ublock, sizeof(vert_ublock)) != 0) {
         // TODO: this intermediate step can be avoided
