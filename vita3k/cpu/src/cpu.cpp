@@ -58,7 +58,9 @@ static void delete_cpu_state(CPUState *state) {
     if (state && state->cpu && state->pool_epoch == pool_epoch.load()) {
         const std::lock_guard lock(cpu_pool_mutex);
         if (cpu_pool.size() < MAX_POOLED_CPUS) {
-            cpu_pool.push_back({ state, guest_code_generation.load(std::memory_order_relaxed) });
+            // The thread may have compiled code before a change that happened while it ran:
+            // judge by when its cache was last known good, not by when it ended
+            cpu_pool.push_back({ state, state->code_generation });
             return;
         }
     }
@@ -90,8 +92,10 @@ static CPUStatePtr take_pooled_cpu(bool cpu_opt, SceUID thread_id, std::size_t p
         cpu_pool.erase(it);
     }
     CPUStatePtr state(entry.state, delete_cpu_state);
-    if (entry.generation != guest_code_generation.load(std::memory_order_relaxed))
+    const uint64_t generation = guest_code_generation.load(std::memory_order_relaxed);
+    if (entry.generation != generation)
         state->cpu->invalidate_jit_cache(0, 0xFFFFFFFF);
+    state->code_generation = generation;
     state->thread_id = thread_id;
     state->return_pc = 0;
     state->abort_pending = false;
@@ -115,6 +119,7 @@ CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, M
     state->thread_id = thread_id;
     state->cpu_opt = cpu_opt;
     state->pool_epoch = pool_epoch.load();
+    state->code_generation = guest_code_generation.load(std::memory_order_relaxed);
 
     if (!init(state->disasm)) {
         return CPUStatePtr();

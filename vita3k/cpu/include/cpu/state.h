@@ -38,6 +38,8 @@ struct CPUState {
     CPUContext initial_context{};
     // The game session it was made in: never reused by another one (other guest memory)
     uint64_t pool_epoch = 0;
+    // Guest code generation when this JIT was last known to hold only valid code (see cpu.cpp)
+    uint64_t code_generation = 0;
 
     // Set by the kubridge fault handler from a signal, read by the CPU after it halts
     std::atomic<bool> abort_pending{ false };
