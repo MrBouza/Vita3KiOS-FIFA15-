@@ -101,6 +101,10 @@ struct State {
     float res_multiplier;
     bool disable_surface_sync;
     bool stretch_the_display_area;
+    // Widescreen hack: widens 3D views to the screen's shape and stretches the frame to fill it
+    bool widescreen_hack = false;
+    // how much to narrow 3D draws horizontally (Vita aspect / screen aspect), 1 when off
+    float widescreen_x_scale = 1.0f;
     bool fullscreen_hd_res_pixel_perfect;
     bool fullscreen = false;
 
@@ -195,6 +199,11 @@ struct State {
     }
     void set_vsync_state(bool enable) {
         pending_vsync.store(enable ? 1 : 0, std::memory_order_relaxed);
+    }
+    void set_widescreen_hack(bool enable) {
+        widescreen_hack = enable;
+        if (!enable)
+            widescreen_x_scale = 1.0f;
     }
     void set_stretch_display(bool enable) {
         stretch_the_display_area = enable;
