@@ -60,7 +60,7 @@ struct AppearanceSection: View {
             Toggle(isOn: $vitaHome) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("PS Vita home screen (beta)")
-                    Text("Shows your games as bubbles on pages like the real Vita home screen, with a LiveArea and Start button for each game. Uses the wallpaper and start screen from your firmware when installed.")
+                    Text("The Vita's home screen in landscape: bubbles on pages you flick up and down, the start screen and LiveArea you peel away from the top-right corner, each game's own LiveArea, gate and manual, and the Vita's font and themes from your firmware.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

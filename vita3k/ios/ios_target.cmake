@@ -14,6 +14,7 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/PerformanceHUD.swift
 	ios/ui/AnimatedBackground.swift
 	ios/ui/VitaHomeView.swift
+	ios/ui/VitaHomeScreen.swift
 )
 
 add_executable(vita3k MACOSX_BUNDLE

@@ -169,7 +169,8 @@ struct LibraryView: View {
             }
             .navigationTitle("Vita3K")
             .toolbar(vitaHome ? .hidden : .automatic, for: .navigationBar)
-            .searchable(text: $search, prompt: "Search games")
+            // The Vita home screen has its own Search bubble: the library's search bar would cover it
+            .modifier(LibrarySearch(enabled: !vitaHome, text: $search))
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
@@ -211,7 +212,11 @@ struct LibraryView: View {
                 // Let the sheet finish closing first
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { requestLaunch(app) }
             }
-            .onAppear { model.checkForCrashReport() }
+            .onAppear {
+                model.checkForCrashReport()
+                LibraryHost.updateOrientation()
+            }
+            .onChange(of: vitaHome) { _, _ in LibraryHost.updateOrientation() }
             .alert(model.jitPreparing ? "JIT is almost ready" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
                 Button("OK", role: .cancel) { pendingLaunch = nil }
             } message: {
@@ -700,5 +705,19 @@ private struct DeleteAlerts: ViewModifier {
             } message: {
                 Text("This can't be undone.")
             }
+    }
+}
+
+/// The library's search bar, left out while the PS Vita home screen is showing
+struct LibrarySearch: ViewModifier {
+    let enabled: Bool
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.searchable(text: $text, prompt: "Search games")
+        } else {
+            content
+        }
     }
 }

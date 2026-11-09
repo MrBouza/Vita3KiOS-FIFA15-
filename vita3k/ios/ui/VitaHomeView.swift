@@ -57,8 +57,24 @@ struct VitaTheme: Identifiable, Hashable {
     /// Home music below the Vita folder (.at9), nil when the theme has none
     let music: String?
     let fontColor: Color
+    /// Start (lock) screen picture below the Vita folder; nil uses the firmware's keylock.png
+    var startImage: String? = nil
+    /// Colour of the start screen clock and date
+    var dateColor: Color = .white
+    /// Where the start screen clock sits: 0 bottom left (the Vita default), 1 top left, 2 bottom right
+    var dateLayout: Int = 0
+    /// Information bar colour, nil for the default translucent black
+    var barColor: Color? = nil
 
     static let defaultId = "default"
+
+    static func color(hex: String?) -> Color? {
+        guard var hex else { return nil }
+        hex = hex.replacingOccurrences(of: "0x", with: "").replacingOccurrences(of: "#", with: "")
+        guard let value = UInt32(hex, radix: 16) else { return nil }
+        // theme.xml colours are RRGGBB or AABBGGRR-style 8 digits; use the low 24 bits as RGB like Vita3K
+        return Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+    }
 
     static var builtIn: VitaTheme {
         VitaTheme(id: defaultId, name: "Default", wallpapers: VitaFirmware.defaultWallpapers,
@@ -87,11 +103,13 @@ struct VitaTheme: Identifiable, Hashable {
         guard !wallpapers.isEmpty else { return nil }
         var music: String?
         if let file = parser.music, VitaFirmware.exists(dir + "/" + file) { music = dir + "/" + file }
-        var color = Color.white
-        if let hex = parser.fontColor, let value = UInt32(hex.replacingOccurrences(of: "0x", with: ""), radix: 16) {
-            color = Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
-        }
-        return VitaTheme(id: id, name: parser.title ?? id, wallpapers: wallpapers, music: music, fontColor: color)
+        var theme = VitaTheme(id: id, name: parser.title ?? id, wallpapers: wallpapers, music: music,
+                              fontColor: color(hex: parser.fontColor) ?? .white)
+        if let file = parser.startImage, VitaFirmware.exists(dir + "/" + file) { theme.startImage = dir + "/" + file }
+        theme.dateColor = color(hex: parser.dateColor) ?? .white
+        theme.dateLayout = Int(parser.dateLayout ?? "") ?? 0
+        theme.barColor = color(hex: parser.barColor)
+        return theme
     }
 }
 
@@ -101,6 +119,10 @@ private final class ThemeXML: NSObject, XMLParserDelegate {
     var music: String?
     var fontColor: String?
     var title: String?
+    var startImage: String?
+    var dateColor: String?
+    var dateLayout: String?
+    var barColor: String?
     private var path: [String] = []
     private var text = ""
 
@@ -122,6 +144,12 @@ private final class ThemeXML: NSObject, XMLParserDelegate {
                 fontColor = value
             } else if name == "m_default", path.contains("m_title"), title == nil {
                 title = value
+            } else if path.contains("StartScreenProperty") {
+                if name == "m_filePath" { startImage = value }
+                if name == "m_dateColor" { dateColor = value }
+                if name == "m_dateLayout" { dateLayout = value }
+            } else if name == "m_barColor", path.contains("InfomationBarProperty") {
+                barColor = value
             }
         }
         path.removeLast()
@@ -243,346 +271,6 @@ enum VitaFont {
             return Font.custom(name, size: size)
         }
         return .system(size: size, weight: bold ? .semibold : .regular)
-    }
-}
-
-/// Page layout of the Vita home screen: ten bubbles per page, staggered 3 - 2 - 3 - 2
-enum VitaLayout {
-    static let perPage = 10
-    static let rows = [3, 2, 3, 2]
-
-    static func pages(_ apps: [GameApp]) -> [[GameApp]] {
-        stride(from: 0, to: max(apps.count, 1), by: perPage).map { start in
-            Array(apps[min(start, apps.count)..<min(start + perPage, apps.count)])
-        }
-    }
-}
-
-struct VitaHomeView: View {
-    let apps: [GameApp]
-    let onLaunch: (GameApp) -> Void
-    let onDetails: (GameApp) -> Void
-    let onDelete: (GameApp) -> Void
-    let onDeleteSave: (GameApp) -> Void
-    let onSettings: () -> Void
-    let onImport: () -> Void
-
-    @AppStorage("v3k.vitaHome.lockScreen") private var showLockScreen = true
-    @AppStorage("v3k.vitaHome.theme") private var themeId = VitaTheme.defaultId
-    @State private var locked = true
-    @State private var page = 0
-    @State private var selected: GameApp?
-    @State private var lockOffset: CGFloat = 0
-
-    private var ordered: [GameApp] {
-        // The Vita lists the most recently used application first
-        apps.sorted { ($0.lastPlayed, $1.title) > ($1.lastPlayed, $0.title) }
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                wallpaper.id(themeId).frame(width: proxy.size.width, height: proxy.size.height).clipped()
-
-                VStack(spacing: 0) {
-                    VitaInfoBar().padding(.top, proxy.safeAreaInsets.top)
-                    pager(size: proxy.size)
-                    pageDots
-                    dock.padding(.bottom, max(proxy.safeAreaInsets.bottom, 10))
-                }
-
-                if let app = selected {
-                    LiveAreaView(app: app, close: { withAnimation(.easeOut(duration: 0.2)) { selected = nil } },
-                                 start: { selected = nil; onLaunch(app) },
-                                 details: { onDetails(app) })
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                        .zIndex(2)
-                }
-
-                if locked && showLockScreen {
-                    VitaLockScreen()
-                        .offset(y: lockOffset)
-                        .gesture(DragGesture()
-                            .onChanged { lockOffset = min(0, $0.translation.height) }
-                            .onEnded { value in
-                                if value.translation.height < -80 || abs(value.translation.width) > 120 {
-                                    withAnimation(.easeOut(duration: 0.3)) { lockOffset = -proxy.size.height }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { locked = false; lockOffset = 0 }
-                                } else {
-                                    withAnimation(.spring()) { lockOffset = 0 }
-                                }
-                            })
-                        .onTapGesture { withAnimation(.easeOut(duration: 0.3)) { locked = false } }
-                        .zIndex(3)
-                }
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
-        .ignoresSafeArea()
-        .background(Color.black)
-        .animation(.easeOut(duration: 0.2), value: selected)
-    }
-
-    // MARK: Pieces
-
-    private var wallpaper: some View {
-        let theme = VitaTheme.current()
-        let paths = theme.wallpapers
-        return ZStack {
-            LinearGradient(colors: [Color(red: 0.05, green: 0.25, blue: 0.55), Color(red: 0.02, green: 0.08, blue: 0.2)],
-                           startPoint: .top, endPoint: .bottom)
-            if !paths.isEmpty, let image = VitaFirmware.image(atPath: paths[min(page, paths.count - 1)]) {
-                Image(uiImage: image).resizable().scaledToFill().id(page)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.35), value: page)
-    }
-
-    private func pager(size: CGSize) -> some View {
-        let pages = VitaLayout.pages(ordered)
-        return TabView(selection: $page) {
-            ForEach(Array(pages.enumerated()), id: \.offset) { index, items in
-                VitaPage(items: items, width: size.width, tap: { app in selected = app },
-                         menu: { app in
-                             Button { onLaunch(app) } label: { Label("Start", systemImage: "play.fill") }
-                             Button { onDetails(app) } label: { Label("Game settings, patches & saves", systemImage: "slider.horizontal.3") }
-                             Button(role: .destructive) { onDeleteSave(app) } label: { Label("Delete save data", systemImage: "externaldrive.badge.minus") }
-                             Button(role: .destructive) { onDelete(app) } label: { Label("Delete game", systemImage: "trash") }
-                         })
-                .tag(index)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-    }
-
-    private var pageDots: some View {
-        let count = VitaLayout.pages(ordered).count
-        return HStack(spacing: 8) {
-            ForEach(0..<count, id: \.self) { index in
-                Circle()
-                    .fill(index == page ? Color.white : Color.white.opacity(0.35))
-                    .frame(width: 8, height: 8)
-            }
-        }
-        .padding(.vertical, 8)
-        .opacity(count > 1 ? 1 : 0)
-    }
-
-    private var dock: some View {
-        HStack(spacing: 36) {
-            dockButton("plus.circle.fill", "Install", onImport)
-            dockButton("gearshape.fill", "Settings", onSettings)
-        }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 8)
-        .background(Capsule().fill(.black.opacity(0.28)))
-    }
-
-    private func dockButton(_ symbol: String, _ title: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                Image(systemName: symbol).font(.title2)
-                Text(title).font(VitaFont.font(11))
-            }
-            .foregroundStyle(.white)
-        }
-    }
-}
-
-/// One page of bubbles, staggered like the real home screen
-private struct VitaPage<MenuContent: View>: View {
-    let items: [GameApp]
-    let width: CGFloat
-    let tap: (GameApp) -> Void
-    @ViewBuilder let menu: (GameApp) -> MenuContent
-
-    var body: some View {
-        GeometryReader { proxy in
-            let bubble = min(proxy.size.width / 3.6, proxy.size.height / 4.6, 120)
-            let spacing = bubble * 0.28
-            VStack(spacing: spacing * 0.9) {
-                ForEach(Array(rowSlices().enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: spacing) {
-                        ForEach(row) { app in
-                            VitaBubble(app: app, size: bubble).onTapGesture { tap(app) }.contextMenu { menu(app) }
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private func rowSlices() -> [[GameApp]] {
-        var out: [[GameApp]] = []
-        var index = 0
-        for count in VitaLayout.rows {
-            guard index < items.count else { break }
-            out.append(Array(items[index..<min(index + count, items.count)]))
-            index += count
-        }
-        return out
-    }
-}
-
-struct VitaBubble: View {
-    let app: GameApp
-    let size: CGFloat
-    @State private var floatUp = false
-
-    var body: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.18))
-                if let icon = app.icon {
-                    Image(uiImage: icon).resizable().scaledToFill()
-                } else {
-                    Image(systemName: "gamecontroller.fill").font(.system(size: size * 0.4)).foregroundStyle(.white)
-                }
-            }
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-            .overlay(
-                Circle().stroke(LinearGradient(colors: [.white.opacity(0.9), .white.opacity(0.15)], startPoint: .top, endPoint: .bottom), lineWidth: 2)
-            )
-            .overlay(
-                // Soft glass highlight on the upper half
-                Ellipse().fill(LinearGradient(colors: [.white.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom))
-                    .frame(width: size * 0.8, height: size * 0.4).offset(y: -size * 0.28).allowsHitTesting(false)
-            )
-            .shadow(color: .black.opacity(0.35), radius: 8, y: 6)
-            .offset(y: floatUp ? -3 : 3)
-
-            Text(app.title)
-                .font(VitaFont.font(11))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
-                .frame(width: size * 1.1)
-        }
-        .onAppear {
-            withAnimation(.easeInOut(duration: Double.random(in: 2.2...3.2)).repeatForever(autoreverses: true)) { floatUp = true }
-        }
-        .contentShape(Rectangle())
-    }
-}
-
-struct VitaInfoBar: View {
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 20)) { context in
-            HStack(spacing: 12) {
-                Spacer()
-                Image(systemName: "wifi").font(.caption)
-                batteryView
-                Text(context.date, format: .dateTime.hour().minute())
-                    .font(VitaFont.font(15, bold: true))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 20)
-            .frame(height: 30)
-            .background(LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom))
-        }
-    }
-
-    private var batteryView: some View {
-        UIDevice.current.isBatteryMonitoringEnabled = true
-        let level = UIDevice.current.batteryLevel
-        return HStack(spacing: 3) {
-            Text(level >= 0 ? "\(Int(level * 100))%" : "").font(VitaFont.font(11))
-            Image(systemName: level >= 0 && level < 0.2 ? "battery.25" : "battery.100").font(.caption)
-        }
-    }
-}
-
-struct VitaLockScreen: View {
-    var body: some View {
-        ZStack {
-            if let image = VitaFirmware.lockScreen {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                LinearGradient(colors: [Color(red: 0.02, green: 0.1, blue: 0.3), .black], startPoint: .top, endPoint: .bottom)
-            }
-            VStack {
-                Spacer()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    VStack(spacing: 2) {
-                        Text(context.date, format: .dateTime.hour().minute())
-                            .font(VitaFont.font(64))
-                        Text(context.date, format: .dateTime.weekday(.wide).month().day())
-                            .font(VitaFont.font(18))
-                    }
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.5), radius: 4)
-                }
-                Spacer()
-                Text("Swipe up or tap to start")
-                    .font(VitaFont.font(14))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .padding(.bottom, 40)
-            }
-        }
-        .ignoresSafeArea()
-    }
-}
-
-/// The LiveArea of a game: its own background, the icon and the big Start button
-struct LiveAreaView: View {
-    let app: GameApp
-    let close: () -> Void
-    let start: () -> Void
-    let details: () -> Void
-
-    @State private var showingInfo = false
-
-    private var contents: String { (app.path as NSString).appendingPathComponent("sce_sys/livearea/contents") }
-
-    private func image(_ name: String) -> UIImage? {
-        UIImage(contentsOfFile: (contents as NSString).appendingPathComponent(name))
-    }
-
-    var body: some View {
-        ZStack {
-            if let bg = image("bg0.png") ?? image("bg.png") {
-                Image(uiImage: bg).resizable().scaledToFill()
-            } else {
-                LinearGradient(colors: [Color(red: 0.12, green: 0.2, blue: 0.4), .black], startPoint: .top, endPoint: .bottom)
-            }
-            Color.black.opacity(0.25)
-
-            VStack(spacing: 18) {
-                Spacer()
-                if let icon = app.icon {
-                    Image(uiImage: icon).resizable().scaledToFill()
-                        .frame(width: 128, height: 128)
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .shadow(radius: 10)
-                }
-                Text(app.title).font(VitaFont.font(20, bold: true)).multilineTextAlignment(.center).foregroundStyle(.white)
-                Button(action: start) {
-                    Text("Start")
-                        .font(VitaFont.font(20, bold: true))
-                        .padding(.horizontal, 60).padding(.vertical, 12)
-                        .background(Capsule().fill(.white.opacity(0.9)))
-                        .foregroundStyle(.black)
-                }
-                HStack(spacing: 24) {
-                    Button { showingInfo = true } label: { Label("Information", systemImage: "info.circle") }
-                    Button(action: details) { Label("Game settings", systemImage: "slider.horizontal.3") }
-                }
-                .font(VitaFont.font(14)).foregroundStyle(.white.opacity(0.9))
-                Spacer()
-                Button(action: close) {
-                    Image(systemName: "chevron.down.circle.fill").font(.largeTitle).foregroundStyle(.white.opacity(0.85))
-                }
-                .padding(.bottom, 30)
-            }
-            .padding(.horizontal, 30)
-        }
-        .ignoresSafeArea()
-        .gesture(DragGesture().onEnded { if $0.translation.height > 80 { close() } })
-        .sheet(isPresented: $showingInfo) { GameInfoView(app: app) }
     }
 }
 

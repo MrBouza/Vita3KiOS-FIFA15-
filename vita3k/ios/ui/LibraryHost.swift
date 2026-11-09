@@ -21,7 +21,7 @@ enum LibraryHost {
             } else {
                 newWindow = UIWindow(frame: UIScreen.main.bounds)
             }
-            let controller = UIHostingController(rootView: LibraryView().environmentObject(model))
+            let controller = LibraryHostingController(rootView: AnyView(LibraryView().environmentObject(model)))
             controller.view.backgroundColor = .black
             newWindow.rootViewController = controller
             newWindow.overrideUserInterfaceStyle = .dark
@@ -54,6 +54,7 @@ enum LibraryHost {
         DispatchQueue.main.asyncAfter(deadline: .now() + (firstShow ? 0.6 : 0.3)) { takeLaunchRequest() }
         window?.alpha = 0
         window?.isHidden = false
+        updateOrientation()
         window?.makeKeyAndVisible()
         UIView.animate(withDuration: firstShow ? 0.35 : 0.2, delay: 0, options: [.curveEaseOut]) {
             window?.alpha = 1
@@ -175,12 +176,38 @@ enum LibraryHost {
         }
     }
 
+    /// The PS Vita home screen is landscape only, like the Vita; the normal library turns freely
+    static var wantsLandscape: Bool { UserDefaults.standard.bool(forKey: "v3k.vitaHome") }
+
+    static func updateOrientation() {
+        guard let window, let controller = window.rootViewController else { return }
+        controller.setNeedsUpdateOfSupportedInterfaceOrientations()
+        controller.setNeedsStatusBarAppearanceUpdate()
+        controller.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        if let scene = window.windowScene {
+            let mask: UIInterfaceOrientationMask = wantsLandscape ? .landscape : .allButUpsideDown
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { error in
+                v3k_log_ui("Library orientation: \(error.localizedDescription)")
+            }
+        }
+    }
+
     static func hide() {
         BackgroundMotion.shared.setActive(false)
         // The game is about to start: the menu music fades out and stops
         MenuMusic.shared.libraryHidden()
         window?.isHidden = true
     }
+}
+
+/// Hosts the library; turns to landscape for the PS Vita home screen
+final class LibraryHostingController: UIHostingController<AnyView> {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        UserDefaults.standard.bool(forKey: "v3k.vitaHome") ? .landscape : .allButUpsideDown
+    }
+
+    override var prefersStatusBarHidden: Bool { UserDefaults.standard.bool(forKey: "v3k.vitaHome") }
+    override var prefersHomeIndicatorAutoHidden: Bool { UserDefaults.standard.bool(forKey: "v3k.vitaHome") }
 }
 
 // Called from C++ (ios_platform.mm) on the main thread
