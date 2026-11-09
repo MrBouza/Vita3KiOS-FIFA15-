@@ -498,6 +498,8 @@ static bool load_exports(SceKernelModuleInfo *kernel_module_info, const sce_modu
  * \return Negative on failure
  */
 SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std::string &self_path, const fs::path &dump_path) {
+    // JITs kept for reuse must not run code compiled for what was at these addresses before
+    note_guest_code_changed();
     const uint8_t *const image_bytes = static_cast<const uint8_t *>(self);
     const SCE_header &self_header = *static_cast<const SCE_header *>(self);
 
@@ -814,6 +816,7 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
 }
 
 int unload_self(KernelState &kernel, MemState &mem, KernelModule &module) {
+    note_guest_code_changed();
     LOG_INFO("Unlinking self...");
     const sce_module_info_raw *const module_info = reinterpret_cast<const sce_module_info_raw *>(module.info_segment_address.get(mem) + module.info_offset);
     if (!load_exports(&module.info, *module_info, module.info_segment_address, kernel, mem, true)) {

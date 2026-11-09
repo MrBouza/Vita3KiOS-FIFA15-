@@ -21,26 +21,113 @@
 #include <cpu/impl/interface.h>
 #include <cpu/state.h>
 #include <mem/ptr.h>
+#include <util/log.h>
 #include <util/types.h>
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
+
+// JIT reuse. Some games start and end threads all the time (one game made almost a thousand in a
+// session): each new thread built a new JIT (a few ms, serialized, and on iOS a code cache from the
+// pool) and recompiled from nothing all the guest code it ran. A thread's CPU is kept when it ends and
+// given to the next thread that gets the same processor number (the lowest free one, so usually the
+// one just freed): same guest memory, so the code it compiled is still valid unless guest code changed
+// in between, in which case its cache is cleared first.
+namespace {
+struct PooledCpu {
+    CPUState *state = nullptr;
+    uint64_t generation = 0;
+};
+std::mutex cpu_pool_mutex;
+std::vector<PooledCpu> cpu_pool;
+std::atomic<uint64_t> guest_code_generation{ 0 };
+std::atomic<uint64_t> pool_epoch{ 0 };
+// Each one holds a code cache from the iOS pool: few enough to leave plenty for new threads
+constexpr std::size_t MAX_POOLED_CPUS = 8;
+} // namespace
+
+void note_guest_code_changed() {
+    guest_code_generation.fetch_add(1, std::memory_order_relaxed);
+}
 
 static void delete_cpu_state(CPUState *state) {
+    if (state && state->cpu && state->pool_epoch == pool_epoch.load()) {
+        const std::lock_guard lock(cpu_pool_mutex);
+        if (cpu_pool.size() < MAX_POOLED_CPUS) {
+            cpu_pool.push_back({ state, guest_code_generation.load(std::memory_order_relaxed) });
+            return;
+        }
+    }
     delete state;
 }
 
+void flush_cpu_pool() {
+    std::vector<PooledCpu> pooled;
+    {
+        const std::lock_guard lock(cpu_pool_mutex);
+        // CPUs of threads that end after this are destroyed, not kept
+        pool_epoch++;
+        pooled.swap(cpu_pool);
+    }
+    for (const PooledCpu &entry : pooled)
+        delete entry.state;
+}
+
+static CPUStatePtr take_pooled_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem) {
+    PooledCpu entry;
+    {
+        const std::lock_guard lock(cpu_pool_mutex);
+        const auto it = std::ranges::find_if(cpu_pool, [&](const PooledCpu &pooled) {
+            return pooled.state->mem == &mem && pooled.state->cpu_opt == cpu_opt && pooled.state->cpu->processor_id() == processor_id;
+        });
+        if (it == cpu_pool.end())
+            return CPUStatePtr();
+        entry = *it;
+        cpu_pool.erase(it);
+    }
+    CPUStatePtr state(entry.state, delete_cpu_state);
+    if (entry.generation != guest_code_generation.load(std::memory_order_relaxed))
+        state->cpu->invalidate_jit_cache(0, 0xFFFFFFFF);
+    state->thread_id = thread_id;
+    state->return_pc = 0;
+    state->abort_pending = false;
+    state->abort_fault_addr = 0;
+    state->cpu->reset_for_reuse();
+    state->cpu->load_context(state->initial_context);
+    state->cpu->clear_exclusive();
+    static std::atomic<uint64_t> reused{ 0 };
+    const uint64_t count = reused.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (count == 1 || count % 256 == 0)
+        LOG_INFO("Threads reuse the JIT of a thread that ended ({} so far): no rebuild, no recompile", count);
+    return state;
+}
+
 CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem) {
+    if (CPUStatePtr reused = take_pooled_cpu(cpu_opt, thread_id, processor_id, mem))
+        return reused;
+
     CPUStatePtr state(new CPUState(), delete_cpu_state);
     state->mem = &mem;
     state->thread_id = thread_id;
+    state->cpu_opt = cpu_opt;
+    state->pool_epoch = pool_epoch.load();
 
     if (!init(state->disasm)) {
         return CPUStatePtr();
     }
 
-    state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt);
+    try {
+        state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt);
+    } catch (const std::exception &) {
+        // No code cache left (iOS): the JITs kept for reuse hold some, give them back and try again
+        flush_cpu_pool();
+        state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt);
+    }
+    state->initial_context = state->cpu->save_context();
 
     return state;
 }
@@ -172,6 +259,7 @@ std::size_t get_processor_id(CPUState &state) {
 }
 
 void invalidate_jit_cache(CPUState &state, Address start, size_t length) {
+    note_guest_code_changed();
     state.cpu->invalidate_jit_cache(start, length);
 }
 

@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 namespace ddspp {
 struct Descriptor;
@@ -120,6 +121,9 @@ public:
     // used to quickly get the info from a hash of a gxm_texture
     unordered_map_fast<TextureGxmDataRepr, TextureCacheInfo *> texture_lookup;
     lru::Queue<TextureCacheInfo> texture_queue;
+    // reused by every upload instead of allocating a new buffer each time (from Vita3K-Plus)
+    std::vector<uint8_t> scratch_decompressed;
+    std::vector<uint8_t> scratch_lineared;
 
     // when use_sampler_cache is set to true, used to quickly get a cached sampler
     unordered_map_fast<uint32_t, SamplerCacheInfo *> sampler_lookup;

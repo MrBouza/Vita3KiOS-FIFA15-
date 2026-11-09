@@ -108,6 +108,7 @@ public:
     bool get_log_mem() override;
 
     void clear_exclusive() override;
+    void reset_for_reuse() override;
     std::size_t processor_id() const override;
     void invalidate_jit_cache(Address start, size_t length) override;
 };

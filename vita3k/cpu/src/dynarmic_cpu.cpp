@@ -870,6 +870,17 @@ void DynarmicCPU::invalidate_jit_cache(Address start, size_t length) {
     jit->InvalidateCacheRange(start, length);
 }
 
+void DynarmicCPU::reset_for_reuse() {
+#if defined(VITA3K_PLATFORM_IOS)
+    const std::lock_guard lock(jit_swap_mutex);
+    halt_pending = false;
+#endif
+    jit->ClearHalt(static_cast<Dynarmic::HaltReason>(0xFFFFFFFF));
+    halted = false;
+    break_ = false;
+    svc_called = false;
+}
+
 void DynarmicCPU::clear_exclusive() {
     shared_monitor.ClearProcessor(core_id);
 }

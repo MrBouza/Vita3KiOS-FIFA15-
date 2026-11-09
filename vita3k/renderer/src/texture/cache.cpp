@@ -341,8 +341,10 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
         return;
     }
 
-    std::vector<uint8_t> texture_data_decompressed;
-    std::vector<uint8_t> texture_pixels_lineared;
+    std::vector<uint8_t> &texture_data_decompressed = scratch_decompressed;
+    std::vector<uint8_t> &texture_pixels_lineared = scratch_lineared;
+    texture_data_decompressed.clear();
+    texture_pixels_lineared.clear();
 
     const void *pixels = nullptr;
 

@@ -29,6 +29,11 @@
 struct MemState;
 
 CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem);
+// Guest code changed (a module loaded or unloaded, code patched): a JIT kept for reuse must forget
+// what it compiled before another thread gets it
+void note_guest_code_changed();
+// Destroys the JITs kept for reuse (game shutdown: their code caches go back to the pool)
+void flush_cpu_pool();
 CPUStop run(CPUState &state);
 CPUStop step(CPUState &state);
 // Sets up a call of fn with args: the first four in r0 to r3, the rest on the stack, and the

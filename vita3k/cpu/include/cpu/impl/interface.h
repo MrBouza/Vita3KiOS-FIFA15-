@@ -75,4 +75,7 @@ struct CPUInterface {
     virtual void clear_exclusive() = 0;
 
     virtual std::size_t processor_id() const = 0;
+
+    // Forgets any stop asked of the thread that used this CPU before (it is given to a new thread)
+    virtual void reset_for_reuse() {}
 };

@@ -33,6 +33,12 @@ struct CPUState {
     // Return address place_call() writes to LR. Execution stops there.
     Address return_pc = 0;
 
+    // For reuse by a later thread (see init_cpu): how the JIT was made, and its registers when new
+    bool cpu_opt = false;
+    CPUContext initial_context{};
+    // The game session it was made in: never reused by another one (other guest memory)
+    uint64_t pool_epoch = 0;
+
     // Set by the kubridge fault handler from a signal, read by the CPU after it halts
     std::atomic<bool> abort_pending{ false };
     std::atomic<uint32_t> abort_fault_addr{ 0 };

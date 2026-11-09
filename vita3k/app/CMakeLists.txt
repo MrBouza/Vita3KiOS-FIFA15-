@@ -15,7 +15,7 @@ add_library(
 
 target_include_directories(app PUBLIC include)
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(app PUBLIC emuenv mem)
+target_link_libraries(app PUBLIC emuenv mem cpu)
 if(USE_DISCORD_RICH_PRESENCE)
   target_link_libraries(app PUBLIC discord-rpc)
 endif()

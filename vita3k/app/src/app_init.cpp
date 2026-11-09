@@ -23,6 +23,7 @@
 #include <config/settings.h>
 #include <config/state.h>
 #include <config/version.h>
+#include <cpu/functions.h>
 #include <ctrl/functions.h>
 #include <ctrl/state.h>
 #include <dialog/state.h>
@@ -713,6 +714,8 @@ void shutdown_app_runtime(EmuEnvState &state) {
 
     step_done("services");
     state.kernel.deinit(state.mem);
+    // JITs kept for reuse by later threads give their code caches back
+    flush_cpu_pool();
     step_done("kernel");
 
     state.renderer->cleanup();
