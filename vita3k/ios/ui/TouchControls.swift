@@ -310,6 +310,14 @@ final class ControlsOverlayView: UIView {
     private let pauseButton = UIButton(type: .system)
     private let rearButton = UIButton(type: .system)
     private let pausedBanner = UIButton(type: .system)
+    // Swipe up on the top buttons to tuck them away; this small handle brings them back (tap or swipe down)
+    private let topHandle = UIButton(type: .system)
+    private var topRowHidden = UserDefaults.standard.bool(forKey: "v3k.topButtonsHidden") {
+        didSet {
+            UserDefaults.standard.set(topRowHidden, forKey: "v3k.topButtonsHidden")
+            applyTopRow()
+        }
+    }
     private let toastLabel = UILabel()
     private var toastGeneration = 0
     private let showRearButton = UserDefaults.standard.object(forKey: "v3k.touchRearButton") as? Bool ?? true
@@ -395,6 +403,23 @@ final class ControlsOverlayView: UIView {
         rearButton.accessibilityLabel = "Rear touchpad"
         rearButton.isHidden = !showRearButton
         addSubview(rearButton)
+
+        topHandle.setImage(UIImage(systemName: "chevron.compact.down"), for: .normal)
+        topHandle.tintColor = UIColor.white.withAlphaComponent(0.8)
+        topHandle.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+        topHandle.layer.cornerRadius = 9
+        topHandle.accessibilityLabel = "Show buttons"
+        topHandle.addTarget(self, action: #selector(showTopRow), for: .touchUpInside)
+        addSubview(topHandle)
+        let handleSwipe = UISwipeGestureRecognizer(target: self, action: #selector(showTopRow))
+        handleSwipe.direction = .down
+        topHandle.addGestureRecognizer(handleSwipe)
+        for button in [exitButton, pauseButton, hideButton, rearButton] {
+            let swipe = UISwipeGestureRecognizer(target: self, action: #selector(hideTopRow))
+            swipe.direction = .up
+            button.addGestureRecognizer(swipe)
+        }
+        applyTopRow()
 
         toastLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         toastLabel.textColor = .white
@@ -573,8 +598,18 @@ final class ControlsOverlayView: UIView {
     private func updateRearButton() {
         let rear = v3k_rear_touch()
         rearButton.backgroundColor = rear ? Theme.accentUIColor.withAlphaComponent(0.85) : UIColor.black.withAlphaComponent(0.6)
-        rearButton.isHidden = !(showRearButton || rear) || editor != nil
+        rearButton.isHidden = !(showRearButton || rear) || editor != nil || topRowHidden
     }
+
+    private func applyTopRow() {
+        let editing = editor != nil
+        [exitButton, pauseButton, hideButton].forEach { $0.isHidden = editing || topRowHidden }
+        topHandle.isHidden = editing || !topRowHidden
+        updateRearButton()
+    }
+
+    @objc private func hideTopRow() { topRowHidden = true }
+    @objc private func showTopRow() { topRowHidden = false }
 
     func showToast(_ message: String) {
         toastGeneration += 1
@@ -605,6 +640,7 @@ final class ControlsOverlayView: UIView {
         newEditor.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(newEditor)
         editor = newEditor
+        applyTopRow()
         setNeedsLayout()
         layoutIfNeeded()
         newEditor.refresh()
@@ -620,9 +656,8 @@ final class ControlsOverlayView: UIView {
         editor.removeFromSuperview()
         self.editor = nil
         controls.forEach { $0.isUserInteractionEnabled = true }
-        [exitButton, pauseButton, hideButton].forEach { $0.isHidden = false }
         controlsHidden = hiddenBeforeEditing
-        updateRearButton()
+        applyTopRow()
         setNeedsLayout()
     }
 
@@ -741,6 +776,7 @@ final class ControlsOverlayView: UIView {
             rearButton.frame = CGRect(x: hideButton.frame.maxX + 8, y: area.minY, width: 36, height: 36)
             rearButton.layer.cornerRadius = 18
         }
+        topHandle.frame = CGRect(x: (exitButton.frame.minX + hideButton.frame.maxX) / 2 - 32, y: exitButton.frame.minY, width: 64, height: 18)
         if let editor { bringSubviewToFront(editor); editor.refresh() }
 
         if let hud {
@@ -784,6 +820,7 @@ final class ControlsOverlayView: UIView {
             rearButton.frame = CGRect(x: hideButton.frame.maxX + 8, y: hideButton.frame.minY, width: 36, height: 36)
             rearButton.layer.cornerRadius = 18
         }
+        topHandle.frame = CGRect(x: (exitButton.frame.minX + hideButton.frame.maxX) / 2 - 32, y: exitButton.frame.minY, width: 64, height: 18)
 
         // Select / Start at the bottom, d-pad and face buttons above, sticks between them
         let smallWidth = unit * 1.4, smallHeight = unit * 0.55
