@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import AVFoundation
+import CoreText
 import SwiftUI
 import UIKit
 
@@ -208,6 +209,43 @@ final class VitaBGM {
     }
 }
 
+/// The Vita's own typeface. The firmware's .pvf font files are OpenType fonts under another name
+/// (sa0/data/font/pvf: ltn0 regular, ltn4 bold, jpn0 for Japanese), so iOS can register them directly.
+/// Without the firmware (or if a file can't be read) the system font is used. Characters the Vita font
+/// doesn't have (Japanese, Chinese, Korean) come from iOS's own fallback fonts.
+enum VitaFont {
+    private static var names: [String: String?] = [:]
+
+    private static func register(_ file: String) -> String? {
+        if let cached = names[file] { return cached }
+        var result: String?
+        let path = VitaFirmware.absolute("sa0/data/font/pvf/" + file)
+        if let data = FileManager.default.contents(atPath: path),
+           let provider = CGDataProvider(data: data as CFData),
+           let cgFont = CGFont(provider),
+           let name = cgFont.postScriptName as String? {
+            var error: Unmanaged<CFError>?
+            // Already registered (a second launch of the screen) also counts as available
+            if CTFontManagerRegisterGraphicsFont(cgFont, &error) || UIFont(name: name, size: 12) != nil {
+                result = name
+            } else {
+                v3k_log_ui("Vita font \(file): could not register (\(error?.takeRetainedValue().localizedDescription ?? "unknown"))")
+            }
+        } else if FileManager.default.fileExists(atPath: path) {
+            v3k_log_ui("Vita font \(file): not a font iOS can read, using the system font")
+        }
+        names[file] = result
+        return result
+    }
+
+    static func font(_ size: CGFloat, bold: Bool = false) -> Font {
+        if let name = (bold ? register("ltn4.pvf") : nil) ?? register("ltn0.pvf") {
+            return Font.custom(name, size: size)
+        }
+        return .system(size: size, weight: bold ? .semibold : .regular)
+    }
+}
+
 /// Page layout of the Vita home screen: ten bubbles per page, staggered 3 - 2 - 3 - 2
 enum VitaLayout {
     static let perPage = 10
@@ -345,7 +383,7 @@ struct VitaHomeView: View {
         Button(action: action) {
             VStack(spacing: 2) {
                 Image(systemName: symbol).font(.title2)
-                Text(title).font(.caption2)
+                Text(title).font(VitaFont.font(11))
             }
             .foregroundStyle(.white)
         }
@@ -417,7 +455,7 @@ struct VitaBubble: View {
             .offset(y: floatUp ? -3 : 3)
 
             Text(app.title)
-                .font(.system(size: 11, weight: .medium))
+                .font(VitaFont.font(11))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
@@ -439,7 +477,7 @@ struct VitaInfoBar: View {
                 Image(systemName: "wifi").font(.caption)
                 batteryView
                 Text(context.date, format: .dateTime.hour().minute())
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(VitaFont.font(15, bold: true))
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 20)
@@ -452,7 +490,7 @@ struct VitaInfoBar: View {
         UIDevice.current.isBatteryMonitoringEnabled = true
         let level = UIDevice.current.batteryLevel
         return HStack(spacing: 3) {
-            Text(level >= 0 ? "\(Int(level * 100))%" : "").font(.caption2)
+            Text(level >= 0 ? "\(Int(level * 100))%" : "").font(VitaFont.font(11))
             Image(systemName: level >= 0 && level < 0.2 ? "battery.25" : "battery.100").font(.caption)
         }
     }
@@ -471,16 +509,16 @@ struct VitaLockScreen: View {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     VStack(spacing: 2) {
                         Text(context.date, format: .dateTime.hour().minute())
-                            .font(.system(size: 64, weight: .thin))
+                            .font(VitaFont.font(64))
                         Text(context.date, format: .dateTime.weekday(.wide).month().day())
-                            .font(.system(size: 18, weight: .regular))
+                            .font(VitaFont.font(18))
                     }
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.5), radius: 4)
                 }
                 Spacer()
                 Text("Swipe up or tap to start")
-                    .font(.footnote)
+                    .font(VitaFont.font(14))
                     .foregroundStyle(.white.opacity(0.8))
                     .padding(.bottom, 40)
             }
@@ -521,10 +559,10 @@ struct LiveAreaView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .shadow(radius: 10)
                 }
-                Text(app.title).font(.title3.weight(.semibold)).multilineTextAlignment(.center).foregroundStyle(.white)
+                Text(app.title).font(VitaFont.font(20, bold: true)).multilineTextAlignment(.center).foregroundStyle(.white)
                 Button(action: start) {
                     Text("Start")
-                        .font(.title3.weight(.semibold))
+                        .font(VitaFont.font(20, bold: true))
                         .padding(.horizontal, 60).padding(.vertical, 12)
                         .background(Capsule().fill(.white.opacity(0.9)))
                         .foregroundStyle(.black)
@@ -533,7 +571,7 @@ struct LiveAreaView: View {
                     Button { showingInfo = true } label: { Label("Information", systemImage: "info.circle") }
                     Button(action: details) { Label("Game settings", systemImage: "slider.horizontal.3") }
                 }
-                .font(.footnote).foregroundStyle(.white.opacity(0.9))
+                .font(VitaFont.font(14)).foregroundStyle(.white.opacity(0.9))
                 Spacer()
                 Button(action: close) {
                     Image(systemName: "chevron.down.circle.fill").font(.largeTitle).foregroundStyle(.white.opacity(0.85))
