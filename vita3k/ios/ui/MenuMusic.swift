@@ -535,7 +535,12 @@ final class MenuMusic: ObservableObject {
 
     func settingsChanged() {
         applySettings()
-        if !enabled { fadeOutAndStop() } else if wanted { resume() }
+        if !enabled {
+            fadeOutAndStop()
+        } else if wanted {
+            // Switching the source: the other one stops before the new one starts
+            resume()
+        }
     }
 
     func skip() {
@@ -568,18 +573,27 @@ final class MenuMusic: ObservableObject {
                 v3k_log_ui("Menu music: could not start audio: \(error.localizedDescription)")
             }
         }
-        synth?.fadeIn()
+        if VitaBGM.shared.isActive {
+            // The Vita's own home music replaces the generated songs while it can be played
+            synth?.fadeOut()
+            VitaBGM.shared.play(volume: UserDefaults.standard.object(forKey: "v3k.musicVolume") as? Double ?? 0.6)
+        } else {
+            VitaBGM.shared.pause()
+            synth?.fadeIn()
+        }
         startTitleUpdates()
     }
 
     private func pauseForBackground() {
         stopWork?.cancel()
         synth?.fadeOut()
+        VitaBGM.shared.pause()
         engine.pause()
     }
 
     private func fadeOutAndStop() {
         synth?.fadeOut()
+        VitaBGM.shared.pause()
         titleTimer?.invalidate()
         let work = DispatchWorkItem { [weak self] in self?.engine.pause() }
         stopWork = work
@@ -596,6 +610,11 @@ final class MenuMusic: ObservableObject {
 
     private func updateTitle() {
         guard let synth else { return }
+        if VitaBGM.shared.isActive {
+            if nowPlaying != "PS Vita home music" { nowPlaying = "PS Vita home music" }
+            if styleName != "PS Vita" { styleName = "PS Vita" }
+            return
+        }
         let title = songTitle(seed: synth.seed)
         if title != nowPlaying { nowPlaying = title }
         let style = musicStyles[min(synth.styleIndex, musicStyles.count - 1)].name

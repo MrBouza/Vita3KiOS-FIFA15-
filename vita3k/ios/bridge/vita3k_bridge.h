@@ -43,6 +43,10 @@ int v3k_jit_target(void);
 // Asks the JIT script for executable memory; the app pauses while the debugger works
 void v3k_jit_request(void);
 const char *v3k_storage_path(void);
+// Folder that holds ux0, vs0, pd0 ... (free with v3k_free_string)
+char *v3k_pref_path(void);
+// Decodes a Vita .at9 file (home music) into a WAV file. Blocking: call off the main thread.
+bool v3k_decode_at9(const char *input_path, const char *output_path);
 
 // Bit 0: preinstalled package, bit 1: main firmware, bit 2: font package
 int v3k_firmware_state(void);

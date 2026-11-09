@@ -3,6 +3,8 @@ add_library(
     STATIC
     include/codec/state.h
     include/codec/types.h
+    include/codec/at9_file.h
+    src/at9_file.cpp
     src/atrac9.cpp
     src/decoder.cpp
     src/aac.cpp

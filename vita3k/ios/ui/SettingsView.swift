@@ -53,6 +53,7 @@ struct AppearanceSection: View {
     @AppStorage("v3k.animatedBackground") private var animatedBackground = true
     @AppStorage("v3k.vitaHome") private var vitaHome = false
     @AppStorage("v3k.vitaHome.lockScreen") private var vitaLockScreen = true
+    @AppStorage("v3k.vitaHome.theme") private var vitaTheme = VitaTheme.defaultId
 
     var body: some View {
         Section("Appearance") {
@@ -65,6 +66,14 @@ struct AppearanceSection: View {
             }
             if vitaHome {
                 Toggle("Start screen", isOn: $vitaLockScreen)
+                Picker("Vita theme", selection: $vitaTheme) {
+                    ForEach(VitaTheme.installed()) { theme in
+                        Text(theme.name).tag(theme.id)
+                    }
+                }
+                .onChange(of: vitaTheme) { _, _ in MenuMusic.shared.settingsChanged() }
+                Text("Themes installed in Vita3K (ux0/theme) show up here, with their wallpapers.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 12)], spacing: 12) {
                 ForEach(AppTheme.allCases) { theme in
@@ -114,11 +123,19 @@ struct MusicSection: View {
     @AppStorage("v3k.musicEnabled") private var musicEnabled = true
     @AppStorage("v3k.musicVolume") private var musicVolume = 0.6
     @AppStorage("v3k.musicStyle") private var musicStyle = -1
+    @AppStorage("v3k.vitaMusic") private var vitaMusic = false
 
     var body: some View {
         Section {
             Toggle("Menu music", isOn: $musicEnabled)
             if musicEnabled {
+                Toggle(isOn: $vitaMusic) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use the PS Vita home music")
+                        Text("Plays the home music from your firmware (or from the selected Vita theme) instead of the songs made on your device. Needs the firmware installed; the other songs come back when it isn't found.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Picker("Style", selection: $musicStyle) {
                     Text("Mix of everything").tag(-1)
                     ForEach(musicStyles.indices, id: \.self) { index in
@@ -142,6 +159,7 @@ struct MusicSection: View {
         }
         .onChange(of: musicEnabled) { _, _ in MenuMusic.shared.settingsChanged() }
         .onChange(of: musicVolume) { _, _ in MenuMusic.shared.settingsChanged() }
+        .onChange(of: vitaMusic) { _, _ in MenuMusic.shared.settingsChanged() }
         .onChange(of: musicStyle) { _, _ in
             MenuMusic.shared.settingsChanged()
             MenuMusic.shared.skip()

@@ -25,6 +25,7 @@
 #include "archive.h"
 
 #include <app/functions.h>
+#include <codec/at9_file.h>
 #include <compat/functions.h>
 #include <compat/state.h>
 #include <config/functions.h>
@@ -482,6 +483,15 @@ void v3k_jit_request(void) {
 const char *v3k_storage_path(void) {
     static const std::string path = ios::get_documents_path();
     return path.c_str();
+}
+
+char *v3k_pref_path(void) {
+    auto *emuenv = ios::get_emuenv();
+    return dup_string(emuenv ? emuenv->pref_path.string() : std::string());
+}
+
+bool v3k_decode_at9(const char *input_path, const char *output_path) {
+    return input_path && output_path && decode_at9_file_to_wav(input_path, output_path);
 }
 
 int v3k_firmware_state(void) {
