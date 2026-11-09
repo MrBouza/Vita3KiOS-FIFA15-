@@ -24,6 +24,7 @@
 #include <shader/usse_translator.h>
 #include <shader/usse_translator_types.h>
 #include <shader/uniform_block.h>
+#include <shader/usse_utilities.h>
 #include <util/log.h>
 
 #include <SPIRV/GLSL.std.450.h>
@@ -1129,10 +1130,10 @@ void convert_gxp_usse_to_spirv(spv::Builder &b, const SceGxmProgram &program, co
         const spv::Id v4 = b.makeVectorType(f32, 4);
         const spv::Id one = b.makeFloatConstant(1.0f);
         const auto load_info = [&](uint32_t field) {
-            return b.createLoad(b.createAccessChain(spv::StorageClassUniform, render_info_id, { b.makeIntConstant(static_cast<int>(field)) }), spv::NoPrecision);
+            return b.createLoad(utils::create_access_chain(b, spv::StorageClassUniform, render_info_id, { b.makeIntConstant(static_cast<int>(field)) }), spv::NoPrecision);
         };
         const spv::Id scale = load_info(VERT_UNIFORM_wide_hud_scale);
-        const spv::Id pos_ptr = b.createAccessChain(spv::StorageClassPrivate, parameters.outs, { b.makeIntConstant(0) });
+        const spv::Id pos_ptr = utils::create_access_chain(b, spv::StorageClassPrivate, parameters.outs, { b.makeIntConstant(0) });
         const spv::Id pos = b.createLoad(pos_ptr, spv::NoPrecision);
         const spv::Id w = b.createCompositeExtract(pos, f32, 3);
         const spv::Id flat = b.createOp(spv::OpFOrdLessThanEqual, b.makeBoolType(),
@@ -1143,7 +1144,7 @@ void convert_gxp_usse_to_spirv(spv::Builder &b, const SceGxmProgram &program, co
         {
             const spv::Id saved_outs = b.createLoad(parameters.outs, spv::NoPrecision);
             b.createStore(saved_ins, parameters.ins);
-            const spv::Id in0_ptr = b.createAccessChain(spv::StorageClassPrivate, parameters.ins, { b.makeIntConstant(0) });
+            const spv::Id in0_ptr = utils::create_access_chain(b, spv::StorageClassPrivate, parameters.ins, { b.makeIntConstant(0) });
             const spv::Id in0 = b.createLoad(in0_ptr, spv::NoPrecision);
             const spv::Id x_obj = b.createCompositeExtract(in0, f32, 0);
             b.createStore(b.createCompositeInsert(b.createBinOp(spv::OpFAdd, f32, x_obj, one), in0, v4, 0), in0_ptr);
