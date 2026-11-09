@@ -82,7 +82,15 @@ void VKTextureCache::cleanup() {
     is_texture_transfer_ready = false;
 }
 
+Address diag_ws_tex_addr = 0;
+uint32_t diag_ws_tex_w = 0, diag_ws_tex_h = 0;
+
 void sync_texture(VKContext &context, MemState &mem, std::size_t index, SceGxmTexture texture, const Config &config) {
+    if (index == 0) {
+        diag_ws_tex_addr = texture.data_addr << 2;
+        diag_ws_tex_w = gxm::get_width(texture);
+        diag_ws_tex_h = gxm::get_height(texture);
+    }
     // why are we doing this here?
     // well textures are synced right before the draw
     // in particular, we know that the scissor is the correct one for the upcoming draw

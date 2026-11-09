@@ -708,6 +708,18 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
                 vert_ublock.wide_hud_scale = vert_ublock.wide_x_scale;
                 vert_ublock.wide_hud_cx = (x0 + x1) * 0.5f;
                 vert_ublock.wide_hud_width = x1 - x0;
+                // DIAGNOSTIC: the draws the HUD squeeze is offered to (one line per shader/size)
+                static std::set<std::string> diag_seen_hud;
+                if (diag_seen_hud.size() < 300) {
+                    extern Address diag_ws_tex_addr;
+                    extern uint32_t diag_ws_tex_w, diag_ws_tex_h;
+                    const std::string key = fmt::format("{} {} {}", hex_string(vert_render_data->hash).substr(0, 8), count, static_cast<int>(x1 - x0));
+                    if (diag_seen_hud.insert(key).second)
+                        LOG_INFO("[HUDDIAG] vs {} fs {} target {}x{} tex {}x{} prim {} count {} reg0 x{} x [{:.4g},{:.4g}] z [{:.4g},{:.4g}]",
+                            hex_string(vert_render_data->hash).substr(0, 8), hex_string(context.record.fragment_program.get(mem)->renderer_data->hash).substr(0, 8),
+                            context.render_target->width, context.render_target->height, diag_ws_tex_w, diag_ws_tex_h, fmt::underlying(type), count,
+                            static_cast<int>(a.componentCount), x0, x1, z0, z1);
+                }
             }
             break;
         }
