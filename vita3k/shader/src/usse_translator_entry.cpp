@@ -1098,7 +1098,7 @@ void convert_gxp_usse_to_spirv(spv::Builder &b, const SceGxmProgram &program, co
     // widescreen "keep HUD shape": the vertex inputs as they were before the program ran, to run it a second time
     // Only for short programs: HUD shaders are a handful of instructions, and running a long 3D program twice made
     // Metal refuse to build some of them (Soul Sacrifice: skinned models vanished)
-    const bool hud_shape = program.is_vertex() && render_info_id != spv::NoResult && primary_program_instr_count <= 64;
+    const bool hud_shape = features.widescreen_hud && program.is_vertex() && render_info_id != spv::NoResult && primary_program_instr_count <= 64;
     const spv::Id saved_ins = hud_shape ? b.createLoad(parameters.ins, spv::NoPrecision) : spv::NoResult;
     spv::Function *primary_func = nullptr;
 

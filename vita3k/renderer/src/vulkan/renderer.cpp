@@ -492,6 +492,13 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         }
 
         std::vector<const char *> instance_layers;
+#ifdef __APPLE__
+        // MoltenVK reports why it refused a shader (the Metal compiler's error) through VK_EXT_debug_utils, without
+        // a validation layer: listen for its errors so a "could not build a pipeline" comes with the reason
+        const bool driver_messages = found_debug_extension == VK_EXT_DEBUG_UTILS_EXTENSION_NAME && !(has_validation_layer && config.validation_layer);
+        if (driver_messages)
+            instance_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+#endif
         if (has_validation_layer && !found_debug_extension.empty()) {
             if (config.validation_layer) {
                 LOG_INFO("Enabling vulkan validation layers (has a performance impact but allows better error messages)");
@@ -573,6 +580,28 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         instance = vk::createInstance(instance_info);
         VULKAN_HPP_DEFAULT_DISPATCHER.init(instance);
 
+#ifdef __APPLE__
+        if (driver_messages) {
+            vk::DebugUtilsMessengerCreateInfoEXT driver_info{
+                .messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
+                .messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
+                .pfnUserCallback = [](vk::DebugUtilsMessageSeverityFlagBitsEXT, vk::DebugUtilsMessageTypeFlagsEXT,
+                                       const vk::DebugUtilsMessengerCallbackDataEXT *data, void *) -> VkBool32 {
+                    if (data && data->pMessage) {
+                        // the Metal compiler's output can be long: keep the first part
+                        std::string_view msg(data->pMessage);
+                        LOG_ERROR("MoltenVK: {}", msg.substr(0, 3000));
+                    }
+                    return VK_FALSE;
+                },
+            };
+            try {
+                debug_messenger = instance.createDebugUtilsMessengerEXT(driver_info);
+            } catch (const vk::SystemError &e) {
+                LOG_WARN("MoltenVK error messages unavailable: {}", e.what());
+            }
+        }
+#endif
         if (has_validation_layer && !found_debug_extension.empty() && config.validation_layer) {
             // we support two debugging extensions
             if (found_debug_extension == VK_EXT_DEBUG_UTILS_EXTENSION_NAME) {
@@ -1366,6 +1395,7 @@ uint32_t VKState::get_features_mask() {
             bool use_memory_mapping : 1;
             bool use_rgb_attributes : 1;
             bool use_scaled_attributes : 1;
+            bool widescreen_hud : 1;
         };
         uint32_t value;
     } features_mask;
@@ -1377,6 +1407,7 @@ uint32_t VKState::get_features_mask() {
     features_mask.use_memory_mapping = features.enable_memory_mapping;
     features_mask.use_rgb_attributes = features.support_rgb_attributes;
     features_mask.use_scaled_attributes = pipeline_cache.support_scaled_vertex_attribute;
+    features_mask.widescreen_hud = features.widescreen_hud;
 
     return features_mask.value;
 }

@@ -802,6 +802,7 @@ void apply_renderer_config(EmuEnvState &emuenv) {
     r.set_stretch_display(cc.stretch_the_display_area);
     r.set_widescreen_hack(cc.widescreen_hack);
     r.widescreen_hud = cc.widescreen_hud;
+    r.features.widescreen_hud = cc.widescreen_hud;
     r.stretch_hd_pixel_perfect(cc.fullscreen_hd_res_pixel_perfect);
     r.set_async_compilation(cc.async_pipeline_compilation);
     r.get_texture_cache()->set_replacement_state(cc.import_textures, cc.export_textures, cc.export_as_png);
@@ -897,6 +898,7 @@ void apply_runtime_settings(EmuEnvState &emuenv) {
     r.set_stretch_display(cc.stretch_the_display_area);
     r.set_widescreen_hack(cc.widescreen_hack);
     r.widescreen_hud = cc.widescreen_hud;
+    r.features.widescreen_hud = cc.widescreen_hud;
     r.stretch_hd_pixel_perfect(cc.fullscreen_hd_res_pixel_perfect);
     r.set_async_compilation(cc.async_pipeline_compilation);
     r.get_texture_cache()->set_replacement_state(cc.import_textures, cc.export_textures, cc.export_as_png);
