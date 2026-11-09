@@ -105,6 +105,8 @@ struct State {
     bool widescreen_hack = false;
     // how much to narrow 3D draws horizontally (Vita aspect / screen aspect), 1 when off
     float widescreen_x_scale = 1.0f;
+    // widescreen hack: give flat (HUD) pieces their normal shape back, each around its own centre
+    bool widescreen_hud = false;
     bool fullscreen_hd_res_pixel_perfect;
     bool fullscreen = false;
 

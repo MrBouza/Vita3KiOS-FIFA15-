@@ -60,6 +60,7 @@ void copy_global_to_current(Config::CurrentConfig &current, const Config &cfg) {
     current.pstv_mode = cfg.pstv_mode;
     current.stretch_the_display_area = cfg.stretch_the_display_area;
     current.widescreen_hack = cfg.widescreen_hack;
+    current.widescreen_hud = cfg.widescreen_hud;
     current.fullscreen_hd_res_pixel_perfect = cfg.fullscreen_hd_res_pixel_perfect;
     current.file_loading_delay = cfg.file_loading_delay;
     current.psn_signed_in = cfg.psn_signed_in;
@@ -107,6 +108,7 @@ void copy_current_to_global(Config &cfg, const Config::CurrentConfig &current) {
     cfg.pstv_mode = current.pstv_mode;
     cfg.stretch_the_display_area = current.stretch_the_display_area;
     cfg.widescreen_hack = current.widescreen_hack;
+    cfg.widescreen_hud = current.widescreen_hud;
     cfg.fullscreen_hd_res_pixel_perfect = current.fullscreen_hd_res_pixel_perfect;
     cfg.file_loading_delay = current.file_loading_delay;
     cfg.psn_signed_in = current.psn_signed_in;
@@ -234,6 +236,7 @@ bool load_custom_config(Config::CurrentConfig &out, const fs::path &config_path,
         out.file_loading_delay = emu.attribute("file-loading-delay").as_int();
         out.stretch_the_display_area = emu.attribute("stretch-the-display-area").as_bool();
         out.widescreen_hack = emu.attribute("widescreen-hack").as_bool();
+        out.widescreen_hud = emu.attribute("widescreen-hud").as_bool();
         out.fullscreen_hd_res_pixel_perfect = emu.attribute("fullscreen-hd-res-pixel-perfect").as_bool();
     }
 
@@ -316,6 +319,7 @@ bool save_custom_config(const Config::CurrentConfig &cc, const fs::path &config_
     emu_child.append_attribute("file-loading-delay") = cc.file_loading_delay;
     emu_child.append_attribute("stretch-the-display-area") = cc.stretch_the_display_area;
     emu_child.append_attribute("widescreen-hack") = cc.widescreen_hack;
+    emu_child.append_attribute("widescreen-hud") = cc.widescreen_hud;
     emu_child.append_attribute("fullscreen-hd-res-pixel-perfect") = cc.fullscreen_hd_res_pixel_perfect;
 
     auto debug_child = config_child.append_child("debug");

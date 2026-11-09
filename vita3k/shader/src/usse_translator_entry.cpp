@@ -23,7 +23,10 @@
 #include <shader/usse_disasm.h>
 #include <shader/usse_translator.h>
 #include <shader/usse_translator_types.h>
+#include <shader/uniform_block.h>
 #include <util/log.h>
+
+#include <SPIRV/GLSL.std.450.h>
 
 #include <optional>
 
@@ -1092,6 +1095,11 @@ void convert_gxp_usse_to_spirv(spv::Builder &b, const SceGxmProgram &program, co
     // TODO: Reuse this
     usse::USSERecompiler recomp(b, program, features, parameters, utils, end_hook_func, queries, render_info_id);
 
+    // widescreen "keep HUD shape": the vertex inputs as they were before the program ran, to run it a second time
+    const bool hud_shape = program.is_vertex() && render_info_id != spv::NoResult;
+    const spv::Id saved_ins = hud_shape ? b.createLoad(parameters.ins, spv::NoPrecision) : spv::NoResult;
+    spv::Function *primary_func = nullptr;
+
     for (uint32_t phase = 0; phase < static_cast<uint32_t>(ShaderPhase::Max); ++phase) {
         const auto cur_phase_code = shader_code[phase];
 
@@ -1103,8 +1111,58 @@ void convert_gxp_usse_to_spirv(spv::Builder &b, const SceGxmProgram &program, co
             }
 
             recomp.reset(cur_phase_code.first, cur_phase_code.second);
-            b.createFunctionCall(recomp.compile_program_function(), {});
+            spv::Function *func = recomp.compile_program_function();
+            if (static_cast<ShaderPhase>(phase) != ShaderPhase::SampleRate)
+                primary_func = func;
+            b.createFunctionCall(func, {});
         }
+    }
+
+    if (hud_shape && primary_func) {
+        // A flat draw (w == 1) maps its x position linearly to the screen. Running the program again with x + 1
+        // measures that slope, which gives the draw's centre on screen; then squeeze x around that centre, so the
+        // piece gets its normal shape back where it already is. Skipped for draws wider than half the screen
+        // (full-screen effects), and when the renderer leaves the scale at 1.
+        const spv::Id f32 = b.makeFloatType(32);
+        const spv::Id v4 = b.makeVectorType(f32, 4);
+        const spv::Id one = b.makeFloatConstant(1.0f);
+        const auto load_info = [&](uint32_t field) {
+            return b.createLoad(b.createAccessChain(spv::StorageClassUniform, render_info_id, { b.makeIntConstant(static_cast<int>(field)) }), spv::NoPrecision);
+        };
+        const spv::Id scale = load_info(VERT_UNIFORM_wide_hud_scale);
+        const spv::Id pos_ptr = b.createAccessChain(spv::StorageClassPrivate, parameters.outs, { b.makeIntConstant(0) });
+        const spv::Id pos = b.createLoad(pos_ptr, spv::NoPrecision);
+        const spv::Id w = b.createCompositeExtract(pos, f32, 3);
+        const spv::Id flat = b.createOp(spv::OpFOrdLessThanEqual, b.makeBoolType(),
+            { b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FAbs, { b.createBinOp(spv::OpFSub, f32, w, one) }), b.makeFloatConstant(0.0001f) });
+        const spv::Id enabled = b.createOp(spv::OpFOrdGreaterThan, b.makeBoolType(),
+            { b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FAbs, { b.createBinOp(spv::OpFSub, f32, scale, one) }), b.makeFloatConstant(0.000001f) });
+        spv::Builder::If cond(b.createBinOp(spv::OpLogicalAnd, b.makeBoolType(), enabled, flat), spv::SelectionControlMaskNone, b);
+        {
+            const spv::Id saved_outs = b.createLoad(parameters.outs, spv::NoPrecision);
+            b.createStore(saved_ins, parameters.ins);
+            const spv::Id in0_ptr = b.createAccessChain(spv::StorageClassPrivate, parameters.ins, { b.makeIntConstant(0) });
+            const spv::Id in0 = b.createLoad(in0_ptr, spv::NoPrecision);
+            const spv::Id x_obj = b.createCompositeExtract(in0, f32, 0);
+            b.createStore(b.createCompositeInsert(b.createBinOp(spv::OpFAdd, f32, x_obj, one), in0, v4, 0), in0_ptr);
+            b.createFunctionCall(primary_func, {});
+            const spv::Id x2 = b.createCompositeExtract(b.createLoad(pos_ptr, spv::NoPrecision), f32, 0);
+            b.createStore(saved_outs, parameters.outs);
+            b.createStore(saved_ins, parameters.ins);
+
+            const spv::Id x = b.createCompositeExtract(pos, f32, 0);
+            const spv::Id slope = b.createBinOp(spv::OpFSub, f32, x2, x);
+            const spv::Id cx = load_info(VERT_UNIFORM_wide_hud_cx);
+            const spv::Id width = load_info(VERT_UNIFORM_wide_hud_width);
+            // centre on screen = this vertex + slope * (centre - this vertex), in position units
+            const spv::Id centre = b.createBinOp(spv::OpFAdd, f32, x, b.createBinOp(spv::OpFMul, f32, slope, b.createBinOp(spv::OpFSub, f32, cx, x_obj)));
+            const spv::Id new_x = b.createBinOp(spv::OpFAdd, f32, centre, b.createBinOp(spv::OpFMul, f32, scale, b.createBinOp(spv::OpFSub, f32, x, centre)));
+            const spv::Id screen_width = b.createBinOp(spv::OpFMul, f32, b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FAbs, { slope }), width);
+            const spv::Id small = b.createOp(spv::OpFOrdLessThan, b.makeBoolType(), { screen_width, one });
+            const spv::Id final_x = b.createTriOp(spv::OpSelect, f32, small, new_x, x);
+            b.createStore(b.createCompositeInsert(final_x, pos, v4, 0), pos_ptr);
+        }
+        cond.makeEndIf();
     }
 
     // We reach the end

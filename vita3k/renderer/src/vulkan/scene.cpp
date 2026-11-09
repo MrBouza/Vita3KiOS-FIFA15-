@@ -671,6 +671,37 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
             break;
         }
     }
+    vert_ublock.wide_hud_scale = 1.0f;
+    if (vert_ublock.wide_x_scale != 1.0f && context.state.widescreen_hud && vert_ublock.wide_attr_shift == 0.0f) {
+        // "keep HUD shape": the shader squeezes flat draws around their centre; it needs the centre and width of the
+        // draw in its own position units (float positions in attribute register 0)
+        const SceGxmVertexProgram &vp = *context.record.vertex_program.get(mem);
+        for (const SceGxmVertexAttribute &a : vp.attributes) {
+            if (a.regIndex != 0 || a.format != SCE_GXM_ATTRIBUTE_FORMAT_F32 || a.streamIndex >= vp.streams.size() || count > 4096)
+                continue;
+            const auto &stream = context.record.vertex_streams[a.streamIndex];
+            if (!stream.data)
+                break;
+            const uint8_t *bytes = stream.data.get(mem);
+            const uint32_t stride = vp.streams[a.streamIndex].stride;
+            const void *index_data = indices.get(mem);
+            float x0 = 1e30f, x1 = -1e30f;
+            for (size_t v = 0; v < count; v++) {
+                const uint32_t vi = !index_data ? static_cast<uint32_t>(v)
+                    : (format == SCE_GXM_INDEX_FORMAT_U16 ? static_cast<const uint16_t *>(index_data)[v] : static_cast<const uint32_t *>(index_data)[v]);
+                float x;
+                memcpy(&x, bytes + static_cast<size_t>(vi) * stride + a.offset, sizeof(x));
+                x0 = std::min(x0, x);
+                x1 = std::max(x1, x);
+            }
+            if (x0 <= x1 && std::isfinite(x0) && std::isfinite(x1)) {
+                vert_ublock.wide_hud_scale = vert_ublock.wide_x_scale;
+                vert_ublock.wide_hud_cx = (x0 + x1) * 0.5f;
+                vert_ublock.wide_hud_width = x1 - x0;
+            }
+            break;
+        }
+    }
 
     if (context.curr_vert_ublock.changed || memcmp(&context.prev_vert_ublock, &vert_ublock, sizeof(vert_ublock)) != 0) {
         // TODO: this intermediate step can be avoided

@@ -1014,7 +1014,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
 
     if (program_type == SceGxmProgramType::Vertex) {
         // Create the default reg uniform buffer
-        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32, f32, f32 };
+        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32 };
         if (uniform_buffer_count > 0)
             uniform_composition.push_back(buffer_addresses_type);
         if (uniform_texture_count > 0) {
@@ -1040,6 +1040,9 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
         ADD_VERT_UNIFORM_MEMBER(z_scale);
         ADD_VERT_UNIFORM_MEMBER(wide_x_scale);
         ADD_VERT_UNIFORM_MEMBER(wide_attr_shift);
+        ADD_VERT_UNIFORM_MEMBER(wide_hud_scale);
+        ADD_VERT_UNIFORM_MEMBER(wide_hud_cx);
+        ADD_VERT_UNIFORM_MEMBER(wide_hud_width);
 
 #undef ADD_VERT_UNIFORM_MEMBER
 #define ADD_EXT_UNIFORM_MEMBER(name)                                                                                                                                                \
