@@ -642,12 +642,18 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     {
         extern Address diag_ws_tex_addr;
         extern uint32_t diag_ws_tex_w, diag_ws_tex_h, diag_ws_tex_fmt;
-        static auto next = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        static auto next = std::chrono::steady_clock::time_point::max();
         static int left = 0, capture = 0;
-        if (left == 0 && capture < 30 && std::chrono::steady_clock::now() >= next) {
+        // start once a match is on screen: the first draw of a player model (FIFA 15)
+        if (next == std::chrono::steady_clock::time_point::max()
+            && hex_string(context.record.vertex_program.get(mem)->renderer_data->hash).starts_with("ad4b1f6f")) {
+            next = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            LOG_INFO("[WSDIAG] match detected, capturing in 5 seconds");
+        }
+        if (left == 0 && capture < 8 && std::chrono::steady_clock::now() >= next) {
             capture++;
-            left = 150;
-            next = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            left = 1200;
+            next = std::chrono::steady_clock::now() + std::chrono::seconds(8);
         }
         if (left > 0) {
             left--;
