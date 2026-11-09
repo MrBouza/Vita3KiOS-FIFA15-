@@ -1232,7 +1232,9 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState 
             const bool pixel_perfect = fullscreen_hd_res_pixel_perfect && fullscreen
                 && !(screen_renderer.extent.width % DEFAULT_RES_WIDTH)
                 && !(screen_renderer.extent.height % (DEFAULT_RES_HEIGHT - 4));
-            if (stretch_the_display_area && !pixel_perfect && can_stretch(fb_w, fb_h)) {
+            // widescreen hack: 3D draws are narrowed by this factor, so the stretched frame shows a wider view, not a stretched one
+            widescreen_x_scale = (widescreen_hack && window_aspect > vita_aspect) ? vita_aspect / window_aspect : 1.0f;
+            if ((stretch_the_display_area || widescreen_hack) && !pixel_perfect && can_stretch(fb_w, fb_h)) {
                 display.viewport_x = 0.0f;
                 display.viewport_y = 0.0f;
                 display.viewport_w = fb_w;

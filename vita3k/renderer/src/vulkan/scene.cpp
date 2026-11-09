@@ -25,6 +25,7 @@
 
 #include <util/log.h>
 
+#include <cmath>
 #include <set>
 #include <unordered_map>
 
@@ -626,6 +627,14 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     vert_ublock.z_scale = context.record.z_scale;
     vert_ublock.screen_width = context.render_target->width / context.state.res_multiplier;
     vert_ublock.screen_height = context.render_target->height / context.state.res_multiplier;
+    // widescreen hack: only for draws into frame-shaped targets (the game's screen), not shadow maps or other buffers
+    vert_ublock.wide_x_scale = 1.0f;
+    if (context.state.widescreen_x_scale != 1.0f && vert_ublock.screen_height > 0.0f) {
+        const float target_aspect = vert_ublock.screen_width / vert_ublock.screen_height;
+        constexpr float vita_aspect = 960.0f / 544.0f;
+        if (std::abs(target_aspect - vita_aspect) < 0.03f)
+            vert_ublock.wide_x_scale = context.state.widescreen_x_scale;
+    }
 
     if (context.curr_vert_ublock.changed || memcmp(&context.prev_vert_ublock, &vert_ublock, sizeof(vert_ublock)) != 0) {
         // TODO: this intermediate step can be avoided

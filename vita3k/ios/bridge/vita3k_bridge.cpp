@@ -954,10 +954,10 @@ char *v3k_game_settings_json(const char *title_id) {
     return dup_string(fmt::format(
         R"({{"custom":{},"resolutionMultiplier":{},"anisotropicFiltering":{},"screenFilter":{},"memoryMapping":{},)"
         R"("highAccuracy":{},"textureCache":{},"cpuOpt":{},"vSync":{},"fpsHack":{},"disableSurfaceSync":{},)"
-        R"("stretchDisplay":{},"asyncShaders":{},"shaderCache":{},"nativeBuffer":{},"mappingMode":{}}})",
+        R"("stretchDisplay":{},"widescreen":{},"asyncShaders":{},"shaderCache":{},"nativeBuffer":{},"mappingMode":{}}})",
         b(custom), cc.resolution_multiplier, cc.anisotropic_filtering, json_quote(shown_screen_filter(cc.screen_filter)), b(cc.memory_mapping != "disabled"),
         b(cc.high_accuracy), b(cc.texture_cache), b(cc.cpu_opt), b(cc.v_sync), b(cc.fps_hack), b(cc.disable_surface_sync),
-        b(cc.stretch_the_display_area), b(cc.async_pipeline_compilation), b(cc.shader_cache), b(cc.memory_mapping == "page-table"), json_quote(mapping_mode(cc.memory_mapping))));
+        b(cc.stretch_the_display_area), b(cc.widescreen_hack), b(cc.async_pipeline_compilation), b(cc.shader_cache), b(cc.memory_mapping == "page-table"), json_quote(mapping_mode(cc.memory_mapping))));
 }
 
 bool v3k_game_uses_async_shaders(const char *title_id) {
@@ -1031,6 +1031,8 @@ bool v3k_set_game_setting(const char *title_id, const char *key, const char *val
         cc.disable_surface_sync = on;
     else if (k == "stretch-display")
         cc.stretch_the_display_area = on;
+    else if (k == "widescreen")
+        cc.widescreen_hack = on;
     else if (k == "async-shaders")
         cc.async_pipeline_compilation = on;
     else if (k == "shader-cache")
