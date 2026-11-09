@@ -156,7 +156,8 @@ struct LibraryView: View {
                 if vitaHome {
                     VitaHomeView(apps: model.apps, onLaunch: { requestLaunch($0) }, onDetails: { gameDetails = $0 },
                                  onDelete: { pendingDelete = $0 }, onDeleteSave: { pendingDeleteSave = $0 },
-                                 onSettings: { showingSettings = true }, onImport: { openImporter([.item]) })
+                                 onImportFiles: { openImporter([.item]) }, onImportFolder: { openImporter([.folder]) },
+                                 onEnterZrif: { showingZrifEntry = true })
                 }
 
                 if let progress = model.installProgress {

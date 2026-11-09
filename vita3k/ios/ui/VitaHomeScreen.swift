@@ -194,7 +194,7 @@ enum VitaHomeLayout {
 /// One thing on the home screen: a game, or one of the system applications
 enum VitaHomeItem: Identifiable, Hashable {
     case game(GameApp)
-    case search, contentManager, settings
+    case search, contentManager, settings, themes, music, classicLibrary
 
     var id: String {
         switch self {
@@ -202,6 +202,9 @@ enum VitaHomeItem: Identifiable, Hashable {
         case .search: "sys.search"
         case .contentManager: "sys.content"
         case .settings: "sys.settings"
+        case .themes: "sys.themes"
+        case .music: "sys.music"
+        case .classicLibrary: "sys.library"
         }
     }
 
@@ -211,6 +214,9 @@ enum VitaHomeItem: Identifiable, Hashable {
         case .search: "Search"
         case .contentManager: "Content Manager"
         case .settings: "Settings"
+        case .themes: "Themes"
+        case .music: "Music"
+        case .classicLibrary: "Library"
         }
     }
 }
@@ -223,9 +229,12 @@ struct VitaHomeView: View {
     let onDetails: (GameApp) -> Void
     let onDelete: (GameApp) -> Void
     let onDeleteSave: (GameApp) -> Void
-    let onSettings: () -> Void
-    let onImport: () -> Void
+    let onImportFiles: () -> Void
+    let onImportFolder: () -> Void
+    let onEnterZrif: () -> Void
 
+    @EnvironmentObject private var model: LibraryModel
+    @AppStorage("v3k.vitaHome") private var vitaHome = false
     @AppStorage("v3k.vitaHome.lockScreen") private var showStartScreen = true
     @AppStorage("v3k.vitaHome.theme") private var themeId = VitaTheme.defaultId
     @State private var locked = true
@@ -233,13 +242,14 @@ struct VitaHomeView: View {
     @State private var openApp: GameApp?
     @State private var searching = false
     @State private var infoApp: GameApp?
+    @State private var panel: VitaPanelKind?
 
     private var theme: VitaTheme { VitaTheme.current() }
 
     private var items: [VitaHomeItem] {
         // The Vita puts the system applications on the first page and new games after them
         let games = apps.sorted { ($0.lastPlayed, $1.title) > ($1.lastPlayed, $0.title) }.map { VitaHomeItem.game($0) }
-        return [.search, .contentManager, .settings] + games
+        return [.search, .contentManager, .settings, .themes, .music, .classicLibrary] + games
     }
 
     private var pages: [[VitaHomeItem]] {
@@ -271,7 +281,17 @@ struct VitaHomeView: View {
                     .zIndex(2)
                 }
 
-                VitaInfoBar(space: space, theme: theme).frame(maxHeight: .infinity, alignment: .top).zIndex(3)
+                VitaInfoBar(space: space, theme: theme, notices: notices.count, openNotices: { openPanel(.notifications) })
+                    .frame(maxHeight: .infinity, alignment: .top).zIndex(3)
+
+                if let kind = panel {
+                    Peelable(fold: space.len(44), onPeeled: { panel = nil }) {
+                        VitaPanel(kind: kind, space: space, model: model, notices: notices, close: { withAnimation(.easeOut(duration: 0.2)) { panel = nil } },
+                                  importFiles: onImportFiles, importFolder: onImportFolder, enterZrif: onEnterZrif)
+                    }
+                    .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
+                    .zIndex(3.5)
+                }
 
                 if searching {
                     VitaSearch(apps: apps, space: space, close: { withAnimation(.easeOut(duration: 0.2)) { searching = false } }) { app in
@@ -321,9 +341,27 @@ struct VitaHomeView: View {
         switch item {
         case .game(let app): open(app)
         case .search: withAnimation(.easeOut(duration: 0.2)) { searching = true }
-        case .contentManager: onImport()
-        case .settings: onSettings()
+        case .contentManager: openPanel(.contentManager)
+        case .settings: openPanel(.settings)
+        case .themes: openPanel(.themes)
+        case .music: openPanel(.music)
+        case .classicLibrary: vitaHome = false
         }
+    }
+
+    private func openPanel(_ kind: VitaPanelKind) {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { panel = kind }
+    }
+
+    /// What the notification bubble counts: things worth the player's attention
+    private var notices: [String] {
+        var list: [String] = []
+        if !model.hasFirmware { list.append("The PS Vita firmware isn't installed. Install it from Content Manager (PSVUPDAT.PUP).") }
+        else if !model.hasFonts { list.append("The firmware's fonts aren't installed. Install the font package from Content Manager.") }
+        if model.jitPreparing { list.append("Preparing JIT (\(model.jitProgress)/\(model.jitTarget))…") }
+        else if !model.jitEnabled { list.append(model.jitCanRequest ? "JIT is attached; it starts when you launch a game." : "JIT is off: \(model.jitStatus)") }
+        if apps.isEmpty { list.append("No games yet. Open Content Manager to install some.") }
+        return list
     }
 
     private func open(_ app: GameApp) {
@@ -465,9 +503,23 @@ private struct VitaHomePage<MenuContent: View>: View {
                     VitaBubbleView(item: item, space: space)
                         .position(x: space.x(slot.x), y: space.y(slot.y) + bob)
                         .onTapGesture { tap(item) }
-                        .contextMenu { menu(item) }
+                        .modifier(VitaItemMenu(item: item, menu: menu))
                 }
             }
+        }
+    }
+}
+
+/// The long-press menu: games only (an empty menu on the system bubbles got in the way of their taps)
+private struct VitaItemMenu<MenuContent: View>: ViewModifier {
+    let item: VitaHomeItem
+    let menu: (VitaHomeItem) -> MenuContent
+
+    func body(content: Content) -> some View {
+        if case .game = item {
+            content.contextMenu { menu(item) }
+        } else {
+            content
         }
     }
 }
@@ -494,6 +546,12 @@ struct VitaBubbleView: View {
                     systemIcon("arrow.down.circle", [Color(red: 0.25, green: 0.7, blue: 0.95), Color(red: 0.05, green: 0.4, blue: 0.75)])
                 case .settings:
                     systemIcon("gearshape.fill", [Color(white: 0.62), Color(white: 0.32)])
+                case .themes:
+                    systemIcon("paintpalette.fill", [Color(red: 0.95, green: 0.45, blue: 0.7), Color(red: 0.6, green: 0.2, blue: 0.75)])
+                case .music:
+                    systemIcon("music.note", [Color(red: 0.45, green: 0.85, blue: 0.55), Color(red: 0.1, green: 0.55, blue: 0.4)])
+                case .classicLibrary:
+                    systemIcon("square.grid.2x2.fill", [Color(red: 0.55, green: 0.6, blue: 0.95), Color(red: 0.25, green: 0.3, blue: 0.7)])
                 }
             }
             .frame(width: d, height: d)
@@ -555,21 +613,43 @@ struct VitaPageDots: View {
 struct VitaInfoBar: View {
     let space: VitaSpace
     let theme: VitaTheme
+    var notices = 0
+    var openNotices: (() -> Void)? = nil
+    @ObservedObject private var music = MenuMusic.shared
 
     var body: some View {
         TimelineView(.everyMinute) { context in
             HStack(spacing: space.len(14)) {
+                if !music.nowPlaying.isEmpty && (UserDefaults.standard.object(forKey: "v3k.musicEnabled") as? Bool ?? true) {
+                    Label(music.nowPlaying, systemImage: "music.note")
+                        .font(VitaFont.font(space.len(16)))
+                        .lineLimit(1)
+                        .opacity(0.85)
+                        .padding(.leading, space.len(70))
+                }
                 Spacer()
                 Image(systemName: "wifi").font(.system(size: space.len(17), weight: .semibold))
                 battery
                 Text(context.date, format: .dateTime.hour().minute())
                     .font(VitaFont.font(space.len(20)))
                     .monospacedDigit()
-                // The notification bubble at the far right
-                Circle()
-                    .fill(LinearGradient(colors: [Color(red: 0.35, green: 0.75, blue: 1), Color(red: 0.05, green: 0.45, blue: 0.85)], startPoint: .top, endPoint: .bottom))
-                    .overlay(Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1))
-                    .frame(width: space.len(24), height: space.len(24))
+                // The notification bubble at the far right: tap it for the notices
+                Button { openNotices?() } label: {
+                    Circle()
+                        .fill(LinearGradient(colors: notices > 0
+                                             ? [Color(red: 1, green: 0.75, blue: 0.3), Color(red: 0.95, green: 0.45, blue: 0.1)]
+                                             : [Color(red: 0.35, green: 0.75, blue: 1), Color(red: 0.05, green: 0.45, blue: 0.85)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .overlay(Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1))
+                        .overlay {
+                            if notices > 0 {
+                                Text("\(notices)").font(VitaFont.font(space.len(14), bold: true)).foregroundStyle(.white)
+                            }
+                        }
+                        .frame(width: space.len(26), height: space.len(26))
+                }
+                .buttonStyle(.plain)
+                .allowsHitTesting(openNotices != nil)
             }
             .foregroundStyle(.white)
             .padding(.trailing, space.len(16))
@@ -577,7 +657,6 @@ struct VitaInfoBar: View {
             .frame(maxWidth: .infinity)
             .background(theme.barColor?.opacity(0.85) ?? Color.black.opacity(0.5))
         }
-        .allowsHitTesting(false)
     }
 
     private var battery: some View {
@@ -1073,5 +1152,228 @@ struct VitaSearch: View {
             .padding(.top, space.len(60))
         }
         .onAppear { focused = true }
+    }
+}
+
+
+// MARK: - System panels
+
+enum VitaPanelKind: Hashable {
+    case contentManager, settings, themes, music, notifications
+
+    var title: String {
+        switch self {
+        case .contentManager: "Content Manager"
+        case .settings: "Settings"
+        case .themes: "Themes"
+        case .music: "Music"
+        case .notifications: "Notifications"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .contentManager: "arrow.down.circle"
+        case .settings: "gearshape.fill"
+        case .themes: "paintpalette.fill"
+        case .music: "music.note"
+        case .notifications: "bell.fill"
+        }
+    }
+}
+
+/// A system application of the home screen, drawn like the Vita's own: a blue title bar with the application's
+/// bubble, white text on a dark glass page. It is peeled away from the top-right corner like a LiveArea.
+struct VitaPanel: View {
+    let kind: VitaPanelKind
+    let space: VitaSpace
+    @ObservedObject var model: LibraryModel
+    let notices: [String]
+    let close: () -> Void
+    let importFiles: () -> Void
+    let importFolder: () -> Void
+    let enterZrif: () -> Void
+
+    @AppStorage("v3k.vitaHome.theme") private var themeId = VitaTheme.defaultId
+    @AppStorage("v3k.vitaMusic") private var vitaMusic = false
+    @AppStorage("v3k.musicEnabled") private var musicEnabled = true
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(colors: [Color(red: 0.06, green: 0.12, blue: 0.24), Color(red: 0.02, green: 0.04, blue: 0.1)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Title bar, below the information bar
+                HStack(spacing: space.len(14)) {
+                    Image(systemName: kind.symbol)
+                        .font(.system(size: space.len(24), weight: .semibold))
+                        .frame(width: space.len(44), height: space.len(44))
+                        .background(Circle().fill(LinearGradient(colors: [Color(red: 0.3, green: 0.7, blue: 1), Color(red: 0.05, green: 0.4, blue: 0.8)], startPoint: .top, endPoint: .bottom)))
+                        .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 1.5))
+                    Text(kind.title).font(VitaFont.font(space.len(28), bold: true))
+                    Spacer()
+                    Button(action: close) {
+                        Image(systemName: "xmark").font(.system(size: space.len(18), weight: .bold))
+                            .frame(width: space.len(44), height: space.len(44))
+                            .background(Circle().fill(.white.opacity(0.14)))
+                    }
+                    .padding(.trailing, space.len(60))
+                }
+                .foregroundStyle(.white)
+                .padding(.leading, space.len(40))
+                .padding(.top, space.len(44))
+                .padding(.bottom, space.len(12))
+
+                Divider().overlay(.white.opacity(0.25))
+
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(width: space.size.width, height: space.size.height)
+        .environment(\.colorScheme, .dark)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch kind {
+        case .settings:
+            // All the settings of the app, inside the panel (its own Done button is not needed here)
+            SettingsView(onDone: close).environmentObject(model)
+                .padding(.trailing, space.len(8))
+        case .contentManager: contentManager
+        case .themes: themes
+        case .music: music
+        case .notifications: notifications
+        }
+    }
+
+    private func row(_ symbol: String, _ title: String, _ detail: String, tint: Color = Color(red: 0.3, green: 0.7, blue: 1), action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: space.len(16)) {
+                Image(systemName: symbol).font(.system(size: space.len(24)))
+                    .foregroundStyle(tint).frame(width: space.len(40))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(VitaFont.font(space.len(22), bold: true))
+                    Text(detail).font(VitaFont.font(space.len(15))).foregroundStyle(.white.opacity(0.65))
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.white.opacity(0.4))
+            }
+            .padding(.horizontal, space.len(20)).padding(.vertical, space.len(12))
+            .background(RoundedRectangle(cornerRadius: space.len(12), style: .continuous).fill(.white.opacity(0.08)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(VitaPressStyle())
+    }
+
+    private var contentManager: some View {
+        ScrollView {
+            VStack(spacing: space.len(12)) {
+                row("doc.badge.plus", "Install from files", "VPK, ZIP, PKG, PUP firmware, work.bin or .rif licenses", action: importFiles)
+                row("folder.badge.plus", "Install a game folder", "A decrypted game folder or an existing Vita3K folder", action: importFolder)
+                row("key.horizontal.fill", "Enter a zRIF key", "For a PKG that needs its license key", action: enterZrif)
+                HStack(spacing: space.len(10)) {
+                    stat("gamecontroller.fill", "\(model.apps.count)", "games")
+                    stat("cpu", model.hasFirmware ? "Installed" : "Missing", "firmware")
+                    stat("textformat", model.hasFonts ? "Installed" : "Missing", "fonts")
+                }
+                .padding(.top, space.len(6))
+            }
+            .padding(.horizontal, space.len(40)).padding(.vertical, space.len(18))
+            .frame(maxWidth: space.len(820))
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func stat(_ symbol: String, _ value: String, _ label: String) -> some View {
+        VStack(spacing: 2) {
+            Image(systemName: symbol).foregroundStyle(Color(red: 0.3, green: 0.7, blue: 1))
+            Text(value).font(VitaFont.font(space.len(20), bold: true))
+            Text(label).font(VitaFont.font(space.len(14))).foregroundStyle(.white.opacity(0.6))
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, space.len(12))
+        .background(RoundedRectangle(cornerRadius: space.len(12), style: .continuous).fill(.white.opacity(0.06)))
+        .foregroundStyle(.white)
+    }
+
+    private var themes: some View {
+        let all = VitaTheme.installed()
+        return ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: space.len(220)), spacing: space.len(16))], spacing: space.len(16)) {
+                ForEach(all) { theme in
+                    Button {
+                        themeId = theme.id
+                        MenuMusic.shared.settingsChanged()
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } label: {
+                        VStack(spacing: space.len(8)) {
+                            ZStack {
+                                if theme.id == VitaTheme.defaultId {
+                                    LinearGradient(colors: [Color(red: 0.36, green: 0.62, blue: 0.86), Color(red: 0.03, green: 0.1, blue: 0.3)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                } else if let path = theme.wallpapers.first, let image = VitaFirmware.image(atPath: path) {
+                                    Image(uiImage: image).resizable().scaledToFill()
+                                } else {
+                                    Color.gray
+                                }
+                            }
+                            .frame(height: space.len(110))
+                            .clipShape(RoundedRectangle(cornerRadius: space.len(10), style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: space.len(10), style: .continuous)
+                                .strokeBorder(themeId == theme.id ? Color(red: 0.3, green: 0.8, blue: 1) : .white.opacity(0.2), lineWidth: themeId == theme.id ? 3 : 1))
+                            Text(theme.name).font(VitaFont.font(space.len(16))).foregroundStyle(.white).lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(VitaPressStyle())
+                }
+            }
+            .padding(space.len(40))
+            if all.count == 1 {
+                Text("Themes you install in Vita3K (ux0/theme) show up here too.")
+                    .font(VitaFont.font(space.len(15))).foregroundStyle(.white.opacity(0.6))
+                    .padding(.bottom, space.len(20))
+            }
+        }
+    }
+
+    private var music: some View {
+        VStack(spacing: space.len(14)) {
+            row(musicEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill", "Menu music", musicEnabled ? "On" : "Off") {
+                musicEnabled.toggle()
+                MenuMusic.shared.settingsChanged()
+            }
+            row("opticaldisc", "Use the PS Vita home music", vitaMusic ? "On: the firmware's own music" : "Off: songs made on your device") {
+                vitaMusic.toggle()
+                MenuMusic.shared.settingsChanged()
+            }
+            row("forward.fill", "Next song", "Skip to a new generated song") { MenuMusic.shared.skip() }
+        }
+        .padding(.horizontal, space.len(40)).padding(.vertical, space.len(18))
+        .frame(maxWidth: space.len(820))
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var notifications: some View {
+        ScrollView {
+            VStack(spacing: space.len(10)) {
+                if notices.isEmpty {
+                    Text("No new notifications").font(VitaFont.font(space.len(18))).foregroundStyle(.white.opacity(0.7))
+                        .padding(.top, space.len(60))
+                }
+                ForEach(Array(notices.enumerated()), id: \.offset) { _, text in
+                    HStack(spacing: space.len(14)) {
+                        Image(systemName: "bell.fill").foregroundStyle(Color(red: 1, green: 0.75, blue: 0.3))
+                        Text(text).font(VitaFont.font(space.len(17))).foregroundStyle(.white)
+                        Spacer()
+                    }
+                    .padding(space.len(16))
+                    .background(RoundedRectangle(cornerRadius: space.len(12), style: .continuous).fill(.white.opacity(0.08)))
+                }
+            }
+            .padding(.horizontal, space.len(40)).padding(.vertical, space.len(18))
+            .frame(maxWidth: space.len(820))
+            .frame(maxWidth: .infinity)
+        }
     }
 }

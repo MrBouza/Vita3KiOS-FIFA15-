@@ -9,6 +9,8 @@ struct SettingsView: View {
     @EnvironmentObject var model: LibraryModel
     @Environment(\.dismiss) private var dismiss
     @AppStorage("v3k.theme") private var themeName = AppTheme.midnight.rawValue
+    /// Set when the settings are shown inside the PS Vita home screen instead of as a sheet
+    var onDone: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -38,7 +40,7 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") { if let onDone { onDone() } else { dismiss() } }
                 }
             }
         }
