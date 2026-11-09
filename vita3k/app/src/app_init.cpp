@@ -711,10 +711,13 @@ void shutdown_app_runtime(EmuEnvState &state) {
     state.regmgr.reg_category_template.clear();
     state.regmgr.reg_template.clear();
 
+    step_done("services");
     state.kernel.deinit(state.mem);
+    step_done("kernel");
 
     state.renderer->cleanup();
     state.renderer.reset();
+    step_done("renderer");
 
     if (state.kernel.threads_left_running) {
         // Guest threads that never ended may still touch guest memory: leak it rather than free it
@@ -724,7 +727,7 @@ void shutdown_app_runtime(EmuEnvState &state) {
         state.kernel.threads_left_running = false;
     }
     deinit_mem(state.mem);
-    step_done("cleanup");
+    step_done("guest memory");
     LOG_INFO("Shutdown: done");
 }
 

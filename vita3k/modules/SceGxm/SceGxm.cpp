@@ -2721,18 +2721,17 @@ EXPORT(int, sceGxmFinish, SceGxmContext *context) {
     if (!context)
         return RET_ERROR(SCE_GXM_ERROR_INVALID_POINTER);
 
+    // A known immediate context waits through its own command ring. Anything else (a deferred context,
+    // or one this table does not know, as Killzone Mercenary passes at boot) has no ring of its own:
+    // wait for all rendering through the generic allocator instead of failing (from Vita3K-Plus).
     const Address context_addr = Ptr<SceGxmContext>(context, emuenv.mem).address();
     const auto immediate_context = emuenv.gxm.immediate_contexts.find(context);
-    if (context->state.type != SCE_GXM_CONTEXT_TYPE_IMMEDIATE
-        || immediate_context == emuenv.gxm.immediate_contexts.end()
-        || immediate_context->second != context_addr)
-        return RET_ERROR(SCE_GXM_ERROR_INVALID_POINTER);
+    renderer::Context *renderer_context = nullptr;
+    if (immediate_context != emuenv.gxm.immediate_contexts.end() && immediate_context->second == context_addr
+        && context->state.type == SCE_GXM_CONTEXT_TYPE_IMMEDIATE)
+        renderer_context = context->renderer.get();
 
-    renderer::Context *renderer_context = context->renderer.get();
-    if (!renderer_context)
-        return RET_ERROR(SCE_GXM_ERROR_INVALID_POINTER);
-
-    // Wait on this context's rendering finish code.
+    // Wait on the rendering finish code.
     renderer::finish(*emuenv.renderer, renderer_context);
 
     return 0;

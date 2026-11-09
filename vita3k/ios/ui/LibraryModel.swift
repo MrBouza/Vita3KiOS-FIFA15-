@@ -268,6 +268,8 @@ final class LibraryModel: ObservableObject {
         }
         // Per-game "Precise shader math" (read by the renderer when the game starts)
         setenv("V3K_PRECISE_SHADER_MATH", UserDefaults.standard.bool(forKey: "v3k.preciseMath.\(app.titleId)") ? "1" : "0", 1)
+        // Per-game "Vertex realignment" (on unless the player turned it off for this game)
+        setenv("V3K_VERTEX_REALIGN_USER_OFF", UserDefaults.standard.bool(forKey: "v3k.vertexRealignOff.\(app.titleId)") ? "1" : "0", 1)
         v3k_request_launch(app.titleId)
     }
 

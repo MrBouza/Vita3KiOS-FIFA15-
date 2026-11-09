@@ -90,7 +90,8 @@ void sync_stencil_func(VKContext &context, const bool is_back) {
         face = vk::StencilFaceFlagBits::eFrontAndBack;
         state = &context.record.front_stencil_state_values;
     } else {
-        face = is_back ? vk::StencilFaceFlagBits::eBack : vk::StencilFaceFlagBits::eFront;
+        // GXM gives its front two-sided state to clockwise triangles (from Vita3K-Plus)
+        face = is_back ? vk::StencilFaceFlagBits::eFront : vk::StencilFaceFlagBits::eBack;
         state = is_back ? &context.record.back_stencil_state_values : &context.record.front_stencil_state_values;
     }
 

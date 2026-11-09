@@ -331,7 +331,11 @@ int main(int argc, char *argv[]) {
         set_ios_accurate_cpu(v3k_game_fix_flag(title_id.c_str(), "accurate-cpu") == 1);
         // Read when the renderer starts: vertex attribute realignment for Metal (on unless a game's fix
         // says vertex-realign=off) and precise shader math (a fix can ask for it: precise-math=on)
-        setenv("V3K_VERTEX_REALIGN", v3k_game_fix_flag(title_id.c_str(), "vertex-realign") == 0 ? "0" : "1", 1);
+        // (the player can also turn realignment off for one game: V3K_VERTEX_REALIGN_USER_OFF, set by the library)
+        const char *user_realign_off = getenv("V3K_VERTEX_REALIGN_USER_OFF");
+        const bool realign_off = v3k_game_fix_flag(title_id.c_str(), "vertex-realign") == 0
+            || (user_realign_off && user_realign_off[0] == '1');
+        setenv("V3K_VERTEX_REALIGN", realign_off ? "0" : "1", 1);
         if (v3k_game_fix_flag(title_id.c_str(), "precise-math") == 1)
             setenv("V3K_PRECISE_SHADER_MATH", "1", 1);
         const bool mapping_was_on = v3k_game_uses_memory_mapping(title_id.c_str());

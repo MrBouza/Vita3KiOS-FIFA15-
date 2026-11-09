@@ -78,6 +78,7 @@ struct GameSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var preciseMath = false
+    @State private var vertexRealignOff = false
     @State private var gameFix: GameFixInfo?
     @State private var showingShortcutHelp = false
     @State private var settings = GameSettings()
@@ -308,6 +309,16 @@ struct GameSettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            Toggle(isOn: Binding(get: { !vertexRealignOff }, set: { on in
+                vertexRealignOff = !on
+                UserDefaults.standard.set(!on, forKey: "v3k.vertexRealignOff.\(app.titleId)")
+            })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Vertex realignment")
+                    Text("Fixes stretched or bent character models on iPhone. Turn it off if a character or object is missing or broken in this game.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         } header: {
             Text("Settings")
         } footer: {
@@ -511,6 +522,7 @@ struct GameSettingsView: View {
             gameFix = try? JSONDecoder().decode(GameFixInfo.self, from: data)
         }
         preciseMath = UserDefaults.standard.bool(forKey: "v3k.preciseMath.\(app.titleId)")
+        vertexRealignOff = UserDefaults.standard.bool(forKey: "v3k.vertexRealignOff.\(app.titleId)")
         if let json = takeString(v3k_game_settings_json(app.titleId)), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(GameSettings.self, from: data) {
             settings = decoded

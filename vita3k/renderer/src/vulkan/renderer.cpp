@@ -25,6 +25,7 @@
 #include <renderer/types.h>
 #include <renderer/vulkan/functions.h>
 
+#include <atomic>
 #include <cstdlib>
 #include <renderer/vulkan/state.h>
 
@@ -143,6 +144,21 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_util_callback(
     }
     return VK_FALSE;
 }
+
+#ifdef __APPLE__
+// MoltenVK's own errors (a Metal shader that does not compile, a pipeline Metal refuses) only reach
+// the log through a debug messenger: without one, a failed pipeline gave no reason at all
+static VKAPI_ATTR VkBool32 VKAPI_CALL moltenvk_error_callback(
+    vk::DebugUtilsMessageSeverityFlagBitsEXT message_severity,
+    vk::DebugUtilsMessageTypeFlagsEXT message_type,
+    const vk::DebugUtilsMessengerCallbackDataEXT *callback_data,
+    void *pUserData) {
+    static std::atomic<int> logged{ 0 };
+    if (callback_data && callback_data->pMessage && logged.fetch_add(1) < 64)
+        LOG_ERROR("MoltenVK: {}", callback_data->pMessage);
+    return VK_FALSE;
+}
+#endif
 
 static vk::DebugReportCallbackEXT debug_report;
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_report_callback(
@@ -501,6 +517,18 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
                 LOG_INFO("Disabling Vulkan validation layers (may improve performance but provides limited error messages)");
             }
         }
+#ifdef __APPLE__
+        // No validation layer here: listen to MoltenVK's errors only (see moltenvk_error_callback)
+        bool moltenvk_errors = false;
+        if (instance_layers.empty()) {
+            for (const vk::ExtensionProperties &prop : vk::enumerateInstanceExtensionProperties()) {
+                if (std::string_view(prop.extensionName.data()) == VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
+                    moltenvk_errors = true;
+            }
+        }
+        if (moltenvk_errors)
+            instance_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+#endif
 
 #ifdef __APPLE__
         const VkBool32 full_image_swizzle = VK_TRUE;
@@ -573,6 +601,20 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         instance = vk::createInstance(instance_info);
         VULKAN_HPP_DEFAULT_DISPATCHER.init(instance);
 
+#ifdef __APPLE__
+        if (moltenvk_errors) {
+            vk::DebugUtilsMessengerCreateInfoEXT error_info{
+                .messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
+                .messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
+                .pfnUserCallback = moltenvk_error_callback
+            };
+            try {
+                debug_messenger = instance.createDebugUtilsMessengerEXT(error_info);
+            } catch (const std::exception &e) {
+                LOG_WARN("Could not listen to MoltenVK errors: {}", e.what());
+            }
+        }
+#endif
         if (has_validation_layer && !found_debug_extension.empty() && config.validation_layer) {
             // we support two debugging extensions
             if (found_debug_extension == VK_EXT_DEBUG_UTILS_EXTENSION_NAME) {

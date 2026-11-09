@@ -1188,8 +1188,9 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
         .depthCompareOp = translate_depth_func(record.front_depth_func),
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable = !maskupdate,
-        .front = convert_op_state(record.front_stencil_state_op),
-        .back = convert_op_state(two_sided ? record.back_stencil_state_op : record.front_stencil_state_op)
+        // GXM gives its front two-sided state to clockwise triangles (from Vita3K-Plus: fixes shadows)
+        .front = convert_op_state(two_sided ? record.back_stencil_state_op : record.front_stencil_state_op),
+        .back = convert_op_state(record.front_stencil_state_op)
     };
 
     vk::PipelineColorBlendStateCreateInfo color_blending{};
