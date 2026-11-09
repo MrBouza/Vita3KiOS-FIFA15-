@@ -51,9 +51,21 @@ struct SettingsView: View {
 struct AppearanceSection: View {
     @AppStorage("v3k.theme") private var themeName = AppTheme.midnight.rawValue
     @AppStorage("v3k.animatedBackground") private var animatedBackground = true
+    @AppStorage("v3k.vitaHome") private var vitaHome = false
+    @AppStorage("v3k.vitaHome.lockScreen") private var vitaLockScreen = true
 
     var body: some View {
         Section("Appearance") {
+            Toggle(isOn: $vitaHome) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PS Vita home screen (beta)")
+                    Text("Shows your games as bubbles on pages like the real Vita home screen, with a LiveArea and Start button for each game. Uses the wallpaper and start screen from your firmware when installed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if vitaHome {
+                Toggle("Start screen", isOn: $vitaLockScreen)
+            }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 12)], spacing: 12) {
                 ForEach(AppTheme.allCases) { theme in
                     ThemeSwatch(theme: theme, selected: themeName == theme.rawValue) {

@@ -74,6 +74,7 @@ struct LibraryView: View {
     @AppStorage("v3k.musicEnabled") private var musicEnabled = true
     @AppStorage("v3k.theme") private var themeName = AppTheme.midnight.rawValue
     @AppStorage("v3k.librarySort") private var sortMode = "title"
+    @AppStorage("v3k.vitaHome") private var vitaHome = false
 
     @State private var search = ""
     @State private var showingImporter = false
@@ -152,6 +153,11 @@ struct LibraryView: View {
                 }
                 .refreshable { await MainActor.run { model.refresh() } }
 
+                if vitaHome {
+                    VitaHomeView(apps: model.apps, onLaunch: { requestLaunch($0) }, onDetails: { gameDetails = $0 },
+                                 onSettings: { showingSettings = true }, onImport: { openImporter([.item]) })
+                }
+
                 if let progress = model.installProgress {
                     InstallOverlay(progress: progress)
                 }
@@ -161,6 +167,7 @@ struct LibraryView: View {
                 }
             }
             .navigationTitle("Vita3K")
+            .toolbar(vitaHome ? .hidden : .automatic, for: .navigationBar)
             .searchable(text: $search, prompt: "Search games")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
