@@ -390,6 +390,11 @@ void deinit(State &ngs, MemState &mem) {
     ngs.definitions = Ptr<VoiceDefinition>(0);
 }
 
+// Vita3K-Plus keeps NGS memory out of GPU-mapped buffers with these; this tree's memory mapping does
+// not move guest pages into GPU buffers that way, so there is nothing to pin
+static void pin_to_arena(MemState &, Address, uint32_t) {}
+static void unpin_from_arena(MemState &, Address) {}
+
 bool init_system(State &ngs, MemState &mem, SceNgsSystemInitParams *parameters, Ptr<void> memspace, const uint32_t memspace_size) {
     pin_to_arena(mem, memspace.address(), memspace_size);
     // Reserve first memory allocation for our System struct
