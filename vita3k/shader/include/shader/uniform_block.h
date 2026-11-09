@@ -18,6 +18,9 @@ struct RenderVertUniformBlock {
     float z_scale;
     // widescreen hack: perspective (3D) draws have x multiplied by this, 1 when off
     float wide_x_scale = 1.0f;
+    // widescreen hack: added to the x of attribute register 0 for 2D draws placed at a projected 3D point
+    // (FIFA 15's player marker), so they follow the widened 3D view. 0 for every other draw
+    float wide_attr_shift = 0.0f;
 };
 
 // used internally to identify the field by the shader recompiler
@@ -29,7 +32,8 @@ enum VertUniformFieldId : uint32_t {
     VERT_UNIFORM_screen_height,
     VERT_UNIFORM_z_offset,
     VERT_UNIFORM_z_scale,
-    VERT_UNIFORM_wide_x_scale
+    VERT_UNIFORM_wide_x_scale,
+    VERT_UNIFORM_wide_attr_shift
 };
 
 struct RenderFragUniformBlock {
