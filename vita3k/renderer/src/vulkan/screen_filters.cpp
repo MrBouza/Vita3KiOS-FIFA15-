@@ -281,7 +281,7 @@ void SinglePassScreenFilter::render(bool is_pre_renderpass, vk::ImageView src_im
         const float window_aspect = static_cast<float>(screen.extent.width) / screen.extent.height;
         constexpr float vita_aspect = static_cast<float>(DEFAULT_RES_WIDTH) / DEFAULT_RES_HEIGHT;
         const bool fullscreen_hd_res_pixel_perfect_en = screen.state.fullscreen_hd_res_pixel_perfect && screen.state.fullscreen && !(screen.extent.width % DEFAULT_RES_WIDTH) && !(screen.extent.height % (DEFAULT_RES_HEIGHT - 4));
-        if (screen.state.stretch_the_display_area && !fullscreen_hd_res_pixel_perfect_en && can_stretch(static_cast<float>(screen.extent.width), static_cast<float>(screen.extent.height))) {
+        if ((screen.state.stretch_the_display_area || screen.state.widescreen_hack) && !fullscreen_hd_res_pixel_perfect_en && can_stretch(static_cast<float>(screen.extent.width), static_cast<float>(screen.extent.height))) {
             // Match the aspect ratio to the screen size.
             vk_viewport.width = static_cast<float>(screen.extent.width);
             vk_viewport.height = static_cast<float>(screen.extent.height);
@@ -516,7 +516,7 @@ void FSRScreenFilter::on_resize() {
     const float window_aspect = static_cast<float>(screen.extent.width) / screen.extent.height;
     const float vita_aspect = static_cast<float>(DEFAULT_RES_WIDTH) / DEFAULT_RES_HEIGHT;
     const bool fullscreen_hd_res_pixel_perfect_en = screen.state.fullscreen_hd_res_pixel_perfect & screen.state.fullscreen & !(screen.extent.width % DEFAULT_RES_WIDTH) & !(screen.extent.height % (DEFAULT_RES_HEIGHT - 4));
-    if (screen.state.stretch_the_display_area && !fullscreen_hd_res_pixel_perfect_en && can_stretch(static_cast<float>(screen.extent.width), static_cast<float>(screen.extent.height))) {
+    if ((screen.state.stretch_the_display_area || screen.state.widescreen_hack) && !fullscreen_hd_res_pixel_perfect_en && can_stretch(static_cast<float>(screen.extent.width), static_cast<float>(screen.extent.height))) {
         // Match the aspect ratio to the screen size.
         output_size.width = static_cast<float>(screen.extent.width);
         output_size.height = static_cast<float>(screen.extent.height);

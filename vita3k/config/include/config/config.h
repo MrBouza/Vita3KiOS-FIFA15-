@@ -142,6 +142,7 @@ using PhysicalKeyCode = input::PhysicalKeyCode;
     code(bool, "demo-mode", false, demo_mode)                                                           \
     code(bool, "apps-list-grid", false, apps_list_grid)                                                 \
     code(bool, "stretch_the_display_area", false, stretch_the_display_area)                             \
+    code(bool, "widescreen_hack", false, widescreen_hack)                                               \
     code(bool, "fullscreen_hd_res_pixel_perfect", false, fullscreen_hd_res_pixel_perfect)               \
     code(bool, "archive-log", false, archive_log)                                                       \
     code(std::string, "backend-renderer", "Vulkan", backend_renderer)                                   \

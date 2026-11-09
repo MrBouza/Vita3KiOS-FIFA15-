@@ -16,6 +16,8 @@ struct RenderVertUniformBlock {
     float screen_height;
     float z_offset;
     float z_scale;
+    // widescreen hack: perspective (3D) draws have x multiplied by this, 1 when off
+    float wide_x_scale = 1.0f;
 };
 
 // used internally to identify the field by the shader recompiler
@@ -26,7 +28,8 @@ enum VertUniformFieldId : uint32_t {
     VERT_UNIFORM_screen_width,
     VERT_UNIFORM_screen_height,
     VERT_UNIFORM_z_offset,
-    VERT_UNIFORM_z_scale
+    VERT_UNIFORM_z_scale,
+    VERT_UNIFORM_wide_x_scale
 };
 
 struct RenderFragUniformBlock {

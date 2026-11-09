@@ -1014,7 +1014,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
 
     if (program_type == SceGxmProgramType::Vertex) {
         // Create the default reg uniform buffer
-        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32 };
+        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32, f32 };
         if (uniform_buffer_count > 0)
             uniform_composition.push_back(buffer_addresses_type);
         if (uniform_texture_count > 0) {
@@ -1038,6 +1038,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
         ADD_VERT_UNIFORM_MEMBER(screen_height);
         ADD_VERT_UNIFORM_MEMBER(z_offset);
         ADD_VERT_UNIFORM_MEMBER(z_scale);
+        ADD_VERT_UNIFORM_MEMBER(wide_x_scale);
 
 #undef ADD_VERT_UNIFORM_MEMBER
 #define ADD_EXT_UNIFORM_MEMBER(name)                                                                                                                                                \
@@ -1843,6 +1844,21 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
                     o_val = b.createBinOp(spv::OpFMul, out_type, o_val, flip_vec_id);
                 }
                 b.createStore(o_val, out_var);
+
+                // widescreen hack: narrow perspective draws (w != 1) so the frame, stretched to the screen, shows a wider view.
+                // 2D draws (HUD, menus, full-screen passes) have w == 1 and are left alone.
+                if (translation_state.render_info_id != spv::NoResult) {
+                    spv::Id x_ref = utils::create_access_chain(b, spv::StorageClassOutput, out_var, { b.makeIntConstant(0) });
+                    spv::Id w_ref = utils::create_access_chain(b, spv::StorageClassOutput, out_var, { b.makeIntConstant(3) });
+                    const spv::Id x = b.createLoad(x_ref, spv::NoPrecision);
+                    const spv::Id w = b.createLoad(w_ref, spv::NoPrecision);
+                    spv::Id wide = utils::create_access_chain(b, spv::StorageClassUniform, translation_state.render_info_id, { b.makeIntConstant(VERT_UNIFORM_wide_x_scale) });
+                    wide = b.createLoad(wide, spv::NoPrecision);
+                    const spv::Id w_dist = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FAbs, { b.createBinOp(spv::OpFSub, f32, w, one) });
+                    const spv::Id perspective = b.createOp(spv::OpFOrdGreaterThan, b.makeBoolType(), { w_dist, b.makeFloatConstant(0.0001f) });
+                    const spv::Id factor = b.createTriOp(spv::OpSelect, f32, perspective, wide, one);
+                    b.createStore(b.createBinOp(spv::OpFMul, f32, x, factor), x_ref);
+                }
 
                 // scale the depth and w coordinate
                 if (translation_state.render_info_id != spv::NoResult) {
