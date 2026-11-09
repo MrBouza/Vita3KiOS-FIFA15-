@@ -51,6 +51,8 @@ struct VitaHomeView: View {
     let apps: [GameApp]
     let onLaunch: (GameApp) -> Void
     let onDetails: (GameApp) -> Void
+    let onDelete: (GameApp) -> Void
+    let onDeleteSave: (GameApp) -> Void
     let onSettings: () -> Void
     let onImport: () -> Void
 
@@ -126,9 +128,13 @@ struct VitaHomeView: View {
         let pages = VitaLayout.pages(ordered)
         return TabView(selection: $page) {
             ForEach(Array(pages.enumerated()), id: \.offset) { index, items in
-                VitaPage(items: items, width: size.width) { app in
-                    selected = app
-                }
+                VitaPage(items: items, width: size.width, tap: { app in selected = app },
+                         menu: { app in
+                             Button { onLaunch(app) } label: { Label("Start", systemImage: "play.fill") }
+                             Button { onDetails(app) } label: { Label("Game settings, patches & saves", systemImage: "slider.horizontal.3") }
+                             Button(role: .destructive) { onDeleteSave(app) } label: { Label("Delete save data", systemImage: "externaldrive.badge.minus") }
+                             Button(role: .destructive) { onDelete(app) } label: { Label("Delete game", systemImage: "trash") }
+                         })
                 .tag(index)
             }
         }
@@ -170,10 +176,11 @@ struct VitaHomeView: View {
 }
 
 /// One page of bubbles, staggered like the real home screen
-private struct VitaPage: View {
+private struct VitaPage<MenuContent: View>: View {
     let items: [GameApp]
     let width: CGFloat
     let tap: (GameApp) -> Void
+    @ViewBuilder let menu: (GameApp) -> MenuContent
 
     var body: some View {
         GeometryReader { proxy in
@@ -183,7 +190,7 @@ private struct VitaPage: View {
                 ForEach(Array(rowSlices().enumerated()), id: \.offset) { _, row in
                     HStack(spacing: spacing) {
                         ForEach(row) { app in
-                            VitaBubble(app: app, size: bubble).onTapGesture { tap(app) }
+                            VitaBubble(app: app, size: bubble).onTapGesture { tap(app) }.contextMenu { menu(app) }
                         }
                     }
                 }

@@ -155,6 +155,7 @@ struct LibraryView: View {
 
                 if vitaHome {
                     VitaHomeView(apps: model.apps, onLaunch: { requestLaunch($0) }, onDetails: { gameDetails = $0 },
+                                 onDelete: { pendingDelete = $0 }, onDeleteSave: { pendingDeleteSave = $0 },
                                  onSettings: { showingSettings = true }, onImport: { openImporter([.item]) })
                 }
 
