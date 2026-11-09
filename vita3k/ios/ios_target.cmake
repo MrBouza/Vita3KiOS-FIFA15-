@@ -44,6 +44,7 @@ target_link_libraries(vita3k PRIVATE
 	SDL3::SDL3
 	pugixml::pugixml
 	moltenvk_static
+	codec
 	"-framework Foundation"
 	"-framework UIKit"
 	"-framework SwiftUI"
