@@ -487,7 +487,7 @@ const char *v3k_storage_path(void) {
 
 char *v3k_pref_path(void) {
     auto *emuenv = ios::get_emuenv();
-    return dup_string(emuenv ? emuenv->pref_path.string() : std::string());
+    return dup_string(emuenv ? emuenv->vita_fs_path.string() : std::string());
 }
 
 bool v3k_decode_at9(const char *input_path, const char *output_path) {
