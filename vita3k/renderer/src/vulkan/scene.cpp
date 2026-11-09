@@ -25,6 +25,7 @@
 
 #include <util/log.h>
 
+#include <chrono>
 #include <cmath>
 #include <set>
 #include <unordered_map>
@@ -635,6 +636,62 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         constexpr float vita_aspect = 960.0f / 544.0f;
         if (std::abs(target_aspect - vita_aspect) < 0.03f)
             vert_ublock.wide_x_scale = context.state.widescreen_x_scale;
+    }
+
+    // DIAGNOSTIC (widescreen): 150 draws in order every 10 seconds, with where they land, to find the player marker
+    {
+        extern Address diag_ws_tex_addr;
+        extern uint32_t diag_ws_tex_w, diag_ws_tex_h, diag_ws_tex_fmt;
+        static auto next = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        static int left = 0, capture = 0;
+        if (left == 0 && capture < 30 && std::chrono::steady_clock::now() >= next) {
+            capture++;
+            left = 150;
+            next = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        }
+        if (left > 0) {
+            left--;
+            const SceGxmVertexProgram &vp = *context.record.vertex_program.get(mem);
+            std::string attrs, bbox;
+            for (const SceGxmVertexAttribute &a : vp.attributes) {
+                attrs += fmt::format(" r{}:f{}x{}@{}s{}", static_cast<int>(a.regIndex), static_cast<int>(a.format), static_cast<int>(a.componentCount), static_cast<int>(a.offset), static_cast<int>(a.streamIndex));
+                if (a.regIndex != 0 || a.componentCount < 2 || a.streamIndex >= vp.streams.size() || !bbox.empty())
+                    continue;
+                if (a.format != SCE_GXM_ATTRIBUTE_FORMAT_F32 && a.format != SCE_GXM_ATTRIBUTE_FORMAT_S16)
+                    continue;
+                const auto &st = context.record.vertex_streams[a.streamIndex];
+                if (!st.data)
+                    continue;
+                const uint8_t *bytes = static_cast<const uint8_t *>(st.data.get(mem));
+                const uint32_t stride = vp.streams[a.streamIndex].stride;
+                float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+                for (uint32_t v = 0; v < std::min<uint32_t>(count, 256); v++) {
+                    const uint32_t vi = indices_ptr ? (format == SCE_GXM_INDEX_FORMAT_U16 ? static_cast<const uint16_t *>(indices_ptr)[v] : static_cast<const uint32_t *>(indices_ptr)[v]) : v;
+                    const uint8_t *p = bytes + static_cast<size_t>(vi) * stride + a.offset;
+                    float x, y;
+                    if (a.format == SCE_GXM_ATTRIBUTE_FORMAT_F32) {
+                        memcpy(&x, p, 4);
+                        memcpy(&y, p + 4, 4);
+                    } else {
+                        int16_t s[2];
+                        memcpy(s, p, 4);
+                        x = s[0];
+                        y = s[1];
+                    }
+                    x0 = std::min(x0, x);
+                    y0 = std::min(y0, y);
+                    x1 = std::max(x1, x);
+                    y1 = std::max(y1, y);
+                }
+                bbox = fmt::format(" pos [{:.4g},{:.4g}]-[{:.4g},{:.4g}]", x0, y0, x1, y1);
+            }
+            const auto *vrd = context.record.vertex_program.get(mem)->renderer_data.get();
+            const auto *frd = context.record.fragment_program.get(mem)->renderer_data.get();
+            LOG_INFO("[WSDIAG] cap {} target 0x{:08X} {}x{} flat {} wide {} | tex 0x{:08X} {}x{} fmt 0x{:08X} | prim {} count {}{} |{} | vs {} fs {}",
+                capture, context.record.color_surface.data.address(), context.render_target->width, context.render_target->height,
+                context.record.viewport_flat, vert_ublock.wide_x_scale, diag_ws_tex_addr, diag_ws_tex_w, diag_ws_tex_h, diag_ws_tex_fmt,
+                fmt::underlying(type), count, bbox, attrs, hex_string(vrd->hash).substr(0, 8), hex_string(frd->hash).substr(0, 8));
+        }
     }
 
     if (context.curr_vert_ublock.changed || memcmp(&context.prev_vert_ublock, &vert_ublock, sizeof(vert_ublock)) != 0) {
