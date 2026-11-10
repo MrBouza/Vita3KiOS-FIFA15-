@@ -148,7 +148,7 @@ public:
 
     vk::RenderPass retrieve_render_pass(vk::Format format, bool force_load, bool force_store, bool is_color_transient, bool no_color = false);
     vk::RenderPass retrieve_mask_render_pass();
-    vk::Pipeline retrieve_pipeline(VKContext &context, SceGxmPrimitiveType &type, bool consider_for_async, MemState &mem);
+    vk::Pipeline retrieve_pipeline(VKContext &context, SceGxmPrimitiveType &type, bool consider_for_async, MemState &mem, bool vertex_store_pass = false);
 
     vk::ShaderModule precompile_shader(const Sha256Hash &hash, bool search_first = true);
 

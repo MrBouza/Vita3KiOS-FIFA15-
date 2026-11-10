@@ -321,6 +321,10 @@ struct VKContext : public renderer::Context {
     bool in_maskupdate_pass = false;
     bool refresh_pipeline = false;
     bool is_first_scene_draw = false;
+    // write pass of the current vertex program when its memory writes are split off, and how many such
+    // passes ran in this render pass (their writes must be visible to later passes)
+    vk::Pipeline vertex_store_pipeline;
+    uint32_t vertex_store_draws = 0;
     vk::ImageAspectFlags initial_depth_stencil_clear;
     uint16_t initialized_macroblocks = 0;
     // command buffer used to record the current scene

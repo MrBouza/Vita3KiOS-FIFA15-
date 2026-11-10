@@ -746,6 +746,7 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
             .wideLines = physical_device_features.wideLines,
             .samplerAnisotropy = physical_device_features.samplerAnisotropy,
             .occlusionQueryPrecise = physical_device_features.occlusionQueryPrecise,
+            .vertexPipelineStoresAndAtomics = physical_device_features.vertexPipelineStoresAndAtomics,
             .fragmentStoresAndAtomics = physical_device_features.fragmentStoresAndAtomics,
             .shaderStorageImageExtendedFormats = physical_device_features.shaderStorageImageExtendedFormats,
             .shaderInt16 = physical_device_features.shaderInt16,
@@ -901,6 +902,10 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
             support_shader_interlock = static_cast<bool>(props.get<vk::PhysicalDeviceFragmentShaderInterlockFeaturesEXT>().fragmentShaderSampleInterlock);
             features.support_shader_interlock = support_shader_interlock;
         }
+#ifdef __APPLE__
+        // Metal compiles a vertex function that writes memory only if nothing is rasterized from it
+        features.split_vertex_stores = true;
+#endif
 
         vk::StructureChain<vk::DeviceCreateInfo,
             vk::PhysicalDeviceBufferDeviceAddressFeatures,

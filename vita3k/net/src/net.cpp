@@ -28,7 +28,7 @@ void NetState::abort_all() {
 
 void NetState::deinit() {
     for (auto &[id, sock] : socks) {
-        sock->close();
+        sock->close_now();
     }
     socks.clear();
     epolls.clear();

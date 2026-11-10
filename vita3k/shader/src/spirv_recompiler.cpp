@@ -2072,6 +2072,8 @@ static SpirvCode convert_gxp_to_spirv_impl(const SceGxmProgram &program, const s
 
             end_hook_func = make_frag_finalize_function(b, parameters, program, utils, features, translation_state);
         } else {
+            utils.drop_buffer_stores = translation_state.is_vulkan && splits_vertex_stores(program, features)
+                && !(translation_state.hints && translation_state.hints->vertex_store_pass);
             end_hook_func = make_vert_finalize_function(b, parameters, program, utils, features, translation_state);
         }
 

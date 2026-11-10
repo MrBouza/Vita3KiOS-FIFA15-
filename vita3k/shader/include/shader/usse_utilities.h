@@ -38,6 +38,9 @@ struct SpirvUtilFunctions {
     // this is technically not a function but is the best place to put it
     // buffer_address_vec[0] is for a packed float[] array
     spv::Id buffer_address_vec[5][2] = {};
+
+    // the rasterized variant of a vertex program whose memory writes are split off: writes are left out
+    bool drop_buffer_stores = false;
 };
 
 spv::Id finalize(spv::Builder &b, spv::Id first, spv::Id second, const Swizzle4 swizz, spv::Id offset, const Imm4 dest_mask);

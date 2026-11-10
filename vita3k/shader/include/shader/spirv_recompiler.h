@@ -60,7 +60,15 @@ struct Hints {
     // - when sampling, we need to know the component count of a texture
     SceGxmTextureFormat vertex_textures[SCE_GXM_MAX_TEXTURE_UNITS];
     SceGxmTextureFormat fragment_textures[SCE_GXM_MAX_TEXTURE_UNITS];
+
+    // the write pass of a vertex program whose memory writes are split off (features.split_vertex_stores)
+    bool vertex_store_pass = false;
 };
+
+// A vertex program that writes memory, translated as two variants (see FeatureState::split_vertex_stores)
+inline bool splits_vertex_stores(const SceGxmProgram &program, const FeatureState &features) {
+    return features.split_vertex_stores && features.enable_memory_mapping && program.is_vertex() && (program.program_flags & SCE_GXM_PROGRAM_FLAG_BUFFER_STORE);
+}
 
 struct GeneratedShader {
     std::string glsl;

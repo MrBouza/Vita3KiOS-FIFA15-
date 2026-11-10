@@ -19,6 +19,7 @@
 
 #include <gxm/functions.h>
 #include <renderer/vulkan/gxm_to_vulkan.h>
+#include <shader/spirv_recompiler.h>
 
 #include <config/state.h>
 #include <spdlog/fmt/bin_to_hex.h>
@@ -581,6 +582,10 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         // to be able to see anything
         bool can_be_whole_quad = instance_count == 1 && count <= 6;
         vk::Pipeline new_pipeline = context.state.pipeline_cache.retrieve_pipeline(context, type, !can_be_whole_quad, mem);
+        // a vertex program that writes memory: its writes run in a second, unrasterized pass
+        context.vertex_store_pipeline = !maskupdate && shader::splits_vertex_stores(*context.record.vertex_program.get(mem)->program.get(mem), context.state.features)
+            ? context.state.pipeline_cache.retrieve_pipeline(context, type, false, mem, true)
+            : vk::Pipeline{};
 
         if (new_pipeline != context.current_pipeline) {
             context.current_pipeline = new_pipeline;
@@ -716,6 +721,13 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         }
     } else {
         context.render_cmd.drawIndexed(count, instance_count, 0, 0, 0);
+    }
+    if (context.vertex_store_pipeline && count && instance_count) {
+        // the same vertices again, this time with the vertex program's memory writes and nothing drawn
+        context.render_cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, context.vertex_store_pipeline);
+        context.render_cmd.drawIndexed(count, instance_count, 0, 0, 0);
+        context.render_cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, context.current_pipeline);
+        context.vertex_store_draws++;
     }
     if (maskupdate && count && instance_count && context.record.writing_mask < 0.5f)
         context.render_target->mask_may_reject = true;

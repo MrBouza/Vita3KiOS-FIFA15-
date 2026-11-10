@@ -34,6 +34,7 @@
 
 #include <chrono>
 #include <string>
+#include <thread>
 
 #if defined(VITA3K_PLATFORM_IOS)
 #include <pthread.h>
@@ -194,12 +195,24 @@ ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<c
     // iOS 26+: every guest thread needs one of the JIT regions prepared at launch. A game that keeps
     // more threads alive than there are regions (Disgaea 3) used to bring the app down with an
     // uncaught bad_alloc: fail this one thread creation instead, as a Vita out of memory would.
-    try {
-        cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
-    } catch (const std::exception &e) {
-        LOG_ERROR("Thread \"{}\" could not be created: no JIT memory left ({}). Too many threads are running at once.", name ? name : "", e.what());
-        corenum_allocator.free_corenum(core_num);
-        return nullptr;
+    // Games with worker pools (Dynasty Warriors 8: dozens of short-lived collision workers) end
+    // threads as fast as they start them, so when every region is taken one usually comes back within
+    // a few milliseconds: wait for it (up to half a second) before giving up on the thread.
+    for (int attempt = 0;; attempt++) {
+        try {
+            cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);
+            if (attempt > 0)
+                LOG_INFO("Thread \"{}\" got a JIT region after waiting {} ms", name ? name : "", attempt * 10);
+            break;
+        } catch (const std::exception &e) {
+            if (attempt < 50) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            LOG_ERROR("Thread \"{}\" could not be created: no JIT memory left ({}). Too many threads are running at once.", name ? name : "", e.what());
+            corenum_allocator.free_corenum(core_num);
+            return nullptr;
+        }
     }
 #else
     cpu = init_cpu(cpu_opt, id, static_cast<std::size_t>(core_num), mem);

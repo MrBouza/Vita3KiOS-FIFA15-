@@ -658,6 +658,8 @@ static spv::Id make_or_get_buffer_ptr(spv::Builder &b, shader::usse::utils::Spir
 }
 
 void buffer_address_access(spv::Builder &b, const SpirvShaderParameters &params, SpirvUtilFunctions &utils, const FeatureState &features, Operand dest, int dest_offset, spv::Id addr, uint32_t component_size, uint32_t nb_components, int buffer_idx, bool is_buffer_store) {
+    if (is_buffer_store && utils.drop_buffer_stores)
+        return;
     const spv::Id i32 = b.makeIntType(32);
     const spv::Id zero = b.makeIntConstant(0);
 

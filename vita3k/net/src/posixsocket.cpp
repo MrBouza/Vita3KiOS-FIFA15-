@@ -236,6 +236,16 @@ int PosixSocket::close() {
     return translate_return_value(out);
 }
 
+int PosixSocket::close_now() {
+#ifndef _WIN32
+    // A game's SO_LINGER makes close() block until unsent data goes out or the linger time ends
+    // (seconds of a frozen Quit); at shutdown nothing needs to go out
+    const linger no_linger{ .l_onoff = 1, .l_linger = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_LINGER, &no_linger, sizeof(no_linger));
+#endif
+    return close();
+}
+
 int PosixSocket::shutdown_socket(int how) {
     return translate_return_value(shutdown(sock, how));
 }

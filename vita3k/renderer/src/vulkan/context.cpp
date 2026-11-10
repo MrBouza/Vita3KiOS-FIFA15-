@@ -490,6 +490,18 @@ void VKContext::stop_render_pass() {
 
     in_renderpass = false;
     in_maskupdate_pass = false;
+
+    if (vertex_store_draws > 0) {
+        // memory written by vertex programs in this pass is read by later passes (as vertices, indices,
+        // uniforms or textures)
+        const vk::MemoryBarrier barrier{
+            .srcAccessMask = vk::AccessFlagBits::eShaderWrite,
+            .dstAccessMask = vk::AccessFlagBits::eVertexAttributeRead | vk::AccessFlagBits::eIndexRead | vk::AccessFlagBits::eUniformRead | vk::AccessFlagBits::eShaderRead
+        };
+        render_cmd.pipelineBarrier(vk::PipelineStageFlagBits::eVertexShader,
+            vk::PipelineStageFlagBits::eVertexInput | vk::PipelineStageFlagBits::eVertexShader | vk::PipelineStageFlagBits::eFragmentShader, {}, barrier, {}, {});
+        vertex_store_draws = 0;
+    }
 }
 
 void VKContext::begin_visibility_query() {

@@ -18,6 +18,10 @@
 #pragma once
 
 struct FeatureState {
+    /// Vertex programs that write memory run twice: once rasterized with the writes left out, once with
+    /// the writes and rasterization off (Metal only lets a vertex function write memory when nothing is
+    /// rasterized from it: J-STARS Victory VS+ pipelines failed to build)
+    bool split_vertex_stores = false;
     bool support_shader_interlock = false; ///< First option for blending. Using this with ordered execution mode.
     bool support_texture_barrier = false; ///< Second option for blending. Slower but work on 3 vendors.
     bool direct_fragcolor = false;

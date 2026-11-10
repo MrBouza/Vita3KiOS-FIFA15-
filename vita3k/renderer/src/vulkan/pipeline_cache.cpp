@@ -581,9 +581,15 @@ static bool manifest_lists(VKState &state, std::mutex &shaders_mutex, const Sha2
     });
 }
 
-vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmProgram *program, const Sha256Hash &hash, bool is_vertex, bool maskupdate, MemState &mem, const shader::Hints &hints, bool is_srgb) {
+vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmProgram *program, const Sha256Hash &program_hash, bool is_vertex, bool maskupdate, MemState &mem, const shader::Hints &hints, bool is_srgb) {
     const vk::ShaderModule shader_compiling = std::bit_cast<vk::ShaderModule>(~0ULL);
     const bool masked_fetch = !is_vertex && hints.masked_framebuffer_fetch;
+    // A vertex program that writes memory comes in two variants (without the writes, with only them);
+    // each has its own key and cache file, and neither goes in the precompile list
+    const bool split_stores = is_vertex && shader::splits_vertex_stores(*program, state.features);
+    Sha256Hash hash = program_hash;
+    if (split_stores)
+        hash[7] ^= hints.vertex_store_pass ? 0x5E : 0x4E;
 
     const vk::SpecializationInfo *spec_info = nullptr;
     if (!is_vertex && !masked_fetch && state.features.should_use_shader_interlock() && program->is_frag_color_used()) {
@@ -612,9 +618,9 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
             *shader_module = shader_compiling;
     }
 
-    const bool listed = manifest_lists(state, shaders_mutex, hash);
+    const bool listed = manifest_lists(state, shaders_mutex, program_hash);
 
-    if (*shader_module == shader_compiling && !masked_fetch && listed) {
+    if (*shader_module == shader_compiling && !masked_fetch && !split_stores && listed) {
         precompile_shader(hash, false);
     }
 
@@ -636,7 +642,9 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
     auto features = state.features;
     if (masked_fetch)
         features.direct_fragcolor = true;
-    const std::string version = masked_fetch ? shader_version + "-masked-fetch1" : shader_version;
+    std::string version = masked_fetch ? shader_version + "-masked-fetch1" : shader_version;
+    if (split_stores)
+        version += hints.vertex_store_pass ? "-vstore" : "-vnostore";
     shader::usse::SpirvCode source = load_spirv_shader(*program, features, true, hints, maskupdate, state.shaders_path, state.shaders_log_path, version, listed);
 
     vk::ShaderModuleCreateInfo shader_info{
@@ -645,7 +653,7 @@ vk::PipelineShaderStageCreateInfo PipelineCache::retrieve_shader(const SceGxmPro
     };
 
     *shader_module = state.device.createShaderModule(shader_info);
-    if (!masked_fetch) {
+    if (!masked_fetch && !split_stores) {
         std::lock_guard<std::mutex> guard(shaders_mutex);
         // Save shader cache hashes
         // vertex and fragment shaders are not linked together so no need to associate them
@@ -1136,10 +1144,12 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
     const vk::PipelineVertexInputStateCreateInfo vertex_input = get_vertex_input_state(vertex_program_gxm, mem);
 
     const bool maskupdate = fragment_program_gxm.is_maskupdate;
-    const bool is_fragment_disabled = !maskupdate && (record.front_side_fragment_program_mode == SCE_GXM_FRAGMENT_PROGRAM_DISABLED || gxm_fragment_shader->has_no_effect());
+    // the write pass of a split vertex program: vertex stage only, nothing rasterized
+    const bool store_pass = hints.vertex_store_pass && shader::splits_vertex_stores(*vertex_program_gxm.program.get(mem), state.features);
+    const bool is_fragment_disabled = store_pass || (!maskupdate && (record.front_side_fragment_program_mode == SCE_GXM_FRAGMENT_PROGRAM_DISABLED || gxm_fragment_shader->has_no_effect()));
     const vk::PipelineShaderStageCreateInfo vertex_shader = retrieve_shader(vertex_program_gxm.program.get(mem), vertex_program.hash, true, false, mem, hints);
     vk::PipelineShaderStageCreateInfo fragment_shader;
-    if (is_fragment_disabled && state.features.use_mask_bit) {
+    if (is_fragment_disabled && state.features.use_mask_bit && !store_pass) {
         const std::lock_guard<std::mutex> lock(shaders_mutex);
         if (!mask_test_shader) {
             const auto code = shader::create_mask_test_shader();
@@ -1159,7 +1169,7 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
     }
     const vk::PipelineShaderStageCreateInfo shader_stages[] = { vertex_shader, fragment_shader };
     // Depth-only draws still need the mask test before depth/stencil updates.
-    const uint32_t shader_stage_count = is_fragment_disabled && !state.features.use_mask_bit ? 1U : 2U;
+    const uint32_t shader_stage_count = is_fragment_disabled && (!state.features.use_mask_bit || store_pass) ? 1U : 2U;
 
     const vk::PipelineInputAssemblyStateCreateInfo input_assembly{
         .topology = translate_primitive(type)
@@ -1170,6 +1180,7 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
     const bool use_shader_interlock = !maskupdate && !is_fragment_disabled && !hints.masked_framebuffer_fetch && state.features.support_shader_interlock && gxm_fragment_shader->is_frag_color_used();
 
     const vk::PipelineRasterizationStateCreateInfo rasterizer{
+        .rasterizerDiscardEnable = store_pass ? VK_TRUE : VK_FALSE,
         .polygonMode = translate_polygon_mode(record.front_polygon_mode),
         .cullMode = translate_cull_mode(record.cull_mode),
         // front face is always counter clockwise
@@ -1272,10 +1283,12 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
     }
 }
 
-vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiveType &type, bool consider_for_async, MemState &mem) {
+vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiveType &type, bool consider_for_async, MemState &mem, bool vertex_store_pass) {
     const GxmRecordState &record = context.record;
     // get the hash of the current context
     uint64_t key = XXH3_64bits(&record, record_pipeline_len);
+    if (vertex_store_pass)
+        key ^= 0x9E3779B97F4A7C15ULL;
     if (context.shader_hints.masked_framebuffer_fetch)
         key ^= 0x7e46a312b5c098dfULL;
 
@@ -1321,6 +1334,7 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
     // update the shader hints
     context.shader_hints.color_format = record.color_surface.colorFormat;
     context.shader_hints.attributes = &vertex_program_gxm.attributes;
+    context.shader_hints.vertex_store_pass = vertex_store_pass;
 
     // note: the flag can_use_deferred_compilation is not considered here because it causes way too many false positives
     const bool compile_pipeline_async = !maskupdate && !context.shader_hints.masked_framebuffer_fetch && !already_in_cache && consider_for_async && use_async_compilation;

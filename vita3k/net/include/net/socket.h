@@ -56,6 +56,8 @@ struct Socket {
 
     virtual int abort(int flags) = 0;
     virtual int close() = 0;
+    // Closes without waiting for unsent data (the game is ending)
+    virtual int close_now() { return close(); }
     virtual int shutdown_socket(int how) = 0;
     virtual int bind(const SceNetSockaddr *addr, unsigned int addrlen) = 0;
     virtual int send_packet(const void *msg, unsigned int len, int flags, const SceNetSockaddr *to, unsigned int tolen) = 0;
@@ -97,6 +99,7 @@ struct PosixSocket : public Socket {
 
     int abort(int flags) override;
     int close() override;
+    int close_now() override;
     int shutdown_socket(int how) override;
     int bind(const SceNetSockaddr *addr, unsigned int addrlen) override;
     int send_packet(const void *msg, unsigned int len, int flags, const SceNetSockaddr *to, unsigned int tolen) override;
