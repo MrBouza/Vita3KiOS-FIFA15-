@@ -176,22 +176,23 @@ enum VitaHomeLayout {
     static let perPage = 10
     /// Bubbles per row, top to bottom
     static let rows = [3, 4, 3]
-    /// Row centres (Vita pixels, from the top of the screen) and the distance between bubbles in a row
-    static let rowY: [CGFloat] = [126, 284, 442]
-    static let pitch: CGFloat = 176
-    static let bubble: CGFloat = 108
+    /// Row centres and the distance between bubbles in each row, measured from a real Vita (960x544 pixels)
+    static let rowY: [CGFloat] = [128, 282, 434]
+    static let pitches: [CGFloat] = [229, 223, 229]
+    static let centerX: CGFloat = 482
+    static let bubble: CGFloat = 140
 
     /// Centre of slot `index` (0 ... 9) on a page, in Vita pixels
     static func slot(_ index: Int) -> CGPoint {
         var remaining = index
         for (row, count) in rows.enumerated() {
             if remaining < count {
-                let x = 492 + (CGFloat(remaining) - CGFloat(count - 1) / 2) * pitch
+                let x = centerX + (CGFloat(remaining) - CGFloat(count - 1) / 2) * pitches[row]
                 return CGPoint(x: x, y: rowY[row])
             }
             remaining -= count
         }
-        return CGPoint(x: 492, y: 284)
+        return CGPoint(x: centerX, y: 282)
     }
 }
 
@@ -256,6 +257,10 @@ struct VitaHomeView: View {
         return [.search, .contentManager, .settings, .themes, .music, .classicLibrary] + games
     }
 
+    private var recentApps: [GameApp] {
+        Array(apps.filter { $0.lastPlayed > 0 }.sorted { $0.lastPlayed > $1.lastPlayed }.prefix(4))
+    }
+
     private var pages: [[VitaHomeItem]] {
         let all = items
         return stride(from: 0, to: all.count, by: VitaHomeLayout.perPage).map {
@@ -267,7 +272,7 @@ struct VitaHomeView: View {
         GeometryReader { proxy in
             let space = VitaSpace(size: proxy.size)
             ZStack {
-                VitaWallpaper(theme: theme, page: page).id(themeId)
+                VitaWallpaper(theme: theme, page: page, animated: openApp == nil && panel == nil && !searching && !locked).id(themeId)
 
                 homePages(space: space)
                     .offset(x: openApp == nil ? 0 : -proxy.size.width * 0.3)
@@ -278,6 +283,10 @@ struct VitaHomeView: View {
                 VitaPageDots(count: pages.count, current: page, space: space)
                     .opacity(openApp == nil ? 1 : 0)
 
+                VitaPageArrows(page: $page, count: pages.count, space: space)
+                    .opacity(openApp == nil ? 1 : 0)
+                    .allowsHitTesting(openApp == nil && panel == nil && !searching && !locked)
+
                 if let app = openApp {
                     Peelable(fold: space.len(44), onPeeled: { openApp = nil }) {
                         VitaLiveArea(app: app, space: space, theme: theme,
@@ -287,7 +296,8 @@ struct VitaHomeView: View {
                     .zIndex(2)
                 }
 
-                VitaInfoBar(space: space, theme: theme, notices: notices.count, openNotices: { openPanel(.notifications) })
+                VitaInfoBar(space: space, theme: theme, notices: notices.count,
+                            openNotices: openApp == nil && panel == nil ? { openPanel(.notifications) } : nil, recent: recentApps)
                     .frame(maxHeight: .infinity, alignment: .top).zIndex(3)
 
                 if let kind = panel {
@@ -330,9 +340,9 @@ struct VitaHomeView: View {
     }
 
     private func homePages(space: VitaSpace) -> some View {
-        // The Vita's home pages scroll up and down, one page at a time
-        ScrollView(.vertical) {
-            LazyVStack(spacing: 0) {
+        // The home pages scroll sideways, one page at a time
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
                 ForEach(Array(pages.enumerated()), id: \.offset) { index, items in
                     VitaHomePage(items: items, space: space, tap: tap, menu: menu)
                         .frame(width: space.size.width, height: space.size.height)
@@ -344,6 +354,7 @@ struct VitaHomeView: View {
         .scrollTargetBehavior(.paging)
         .scrollIndicators(.hidden)
         .scrollPosition(id: Binding<Int?>(get: { page }, set: { page = $0 ?? 0 }))
+        .animation(.easeOut(duration: 0.25), value: page)
     }
 
     private func tap(_ item: VitaHomeItem) {
@@ -403,12 +414,17 @@ struct VitaHomeView: View {
 struct VitaWallpaper: View {
     let theme: VitaTheme
     let page: Int
+    /// False while something covers the home screen: the drawn backgrounds stop animating
+    var animated = true
 
     var body: some View {
         ZStack {
-            if theme.id == VitaTheme.defaultId || theme.wallpapers.isEmpty {
-                // The default theme: the Vita's blue with the PlayStation shapes
-                VitaDefaultBackground()
+            if let id = theme.style {
+                if id == "shapes" {
+                    VitaDefaultBackground()
+                } else if let style = VitaBackgroundStyle.all.first(where: { $0.id == id }) {
+                    VitaStyledBackground(style: style, animated: animated)
+                }
             } else if let image = VitaFirmware.image(atPath: theme.wallpapers[min(page, theme.wallpapers.count - 1)]) {
                 Image(uiImage: image).resizable().scaledToFill()
                     .id(page)
@@ -416,6 +432,137 @@ struct VitaWallpaper: View {
             }
         }
         .animation(.easeInOut(duration: 0.4), value: page)
+        .ignoresSafeArea()
+    }
+}
+
+/// A drawn Frutiger Aero background: a glossy gradient, light, waves or hills, rising bubbles
+struct VitaBackgroundStyle: Identifiable {
+    let id: String
+    let name: String
+    let sky: [Color]
+    var wave: Color = .white
+    var rays = false
+    var hills: Color? = nil
+    var bubbles = 12
+    var shapes = false
+
+    private static func rgb(_ r: Double, _ g: Double, _ b: Double) -> Color { Color(red: r, green: g, blue: b) }
+
+    static let all: [VitaBackgroundStyle] = [
+        VitaBackgroundStyle(id: "vita", name: "Vita Blue", sky: [rgb(0.14, 0.40, 0.88), rgb(0.06, 0.22, 0.66), rgb(0.02, 0.10, 0.40)], bubbles: 10, shapes: true),
+        VitaBackgroundStyle(id: "meadow", name: "Aero Meadow", sky: [rgb(0.30, 0.68, 0.98), rgb(0.56, 0.84, 1.0), rgb(0.86, 0.96, 1.0)],
+                            rays: true, hills: rgb(0.28, 0.74, 0.24), bubbles: 14),
+        VitaBackgroundStyle(id: "reef", name: "Aqua Reef", sky: [rgb(0.0, 0.62, 0.80), rgb(0.0, 0.40, 0.66), rgb(0.0, 0.16, 0.40)],
+                            wave: rgb(0.7, 1.0, 1.0), rays: true, bubbles: 24),
+        VitaBackgroundStyle(id: "sunset", name: "Sunset Glass", sky: [rgb(1.0, 0.66, 0.26), rgb(0.90, 0.30, 0.46), rgb(0.34, 0.14, 0.56)], bubbles: 14),
+        VitaBackgroundStyle(id: "lagoon", name: "Emerald Lagoon", sky: [rgb(0.22, 0.88, 0.66), rgb(0.04, 0.60, 0.56), rgb(0.02, 0.28, 0.40)],
+                            rays: true, bubbles: 16),
+        VitaBackgroundStyle(id: "violet", name: "Violet Dream", sky: [rgb(0.78, 0.58, 1.0), rgb(0.50, 0.30, 0.92), rgb(0.18, 0.08, 0.54)], bubbles: 18),
+        VitaBackgroundStyle(id: "shapes", name: "PlayStation Shapes", sky: [rgb(0.36, 0.62, 0.86), rgb(0.10, 0.30, 0.62), rgb(0.03, 0.10, 0.30)]),
+    ]
+}
+
+struct VitaStyledBackground: View {
+    let style: VitaBackgroundStyle
+    var animated = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private func noise(_ i: Int, _ k: Double) -> CGFloat {
+        let x = sin(Double(i) * 12.9898 + k * 78.233) * 43758.5453
+        return CGFloat(x - floor(x))
+    }
+
+    var body: some View {
+        let paused = !animated || reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
+        TimelineView(.animation(minimumInterval: 1 / 24, paused: paused)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let w = size.width, h = size.height
+                context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
+                    Gradient(colors: style.sky), startPoint: CGPoint(x: w * 0.3, y: 0), endPoint: CGPoint(x: w * 0.7, y: h)))
+                // Soft light from the top left
+                context.fill(Path(ellipseIn: CGRect(x: -w * 0.25, y: -h * 0.9, width: w * 1.1, height: h * 1.6)),
+                             with: .radialGradient(Gradient(colors: [.white.opacity(0.38), .clear]),
+                                                   center: CGPoint(x: w * 0.2, y: 0), startRadius: 0, endRadius: w * 0.6))
+                if style.rays {
+                    for i in 0..<7 {
+                        let a = 0.2 + Double(i) * 0.16 + sin(t * 0.12 + Double(i)) * 0.03
+                        let origin = CGPoint(x: w * 0.12, y: -h * 0.1)
+                        var ray = Path()
+                        ray.move(to: origin)
+                        ray.addLine(to: CGPoint(x: origin.x + CGFloat(cos(a)) * h * 2.4, y: origin.y + CGFloat(sin(a)) * h * 2.4))
+                        ray.addLine(to: CGPoint(x: origin.x + CGFloat(cos(a + 0.07)) * h * 2.4, y: origin.y + CGFloat(sin(a + 0.07)) * h * 2.4))
+                        ray.closeSubpath()
+                        context.fill(ray, with: .color(.white.opacity(0.07)))
+                    }
+                }
+                if style.shapes {
+                    for i in 0..<12 {
+                        let side = (0.06 + noise(i, 1) * 0.1) * h
+                        let cx = (noise(i, 2) + CGFloat(sin(t * 0.15 + Double(i))) * 0.02) * w
+                        var cy = (noise(i, 3) - CGFloat(t * (0.006 + Double(noise(i, 4)) * 0.01)).truncatingRemainder(dividingBy: 1.3))
+                        if cy < -0.15 { cy += 1.3 }
+                        var local = context
+                        local.translateBy(x: cx, y: cy * h)
+                        local.rotate(by: .radians(t * 0.1 * Double(noise(i, 5) - 0.5) + Double(i)))
+                        local.opacity = 0.14
+                        var p = Path()
+                        let r = side / 2
+                        switch i % 4 {
+                        case 0: p.move(to: CGPoint(x: 0, y: -r)); p.addLine(to: CGPoint(x: r, y: r * 0.7)); p.addLine(to: CGPoint(x: -r, y: r * 0.7)); p.closeSubpath()
+                        case 1: p.addEllipse(in: CGRect(x: -r, y: -r, width: side, height: side))
+                        case 2: p.move(to: CGPoint(x: -r, y: -r)); p.addLine(to: CGPoint(x: r, y: r)); p.move(to: CGPoint(x: r, y: -r)); p.addLine(to: CGPoint(x: -r, y: r))
+                        default: p.addRect(CGRect(x: -r, y: -r, width: side, height: side))
+                        }
+                        local.stroke(p, with: .color(.white), lineWidth: max(side * 0.07, 2))
+                    }
+                }
+                if let hills = style.hills {
+                    for layer in 0..<2 {
+                        var hill = Path()
+                        let base = h * (0.80 + CGFloat(layer) * 0.07)
+                        hill.move(to: CGPoint(x: 0, y: h))
+                        var x: CGFloat = 0
+                        while x <= w + 12 {
+                            hill.addLine(to: CGPoint(x: x, y: base + CGFloat(sin(Double(x / w) * 4.2 + Double(layer) * 2)) * h * 0.05))
+                            x += 12
+                        }
+                        hill.addLine(to: CGPoint(x: w, y: h)); hill.closeSubpath()
+                        context.fill(hill, with: .linearGradient(Gradient(colors: [hills.opacity(0.95 - Double(layer) * 0.2), hills.opacity(0.55)]),
+                                                                 startPoint: CGPoint(x: 0, y: base), endPoint: CGPoint(x: 0, y: h)))
+                    }
+                }
+                // The white waves along the bottom
+                for layer in 0..<3 {
+                    var wave = Path()
+                    let base = h * (0.80 + CGFloat(layer) * 0.07)
+                    wave.move(to: CGPoint(x: 0, y: h))
+                    var x: CGFloat = 0
+                    while x <= w + 12 {
+                        let phase = Double(x / w) * .pi * (1.6 + Double(layer) * 0.5) + t * (0.25 + Double(layer) * 0.12) + Double(layer) * 1.7
+                        wave.addLine(to: CGPoint(x: x, y: base + CGFloat(sin(phase)) * h * (0.035 - CGFloat(layer) * 0.006)))
+                        x += 12
+                    }
+                    wave.addLine(to: CGPoint(x: w, y: h)); wave.closeSubpath()
+                    context.fill(wave, with: .color(style.wave.opacity([0.30, 0.20, 0.13][layer])))
+                }
+                // Glass bubbles drifting up
+                for i in 0..<style.bubbles {
+                    let radius = (0.012 + noise(i, 6) * noise(i, 6) * 0.07) * h * 2
+                    let speed = 0.012 + Double(noise(i, 7)) * 0.02
+                    let rise = CGFloat((t * speed + Double(noise(i, 8))).truncatingRemainder(dividingBy: 1))
+                    let cx = noise(i, 9) * w + CGFloat(sin(t * 0.4 + Double(i))) * radius * 0.4
+                    let cy = h + radius - rise * (h + radius * 2)
+                    let rect = CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2)
+                    context.fill(Path(ellipseIn: rect), with: .radialGradient(Gradient(colors: [.white.opacity(0.02), .white.opacity(0.22)]),
+                                                                              center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: radius))
+                    context.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.5)), lineWidth: 1)
+                    context.fill(Path(ellipseIn: CGRect(x: cx - radius * 0.55, y: cy - radius * 0.75, width: radius * 0.8, height: radius * 0.4)),
+                                 with: .color(.white.opacity(0.5)))
+                }
+            }
+        }
         .ignoresSafeArea()
     }
 }
@@ -569,7 +716,8 @@ struct VitaBubbleView: View {
 
     var body: some View {
         let d = space.len(VitaHomeLayout.bubble)
-        VStack(spacing: space.len(6)) {
+        // The name overlaps the lower edge of the bubble, as on the Vita
+        VStack(spacing: -space.len(20)) {
             ZStack {
                 switch item {
                 case .game(let app):
@@ -591,19 +739,22 @@ struct VitaBubbleView: View {
                 case .classicLibrary:
                     systemIcon("square.grid.2x2.fill", [Color(red: 0.55, green: 0.6, blue: 0.95), Color(red: 0.25, green: 0.3, blue: 0.7)])
                 }
+                VitaGloss(d: d)
             }
             .frame(width: d, height: d)
             .clipShape(Circle())
-            .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: max(space.len(2.5), 1.5)))
-            .shadow(color: .black.opacity(0.4), radius: space.len(6), y: space.len(4))
+            .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.95), .white.opacity(0.3)], startPoint: .top, endPoint: .bottom),
+                                           lineWidth: max(space.len(3), 1.5)))
+            .shadow(color: .black.opacity(0.35), radius: space.len(8), y: space.len(5))
 
             Text(item.title)
-                .font(VitaFont.font(space.len(17)))
+                .font(VitaFont.font(space.len(19)))
                 .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.75), radius: 2, y: 1)
+                .shadow(color: .black.opacity(0.85), radius: 2.5, y: 1)
+                .shadow(color: .black.opacity(0.5), radius: 6)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(width: space.len(VitaHomeLayout.pitch - 14), height: space.len(40), alignment: .top)
+                .frame(width: space.len(190), height: space.len(46), alignment: .top)
         }
         .contentShape(Rectangle())
     }
@@ -616,6 +767,54 @@ struct VitaBubbleView: View {
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
         }
+    }
+}
+
+/// The glass of a bubble: a bright cap on top, a soft glow below and a darker rim
+struct VitaGloss: View {
+    let d: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().fill(RadialGradient(colors: [.clear, .clear, .black.opacity(0.2)], center: .center, startRadius: 0, endRadius: d / 2))
+            Circle().fill(RadialGradient(colors: [.white.opacity(0.42), .clear], center: UnitPoint(x: 0.5, y: 1.05), startRadius: 0, endRadius: d * 0.6))
+            Ellipse()
+                .fill(LinearGradient(colors: [.white.opacity(0.78), .white.opacity(0.06)], startPoint: .top, endPoint: .bottom))
+                .frame(width: d * 0.76, height: d * 0.44)
+                .offset(y: -d * 0.29)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// The arrows at the sides of the home screen that turn the page
+private struct VitaPageArrows: View {
+    @Binding var page: Int
+    let count: Int
+    let space: VitaSpace
+
+    var body: some View {
+        HStack {
+            arrow("chevron.left", visible: page > 0) { withAnimation(.easeOut(duration: 0.25)) { page -= 1 } }
+            Spacer(minLength: 0)
+            arrow("chevron.right", visible: page < count - 1) { withAnimation(.easeOut(duration: 0.25)) { page += 1 } }
+        }
+        .padding(.horizontal, space.len(max(space.inset, 0) + 6))
+        .frame(maxHeight: .infinity)
+    }
+
+    private func arrow(_ symbol: String, visible: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: space.len(30), weight: .bold))
+                .foregroundStyle(.white.opacity(0.9))
+                .shadow(color: .black.opacity(0.35), radius: 3)
+                .frame(width: space.len(44), height: space.len(120))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
     }
 }
 
@@ -635,7 +834,7 @@ struct VitaPageDots: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: current)
-        .position(x: space.x(36), y: space.size.height / 2 + space.len(16))
+        .position(x: space.x(62), y: space.size.height / 2 + space.len(16))
         .opacity(count > 1 ? 1 : 0)
         .allowsHitTesting(false)
     }
@@ -647,64 +846,118 @@ struct VitaInfoBar: View {
     let space: VitaSpace
     let theme: VitaTheme
     var notices = 0
+    /// Opens the notices; nil hides the big notification bubble in the corner
     var openNotices: (() -> Void)? = nil
+    /// The games played last, shown as small circles after the home icon
+    var recent: [GameApp] = []
     @ObservedObject private var music = MenuMusic.shared
 
     var body: some View {
-        TimelineView(.everyMinute) { context in
-            HStack(spacing: space.len(14)) {
-                if !music.nowPlaying.isEmpty && (UserDefaults.standard.object(forKey: "v3k.musicEnabled") as? Bool ?? true) {
-                    Label(music.nowPlaying, systemImage: "music.note")
-                        .font(VitaFont.font(space.len(16)))
-                        .lineLimit(1)
-                        .opacity(0.85)
-                        .padding(.leading, space.len(70 + max(space.inset, 0)))
-                }
-                Spacer()
-                Image(systemName: "wifi").font(.system(size: space.len(17), weight: .semibold))
-                battery
-                Text(context.date, format: .dateTime.hour().minute())
-                    .font(VitaFont.font(space.len(20)))
-                    .monospacedDigit()
-                // The notification bubble at the far right: tap it for the notices
-                Button { openNotices?() } label: {
-                    Circle()
-                        .fill(LinearGradient(colors: notices > 0
-                                             ? [Color(red: 1, green: 0.75, blue: 0.3), Color(red: 0.95, green: 0.45, blue: 0.1)]
-                                             : [Color(red: 0.35, green: 0.75, blue: 1), Color(red: 0.05, green: 0.45, blue: 0.85)],
-                                             startPoint: .top, endPoint: .bottom))
-                        .overlay(Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1))
-                        .overlay {
-                            if notices > 0 {
-                                Text("\(notices)").font(VitaFont.font(space.len(14), bold: true)).foregroundStyle(.white)
+        ZStack(alignment: .topTrailing) {
+            TimelineView(.everyMinute) { context in
+                HStack(spacing: space.len(12)) {
+                    Image(systemName: "house.fill").font(.system(size: space.len(17), weight: .semibold))
+                    ForEach(recent) { app in
+                        Group {
+                            if let icon = app.icon {
+                                Image(uiImage: icon).resizable().scaledToFill()
+                            } else {
+                                Color.gray
                             }
                         }
-                        .frame(width: space.len(26), height: space.len(26))
-                }
-                .buttonStyle(.plain)
-                .allowsHitTesting(openNotices != nil)
-                .contextMenu {
-                    // A way out that doesn't depend on any other control
-                    Button { UserDefaults.standard.set(false, forKey: "v3k.vitaHome") } label: {
-                        Label("Back to the normal library", systemImage: "square.grid.2x2")
+                        .frame(width: space.len(22), height: space.len(22))
+                        .clipShape(Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1))
                     }
+                    if !music.nowPlaying.isEmpty && (UserDefaults.standard.object(forKey: "v3k.musicEnabled") as? Bool ?? true) {
+                        Label(music.nowPlaying, systemImage: "music.note")
+                            .font(VitaFont.font(space.len(15)))
+                            .lineLimit(1)
+                            .opacity(0.8)
+                            .padding(.leading, space.len(8))
+                    }
+                    Spacer(minLength: space.len(8))
+                    Image(systemName: "wifi").font(.system(size: space.len(16), weight: .semibold))
+                    clock(context.date)
+                    battery
+                }
+                .foregroundStyle(.white)
+                .padding(.leading, space.len(max(space.inset, 0) + 40))
+                // Clear of the big bubble (and the dog-ear) in the corner and of the phone's rounded corner
+                .padding(.trailing, space.len(max(space.inset, 0) + (openNotices != nil ? 150 : 58)))
+                .frame(height: space.len(32))
+                .frame(maxWidth: .infinity)
+                .background(theme.barColor?.opacity(0.9) ?? Color.black.opacity(0.88))
+            }
+            if let openNotices {
+                bubble(openNotices)
+            }
+        }
+    }
+
+    /// The big glossy notification bubble, half off the top of the screen
+    private func bubble(_ open: @escaping () -> Void) -> some View {
+        let d = space.len(76)
+        return Button(action: open) {
+            ZStack {
+                Circle().fill(LinearGradient(colors: notices > 0
+                                             ? [Color(red: 1, green: 0.78, blue: 0.3), Color(red: 0.95, green: 0.42, blue: 0.08)]
+                                             : [Color(red: 0.4, green: 0.82, blue: 1), Color(red: 0.04, green: 0.42, blue: 0.86)],
+                                             startPoint: .top, endPoint: .bottom))
+                VitaGloss(d: d)
+                if notices > 0 {
+                    Text("\(notices)").font(VitaFont.font(space.len(22), bold: true)).foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.4), radius: 2)
+                        .offset(y: d * 0.2)
+                } else {
+                    Image(systemName: "bell.fill").font(.system(size: space.len(20))).foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.35), radius: 2).offset(y: d * 0.2)
                 }
             }
-            .foregroundStyle(.white)
-            // Clear of the dog-ear in the corner and of the phone's rounded corner
-            .padding(.trailing, space.len(max(space.inset, 0) + 58))
-            .frame(height: space.len(32))
-            .frame(maxWidth: .infinity)
-            .background(theme.barColor?.opacity(0.85) ?? Color.black.opacity(0.5))
+            .frame(width: d, height: d)
+            .clipShape(Circle())
+            .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.95), .white.opacity(0.35)], startPoint: .top, endPoint: .bottom), lineWidth: 2))
+            .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
+        }
+        .buttonStyle(.plain)
+        .offset(x: -space.len(max(space.inset, 0) + 70), y: -space.len(28))
+        .contextMenu {
+            // A way out that doesn't depend on any other control
+            Button { UserDefaults.standard.set(false, forKey: "v3k.vitaHome") } label: {
+                Label("Back to the normal library", systemImage: "square.grid.2x2")
+            }
+        }
+    }
+
+    /// The time with a small AM/PM, as on the Vita
+    private func clock(_ date: Date) -> some View {
+        let twelve = (DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? "").contains("a")
+        let formatter = DateFormatter()
+        formatter.dateFormat = twelve ? "h:mm" : "HH:mm"
+        return HStack(alignment: .firstTextBaseline, spacing: space.len(3)) {
+            Text(formatter.string(from: date)).font(VitaFont.font(space.len(22))).monospacedDigit()
+            if twelve {
+                Text(Calendar.current.component(.hour, from: date) < 12 ? "AM" : "PM").font(VitaFont.font(space.len(11)))
+            }
         }
     }
 
     private var battery: some View {
         UIDevice.current.isBatteryMonitoringEnabled = true
-        let level = UIDevice.current.batteryLevel
+        let raw = UIDevice.current.batteryLevel
+        let level = raw < 0 ? 1 : CGFloat(raw)
         let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
-        let symbol = charging ? "battery.100.bolt" : level < 0 ? "battery.100" : level < 0.15 ? "battery.0" : level < 0.4 ? "battery.25" : level < 0.65 ? "battery.50" : level < 0.9 ? "battery.75" : "battery.100"
-        return Image(systemName: symbol).font(.system(size: space.len(19)))
+        let tint = !charging && level < 0.15 ? Color(red: 0.95, green: 0.25, blue: 0.2) : Color(red: 0.35, green: 0.9, blue: 0.35)
+        return HStack(spacing: space.len(1.5)) {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: space.len(3)).strokeBorder(.white.opacity(0.9), lineWidth: 1.2)
+                RoundedRectangle(cornerRadius: space.len(1.5)).fill(tint)
+                    .frame(width: max(space.len(23) * level, 2), height: space.len(8))
+                    .padding(.leading, space.len(2.5))
+            }
+            .frame(width: space.len(29), height: space.len(14))
+            RoundedRectangle(cornerRadius: 1).fill(.white.opacity(0.9)).frame(width: space.len(2.5), height: space.len(6))
+        }
     }
 }
 
@@ -990,6 +1243,12 @@ struct VitaLiveArea: View {
                 }
             }
 
+            // Games whose LiveArea brings no pictures of its own get a card with the game's art and details
+            if !template.frames.contains(where: { style.frames[$0.id] != nil && (image($0.background) != nil || image($0.image) != nil || $0.text != nil) }) {
+                VitaInfoCard(app: app, space: space)
+                    .position(x: space.x(90 + 250), y: space.y(70 + 185))
+            }
+
             // Manual: magenta button above the gate
             if !manualPages.isEmpty {
                 Button { showingManual = true } label: {
@@ -1072,6 +1331,64 @@ struct VitaLiveArea: View {
             start()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { starting = false }
         }
+    }
+}
+
+/// The game's own picture with its details, for LiveAreas that are empty
+private struct VitaInfoCard: View {
+    let app: GameApp
+    let space: VitaSpace
+
+    private var picture: UIImage? {
+        let base = (app.path as NSString).appendingPathComponent("sce_sys")
+        for name in ["pic0.png", "pic1.png"] {
+            if let image = VitaImageCache.image(atPath: (base as NSString).appendingPathComponent(name)) { return image }
+        }
+        return nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: space.len(10)) {
+            Group {
+                if let picture {
+                    Image(uiImage: picture).resizable().scaledToFill()
+                } else if let icon = app.icon {
+                    ZStack {
+                        Color(white: 0.2)
+                        Image(uiImage: icon).resizable().scaledToFit().frame(width: space.len(150), height: space.len(150))
+                    }
+                } else {
+                    Color(white: 0.2)
+                }
+            }
+            .frame(width: space.len(500), height: space.len(250))
+            .clipShape(RoundedRectangle(cornerRadius: space.len(10), style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: space.len(10), style: .continuous).strokeBorder(.white.opacity(0.8), lineWidth: 2))
+            .shadow(color: .black.opacity(0.4), radius: space.len(8), y: space.len(4))
+
+            Text(app.title)
+                .font(VitaFont.font(space.len(26), bold: true))
+                .lineLimit(2)
+            Text("\(app.titleId)  ·  v\(app.version)")
+                .font(VitaFont.font(space.len(16))).opacity(0.85)
+            HStack(spacing: space.len(14)) {
+                Label(app.playTimeText, systemImage: "clock").font(VitaFont.font(space.len(16)))
+                if app.lastPlayed > 0 {
+                    Label(Date(timeIntervalSince1970: TimeInterval(app.lastPlayed)).formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
+                        .font(VitaFont.font(space.len(16)))
+                }
+            }
+            .opacity(0.9)
+            if let compatibility = app.compatibility {
+                Text(compatibility.label)
+                    .font(VitaFont.font(space.len(15), bold: true))
+                    .padding(.horizontal, space.len(12)).padding(.vertical, space.len(4))
+                    .background(Capsule().fill(compatibility.color))
+            }
+        }
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
+        .frame(width: space.len(500), alignment: .leading)
     }
 }
 
@@ -1381,8 +1698,8 @@ struct VitaPanel: View {
                     } label: {
                         VStack(spacing: space.len(8)) {
                             ZStack {
-                                if theme.id == VitaTheme.defaultId {
-                                    LinearGradient(colors: [Color(red: 0.36, green: 0.62, blue: 0.86), Color(red: 0.03, green: 0.1, blue: 0.3)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                if let id = theme.style, let style = VitaBackgroundStyle.all.first(where: { $0.id == id }) {
+                                    VitaStyledBackground(style: style, animated: false)
                                 } else if let path = theme.wallpapers.first, let image = VitaFirmware.image(atPath: path) {
                                     Image(uiImage: image).resizable().scaledToFill()
                                 } else {

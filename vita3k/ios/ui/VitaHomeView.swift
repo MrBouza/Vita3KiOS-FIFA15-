@@ -65,6 +65,8 @@ struct VitaTheme: Identifiable, Hashable {
     var dateLayout: Int = 0
     /// Information bar colour, nil for the default translucent black
     var barColor: Color? = nil
+    /// Name of a built-in animated background (see VitaBackgroundStyle); nil for themes that bring pictures
+    var style: String? = nil
 
     static let defaultId = "default"
 
@@ -77,14 +79,31 @@ struct VitaTheme: Identifiable, Hashable {
     }
 
     static var builtIn: VitaTheme {
-        VitaTheme(id: defaultId, name: "Default", wallpapers: VitaFirmware.defaultWallpapers,
-                  music: VitaFirmware.exists(VitaFirmware.defaultMusicPath) ? VitaFirmware.defaultMusicPath : nil, fontColor: .white)
+        var theme = VitaTheme(id: defaultId, name: "Vita Blue", wallpapers: [],
+                              music: VitaFirmware.exists(VitaFirmware.defaultMusicPath) ? VitaFirmware.defaultMusicPath : nil, fontColor: .white)
+        theme.style = "vita"
+        return theme
+    }
+
+    /// The built-in Frutiger Aero style backgrounds (drawn, so they work without the firmware) and, when the
+    /// firmware is installed, its own wallpapers
+    static var styled: [VitaTheme] {
+        let music = VitaFirmware.exists(VitaFirmware.defaultMusicPath) ? VitaFirmware.defaultMusicPath : nil
+        var list: [VitaTheme] = VitaBackgroundStyle.all.filter { $0.id != "vita" }.map { style in
+            var theme = VitaTheme(id: "style." + style.id, name: style.name, wallpapers: [], music: music, fontColor: .white)
+            theme.style = style.id
+            return theme
+        }
+        if !VitaFirmware.defaultWallpapers.isEmpty {
+            list.append(VitaTheme(id: "firmware", name: "Firmware wallpapers", wallpapers: VitaFirmware.defaultWallpapers, music: music, fontColor: .white))
+        }
+        return list
     }
 
     static func installed() -> [VitaTheme] {
         let folder = (VitaFirmware.root as NSString).appendingPathComponent("ux0/theme")
         let ids = ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).sorted()
-        return [builtIn] + ids.compactMap { load(id: $0) }
+        return [builtIn] + styled + ids.compactMap { load(id: $0) }
     }
 
     private static var cache: [String: (theme: VitaTheme, time: Date)] = [:]
@@ -94,7 +113,7 @@ struct VitaTheme: Identifiable, Hashable {
     static func current() -> VitaTheme {
         let id = UserDefaults.standard.string(forKey: "v3k.vitaHome.theme") ?? defaultId
         if let cached = cache[id], Date().timeIntervalSince(cached.time) < 5 { return cached.theme }
-        let theme = id == defaultId ? builtIn : (load(id: id) ?? builtIn)
+        let theme = id == defaultId ? builtIn : (styled.first { $0.id == id } ?? load(id: id) ?? builtIn)
         cache[id] = (theme, Date())
         return theme
     }
