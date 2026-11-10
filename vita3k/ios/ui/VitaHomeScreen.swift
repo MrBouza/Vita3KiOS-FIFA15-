@@ -334,6 +334,8 @@ struct VitaHomeView: View {
             // The information bar is its own layer above everything, so nothing that comes and goes
             // underneath (a new wallpaper, a LiveArea, a panel) can ever cover or reorder it
             .overlay(alignment: .top) {
+                // The start screen draws its own bar
+                if !(locked && showStartScreen) {
                 VitaInfoBar(space: space, theme: theme, notices: notices.count,
                             openNotices: openApp == nil && panel == nil ? { openPanel(.notifications) } : nil, recent: recentApps,
                             buttons: locked || searching ? [] : [
@@ -343,6 +345,8 @@ struct VitaHomeView: View {
                                 VitaBarButton(symbol: "music.note", title: "Music") { tap(.music) },
                                 VitaBarButton(symbol: "square.grid.2x2.fill", title: "Library") { tap(.classicLibrary) },
                             ])
+                    .transition(.opacity)
+                }
             }
             .clipped()
         }
@@ -795,7 +799,7 @@ struct VitaBubbleView: View {
                 .shadow(color: .black.opacity(0.85), radius: 2.5, y: 1)
                 .shadow(color: .black.opacity(0.5), radius: 6)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(0.9)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
                 .frame(width: space.len(200), height: space.len(24))
@@ -1051,6 +1055,20 @@ struct VitaStartScreen: View {
         return VitaFirmware.lockScreen
     }
 
+    private static var twelveHour: Bool {
+        (DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? "").contains("a")
+    }
+
+    static func time(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = twelveHour ? "h:mm" : "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    static func period(_ date: Date) -> String? {
+        twelveHour ? (Calendar.current.component(.hour, from: date) < 12 ? "AM" : "PM") : nil
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             Group {
@@ -1079,9 +1097,14 @@ struct VitaStartScreen: View {
                     Text(context.date, format: .dateTime.weekday(.wide).month(.wide).day())
                         .font(VitaFont.font(space.len(30)))
                         .offset(x: rightAligned ? -space.len(max(space.inset, 0) + 50) : space.x(60), y: space.len(dateY))
-                    Text(context.date, format: .dateTime.hour(.defaultDigits(amPM: .abbreviated)).minute())
-                        .font(VitaFont.font(space.len(100)))
-                        .monospacedDigit()
+                    HStack(alignment: .firstTextBaseline, spacing: space.len(6)) {
+                        Text(Self.time(context.date))
+                            .font(VitaFont.font(space.len(100)))
+                            .monospacedDigit()
+                        if let period = Self.period(context.date) {
+                            Text(period).font(VitaFont.font(space.len(34)))
+                        }
+                    }
                         .offset(x: rightAligned ? -space.len(max(space.inset, 0) + 50) : space.x(80), y: space.len(clockY - 12))
                 }
                 .foregroundStyle(theme.dateColor)
@@ -1089,13 +1112,14 @@ struct VitaStartScreen: View {
                 .frame(width: space.size.width, height: space.size.height, alignment: rightAligned ? .topTrailing : .topLeading)
             }
 
-            // A hint for anyone who has never held a Vita
-            Text("Drag the corner, or tap it, to start")
-                .font(VitaFont.font(space.len(15)))
-                .foregroundStyle(theme.dateColor.opacity(0.8))
+            // A hint for anyone who has never held a Vita: in the corner away from the clock
+            Label("Drag the corner, or tap it, to start", systemImage: "arrow.down.left")
+                .font(VitaFont.font(space.len(16)))
+                .foregroundStyle(theme.dateColor.opacity(0.85))
                 .shadow(color: .black.opacity(0.4), radius: 2)
-                .frame(width: space.size.width)
-                .offset(y: space.size.height - space.len(58))
+                .padding(.horizontal, space.len(max(space.inset, 0) + 60))
+                .frame(width: space.size.width, alignment: theme.dateLayout == 2 ? .leading : .trailing)
+                .offset(y: space.len(32 + 32 + 22))
 
             VitaInfoBar(space: space, theme: theme)
         }
@@ -1713,12 +1737,13 @@ struct VitaPanel: View {
                 }
                 .foregroundStyle(.white)
                 .padding(.leading, space.len(40 + max(space.inset, 0)))
-                .padding(.top, space.len(44))
+                .padding(.top, space.len(52))
                 .padding(.bottom, space.len(12))
 
                 Divider().overlay(.white.opacity(0.25))
 
                 content
+                    .padding(.horizontal, space.len(max(space.inset, 0)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
