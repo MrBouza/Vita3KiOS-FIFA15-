@@ -133,7 +133,9 @@ enum JITEnabler {
         const word = send_command(`m${pc.toString(16)},4`) || "";
         const bytes = word.match(/../g);
         const instruction = bytes && bytes.length === 4 ? parseInt(bytes.reverse().join(""), 16) >>> 0 : 0;
-        if ((instruction & 0xffe0001f) !== 0xd4200000 || ((instruction >>> 5) & 0xffff) !== 0xf00d) { resume = passOn; continue; }
+        // (">>> 0": JavaScript's & gives a signed number, which never equals 0xd4200000)
+        const isBrk = ((instruction & 0xffe0001f) >>> 0) === 0xd4200000;
+        if (!isBrk || ((instruction >>> 5) & 0xffff) !== 0xf00d) { resume = passOn; continue; }
         send_command(`P20=${toLittleEndian(pc + 4n)};thread:${thread};`);
         const command = register(reply, "10");
         if (command === 0n) {

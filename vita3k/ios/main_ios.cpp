@@ -260,7 +260,8 @@ int main(int argc, char *argv[]) {
                 if (now - last_memory_log > 10s) {
                     // Average frame rate over the last 10 seconds, so a log shows how a game ran
                     const double seconds = std::chrono::duration<double>(now - last_memory_log).count();
-                    const double fps = static_cast<double>(last_frames - frames_at_memory_log) / seconds;
+                    // frames_set starts again from 0 when a game ends: no frames, not a wrapped-around count
+                    const double fps = last_frames >= frames_at_memory_log ? static_cast<double>(last_frames - frames_at_memory_log) / seconds : 0.0;
                     LOG_INFO("Watchdog: {} MiB of memory left, {:.1f} FPS{}{}{}", os_proc_available_memory() / (1024 * 1024), fps,
                         session_paused() ? " (paused)" : "", thermal::phone_is_hot() ? ", phone hot" : "",
                         thermal::low_power_mode() ? ", Low Power Mode" : "");
