@@ -490,23 +490,52 @@ private struct VitaHomePage<MenuContent: View>: View {
     let space: VitaSpace
     let tap: (VitaHomeItem) -> Void
     @ViewBuilder let menu: (VitaHomeItem) -> MenuContent
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            ZStack {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    let slot = VitaHomeLayout.slot(index)
-                    // The bubbles float gently, each at its own pace
-                    let bob = reduceMotion ? 0 : CGFloat(sin(t * 1.3 + Double(index) * 1.7)) * space.len(3)
+        ZStack {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                let slot = VitaHomeLayout.slot(index)
+                // The button is exactly the bubble (and its name); positioning comes last so only the
+                // bubble itself takes touches
+                Button { tap(item) } label: {
                     VitaBubbleView(item: item, space: space)
-                        .position(x: space.x(slot.x), y: space.y(slot.y) + bob)
-                        .onTapGesture { tap(item) }
-                        .modifier(VitaItemMenu(item: item, menu: menu))
                 }
+                .buttonStyle(VitaBubbleButtonStyle())
+                .modifier(VitaItemMenu(item: item, menu: menu))
+                .modifier(VitaFloat(amount: space.len(3), seed: index))
+                .position(x: space.x(slot.x), y: space.y(slot.y))
             }
         }
+    }
+}
+
+/// Bubbles bob gently, each at its own pace (an animation that runs by itself, not a redraw every frame:
+/// per-frame redraws made taps unreliable)
+private struct VitaFloat: ViewModifier {
+    let amount: CGFloat
+    let seed: Int
+    @State private var up = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: reduceMotion ? 0 : (up ? -amount : amount))
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 2.0 + Double(seed % 5) * 0.35).repeatForever(autoreverses: true).delay(Double(seed % 7) * 0.2)) {
+                    up = true
+                }
+            }
+    }
+}
+
+/// Press feedback of a bubble: it squashes while the finger is on it
+private struct VitaBubbleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .brightness(configuration.isPressed ? -0.08 : 0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.55), value: configuration.isPressed)
     }
 }
 
@@ -527,7 +556,6 @@ private struct VitaItemMenu<MenuContent: View>: ViewModifier {
 struct VitaBubbleView: View {
     let item: VitaHomeItem
     let space: VitaSpace
-    @State private var pressed = false
 
     var body: some View {
         let d = space.len(VitaHomeLayout.bubble)
@@ -558,8 +586,6 @@ struct VitaBubbleView: View {
             .clipShape(Circle())
             .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: max(space.len(2.5), 1.5)))
             .shadow(color: .black.opacity(0.4), radius: space.len(6), y: space.len(4))
-            .scaleEffect(pressed ? 0.9 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.55), value: pressed)
 
             Text(item.title)
                 .font(VitaFont.font(space.len(17)))
@@ -570,9 +596,6 @@ struct VitaBubbleView: View {
                 .frame(width: space.len(VitaHomeLayout.pitch - 14), height: space.len(40), alignment: .top)
         }
         .contentShape(Rectangle())
-        .simultaneousGesture(DragGesture(minimumDistance: 0)
-            .onChanged { _ in if !pressed { pressed = true } }
-            .onEnded { _ in pressed = false })
     }
 
     private func systemIcon(_ symbol: String, _ colors: [Color]) -> some View {
@@ -650,6 +673,12 @@ struct VitaInfoBar: View {
                 }
                 .buttonStyle(.plain)
                 .allowsHitTesting(openNotices != nil)
+                .contextMenu {
+                    // A way out that doesn't depend on any other control
+                    Button { UserDefaults.standard.set(false, forKey: "v3k.vitaHome") } label: {
+                        Label("Back to the normal library", systemImage: "square.grid.2x2")
+                    }
+                }
             }
             .foregroundStyle(.white)
             .padding(.trailing, space.len(16))
@@ -1140,7 +1169,7 @@ struct VitaSearch: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: space.len(22)) {
                         ForEach(results) { app in
-                            VitaBubbleView(item: .game(app), space: space).onTapGesture { open(app) }
+                            Button { open(app) } label: { VitaBubbleView(item: .game(app), space: space) }.buttonStyle(VitaBubbleButtonStyle())
                         }
                     }
                     .padding(.horizontal, space.len(40))
@@ -1197,6 +1226,7 @@ struct VitaPanel: View {
     @AppStorage("v3k.vitaHome.theme") private var themeId = VitaTheme.defaultId
     @AppStorage("v3k.vitaMusic") private var vitaMusic = false
     @AppStorage("v3k.musicEnabled") private var musicEnabled = true
+    @AppStorage("v3k.vitaHome") private var vitaHome = true
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -1357,6 +1387,9 @@ struct VitaPanel: View {
     private var notifications: some View {
         ScrollView {
             VStack(spacing: space.len(10)) {
+                row("square.grid.2x2.fill", "Back to the normal library", "Turn the PS Vita home screen off (Settings > Appearance turns it on again)") {
+                    vitaHome = false
+                }
                 if notices.isEmpty {
                     Text("No new notifications").font(VitaFont.font(space.len(18))).foregroundStyle(.white.opacity(0.7))
                         .padding(.top, space.len(60))
