@@ -34,6 +34,7 @@ add_executable(vita3k MACOSX_BUNDLE
 	ios/jit/ios_jit.cpp
 	ios/jit/ios_jit.h
 	ios/ramhelper/ram_helpers.mm
+	ios/ramhelper/log.cpp
 	ios/ramhelper/ram_helpers.h
 	ios/ramhelper/protocol.h
 	ios/bridge/vita3k_bridge.cpp

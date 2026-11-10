@@ -28,9 +28,12 @@
 #import <sys/mman.h>
 #import <xpc/xpc.h>
 
-#include <util/log.h>
-
 #include <fmt/format.h>
+
+// util/log.h can't be included next to Foundation (MacTypes' Ptr): logging goes through log.cpp
+extern "C" void v3k_ram_helpers_log(bool warning, const char *message);
+#define RAM_LOG_INFO(...) v3k_ram_helpers_log(false, fmt::format(__VA_ARGS__).c_str())
+#define RAM_LOG_WARN(...) v3k_ram_helpers_log(true, fmt::format(__VA_ARGS__).c_str())
 
 #include <algorithm>
 #include <atomic>
@@ -108,9 +111,9 @@ void set_status(const std::string &status, bool error = false) {
         g_status = status;
     }
     if (error)
-        LOG_WARN("RAM helpers: {}", status);
+        RAM_LOG_WARN("{}", status);
     else
-        LOG_INFO("RAM helpers: {}", status);
+        RAM_LOG_INFO("{}", status);
 }
 
 NSString *helper_identifier() {
@@ -199,7 +202,7 @@ bool start_helper() {
     }
     extension.preferredLanguages = @[];
     [extension setRequestCancellationBlock:^(NSUUID *, NSError *cancel_error) {
-        LOG_WARN("RAM helpers: a helper's request was cancelled ({})", cancel_error.localizedDescription.UTF8String ?: "");
+        RAM_LOG_WARN("a helper's request was cancelled ({})", cancel_error.localizedDescription.UTF8String ?: "");
     }];
 
     NSExtensionItem *item = [NSExtensionItem new];
@@ -273,7 +276,7 @@ std::shared_ptr<Helper> helper_with_room(uint64_t length) {
                     const uint64_t available = reply ? xpc_dictionary_get_uint64(reply, V3K_RAM_KEY_AVAILABLE) : 0;
                     helper.remaining = available > HELPER_HEADROOM ? available - HELPER_HEADROOM : 0;
                     helper.budget_known = true;
-                    LOG_INFO("RAM helpers: helper {} can lend {} MiB", g_helpers.size(), helper.remaining / MiB);
+                    RAM_LOG_INFO("helper {} can lend {} MiB", g_helpers.size(), helper.remaining / MiB);
                 }
                 if (helper.remaining >= length) {
                     g_next = (g_next + i + 1) % g_helpers.size();
