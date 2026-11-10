@@ -40,10 +40,14 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { if let onDone { onDone() } else { dismiss() } }
+                if onDone == nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
                 }
             }
+            // Inside the PS Vita home screen the panel has its own title and close button
+            .toolbar(onDone == nil ? .automatic : .hidden, for: .navigationBar)
         }
         .tint(AppTheme(rawValue: themeName)?.accent ?? Theme.accent)
     }
@@ -63,7 +67,7 @@ struct AppearanceSection: View {
             Toggle(isOn: $vitaHome) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("PS Vita home screen (beta)")
-                    Text("The Vita's home screen in landscape: bubbles on pages you flick up and down, the start screen and LiveArea you peel away from the top-right corner, each game's own LiveArea, gate and manual, and the Vita's font and themes from your firmware.")
+                    Text("The Vita's home screen in landscape: bubbles on pages you swipe sideways, the start screen and LiveArea you peel away from the top-right corner, each game's own LiveArea, gate and manual, and the Vita's font and themes from your firmware.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
