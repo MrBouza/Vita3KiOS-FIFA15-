@@ -180,7 +180,7 @@ enum VitaHomeLayout {
     static let rowY: [CGFloat] = [138, 290, 440]
     static let pitches: [CGFloat] = [229, 223, 229]
     static let centerX: CGFloat = 482
-    static let bubble: CGFloat = 156
+    static let bubble: CGFloat = 148
 
     /// Centre of slot `index` (0 ... 9) on a page, in Vita pixels
     static func slot(_ index: Int) -> CGPoint {
@@ -237,6 +237,8 @@ struct VitaHomeView: View {
     let onImportFiles: () -> Void
     let onImportFolder: () -> Void
     let onEnterZrif: () -> Void
+    /// UI preview harness only (.ci/ui-preview): "app:<title ID>" opens that LiveArea, "panel:<name>" a panel
+    var preview: String? = nil
 
     @EnvironmentObject private var model: LibraryModel
     @AppStorage("v3k.vitaHome") private var vitaHome = false
@@ -274,7 +276,8 @@ struct VitaHomeView: View {
         GeometryReader { proxy in
             let space = VitaSpace(size: proxy.size)
             ZStack {
-                VitaWallpaper(theme: theme, page: page, animated: openApp == nil && panel == nil && !searching && !locked).id(themeId)
+                VitaWallpaper(theme: theme, page: page, animated: openApp == nil && panel == nil && !searching && !locked)
+                    .animation(.easeInOut(duration: 0.35), value: themeId)
 
                 homePages(space: space)
                     // Opening a game zooms through the bubbles into its LiveArea
@@ -301,16 +304,6 @@ struct VitaHomeView: View {
                     .zIndex(2)
                 }
 
-                VitaInfoBar(space: space, theme: theme, notices: notices.count,
-                            openNotices: openApp == nil && panel == nil ? { openPanel(.notifications) } : nil, recent: recentApps,
-                            buttons: locked || searching ? [] : [
-                                VitaBarButton(symbol: "magnifyingglass", title: "Search") { tap(.search) },
-                                VitaBarButton(symbol: "gearshape.fill", title: "Settings") { tap(.settings) },
-                                VitaBarButton(symbol: "paintpalette.fill", title: "Themes") { tap(.themes) },
-                                VitaBarButton(symbol: "music.note", title: "Music") { tap(.music) },
-                                VitaBarButton(symbol: "square.grid.2x2.fill", title: "Library") { tap(.classicLibrary) },
-                            ])
-                    .frame(maxHeight: .infinity, alignment: .top).zIndex(3)
 
                 if let kind = panel {
                     Peelable(fold: space.len(44), onPeeled: { panel = nil }) {
@@ -338,6 +331,19 @@ struct VitaHomeView: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            // The information bar is its own layer above everything, so nothing that comes and goes
+            // underneath (a new wallpaper, a LiveArea, a panel) can ever cover or reorder it
+            .overlay(alignment: .top) {
+                VitaInfoBar(space: space, theme: theme, notices: notices.count,
+                            openNotices: openApp == nil && panel == nil ? { openPanel(.notifications) } : nil, recent: recentApps,
+                            buttons: locked || searching ? [] : [
+                                VitaBarButton(symbol: "magnifyingglass", title: "Search") { tap(.search) },
+                                VitaBarButton(symbol: "gearshape.fill", title: "Settings") { tap(.settings) },
+                                VitaBarButton(symbol: "paintpalette.fill", title: "Themes") { tap(.themes) },
+                                VitaBarButton(symbol: "music.note", title: "Music") { tap(.music) },
+                                VitaBarButton(symbol: "square.grid.2x2.fill", title: "Library") { tap(.classicLibrary) },
+                            ])
+            }
             .clipped()
         }
         .ignoresSafeArea()
@@ -345,6 +351,7 @@ struct VitaHomeView: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .sheet(item: $infoApp) { app in GameInfoView(app: app) }
+        .onAppear(perform: applyPreview)
         // Deleting games can leave fewer pages than the one being shown
         .onChange(of: pages.count) { _, count in
             if page >= count { page = max(count - 1, 0) }
@@ -378,6 +385,22 @@ struct VitaHomeView: View {
         case .themes: openPanel(.themes)
         case .music: openPanel(.music)
         case .classicLibrary: vitaHome = false
+        }
+    }
+
+    private func applyPreview() {
+        guard let preview, preview != "lock" else { return }
+        locked = false
+        if preview.hasPrefix("app:"), let app = apps.first(where: { $0.titleId == preview.dropFirst(4) }) {
+            openApp = app
+        } else if preview.hasPrefix("panel:") {
+            switch preview.dropFirst(6) {
+            case "themes": panel = .themes
+            case "settings": panel = .settings
+            case "music": panel = .music
+            case "content": panel = .contentManager
+            default: break
+            }
         }
     }
 
@@ -764,14 +787,18 @@ struct VitaBubbleView: View {
                                            lineWidth: max(space.len(3), 1.5)))
             .shadow(color: .black.opacity(0.35), radius: space.len(8), y: space.len(5))
 
+            // One line, as on the Vita: long names shrink a little, then end in "…", so they never run
+            // into the bubbles of the next row or the names beside them
             Text(item.title)
                 .font(VitaFont.font(space.len(19)))
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.85), radius: 2.5, y: 1)
                 .shadow(color: .black.opacity(0.5), radius: 6)
-                .lineLimit(2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .truncationMode(.tail)
                 .multilineTextAlignment(.center)
-                .frame(width: space.len(190), height: space.len(46), alignment: .top)
+                .frame(width: space.len(200), height: space.len(24))
         }
         .contentShape(Rectangle())
     }
