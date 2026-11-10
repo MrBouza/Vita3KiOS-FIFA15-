@@ -87,9 +87,16 @@ struct VitaTheme: Identifiable, Hashable {
         return [builtIn] + ids.compactMap { load(id: $0) }
     }
 
+    private static var cache: [String: (theme: VitaTheme, time: Date)] = [:]
+
+    /// The selected theme. Read again after a few seconds, so a theme installed meanwhile shows up, but not on
+    /// every redraw (a theme.xml is parsed each time it is loaded)
     static func current() -> VitaTheme {
         let id = UserDefaults.standard.string(forKey: "v3k.vitaHome.theme") ?? defaultId
-        return id == defaultId ? builtIn : (load(id: id) ?? builtIn)
+        if let cached = cache[id], Date().timeIntervalSince(cached.time) < 5 { return cached.theme }
+        let theme = id == defaultId ? builtIn : (load(id: id) ?? builtIn)
+        cache[id] = (theme, Date())
+        return theme
     }
 
     private static func load(id: String) -> VitaTheme? {

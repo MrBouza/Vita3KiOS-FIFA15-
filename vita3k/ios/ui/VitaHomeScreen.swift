@@ -1127,14 +1127,14 @@ struct VitaManual: View {
     static func pages(appPath: String) -> [String] {
         let folder = (appPath as NSString).appendingPathComponent("sce_sys/manual")
         let fm = FileManager.default
-        var files = ((try? fm.contentsOfDirectory(atPath: folder)) ?? []).filter { $0.lowercased().hasSuffix(".png") }.sorted()
+        var files = ((try? fm.contentsOfDirectory(atPath: folder)) ?? []).filter { $0.lowercased().hasSuffix(".png") }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         var base = folder
         if files.isEmpty, let sub = ((try? fm.contentsOfDirectory(atPath: folder)) ?? []).sorted().first(where: {
             var isDir: ObjCBool = false
             return fm.fileExists(atPath: (folder as NSString).appendingPathComponent($0), isDirectory: &isDir) && isDir.boolValue
         }) {
             base = (folder as NSString).appendingPathComponent(sub)
-            files = ((try? fm.contentsOfDirectory(atPath: base)) ?? []).filter { $0.lowercased().hasSuffix(".png") }.sorted()
+            files = ((try? fm.contentsOfDirectory(atPath: base)) ?? []).filter { $0.lowercased().hasSuffix(".png") }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         }
         return files.map { (base as NSString).appendingPathComponent($0) }
     }
@@ -1219,7 +1219,7 @@ struct VitaSearch: View {
                     Text("No games found").font(VitaFont.font(space.len(18))).foregroundStyle(.white.opacity(0.8))
                 }
             }
-            .padding(.top, space.len(60))
+            .padding(.top, space.len(44))
         }
         .onAppear { focused = true }
     }
@@ -1289,10 +1289,10 @@ struct VitaPanel: View {
                             .frame(width: space.len(44), height: space.len(44))
                             .background(Circle().fill(.white.opacity(0.14)))
                     }
-                    .padding(.trailing, space.len(60))
+                    .padding(.trailing, space.len(60 + max(space.inset, 0)))
                 }
                 .foregroundStyle(.white)
-                .padding(.leading, space.len(40))
+                .padding(.leading, space.len(40 + max(space.inset, 0)))
                 .padding(.top, space.len(44))
                 .padding(.bottom, space.len(12))
 
@@ -1312,7 +1312,7 @@ struct VitaPanel: View {
         case .settings:
             // All the settings of the app, inside the panel (its own Done button is not needed here)
             SettingsView(onDone: close).environmentObject(model)
-                .padding(.trailing, space.len(8))
+                .padding(.horizontal, space.len(max(space.inset, 0)))
         case .contentManager: contentManager
         case .themes: themes
         case .music: music
