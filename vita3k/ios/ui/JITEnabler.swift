@@ -112,7 +112,7 @@ enum JITEnabler {
         return hex;
     }
     function register(reply, number) {
-        const match = new RegExp(`[T;]?${number}:([0-9a-f]{16});`).exec(reply);
+        const match = new RegExp(`(?:^T[0-9a-f]{2}|;)${number}:([0-9a-f]{16});`).exec(reply);
         return match ? littleEndian(match[1]) : null;
     }
 
@@ -125,14 +125,14 @@ enum JITEnabler {
         const signal = parseInt(reply.substr(1, 2), 16);
         const thread = (/thread:([0-9a-f]+);/.exec(reply) || [])[1];
         const pc = register(reply, "20");
-        if (signal !== 5 || !thread || pc === null) {
-            // Not a JIT request: hand the signal back to Vita3K (it handles its own memory faults)
-            if (signal !== 5) resume = `C${signal.toString(16).padStart(2, "0")}`;
-            continue;
-        }
-        const word = send_command(`m${pc.toString(16)},4`);
-        const instruction = parseInt(word.match(/../g).reverse().join(""), 16) >>> 0;
-        if ((instruction & 0xffe0001f) !== 0xd4200000 || ((instruction >>> 5) & 0xffff) !== 0xf00d) continue;
+        // Anything that isn't a JIT request goes back to Vita3K as its signal (it handles its own
+        // memory faults and crash reports), so the same stop doesn't repeat forever
+        const passOn = `C${signal.toString(16).padStart(2, "0")}`;
+        if (signal !== 5 || !thread || pc === null) { resume = passOn; continue; }
+        const word = send_command(`m${pc.toString(16)},4`) || "";
+        const bytes = word.match(/../g);
+        const instruction = bytes && bytes.length === 4 ? parseInt(bytes.reverse().join(""), 16) >>> 0 : 0;
+        if ((instruction & 0xffe0001f) !== 0xd4200000 || ((instruction >>> 5) & 0xffff) !== 0xf00d) { resume = passOn; continue; }
         send_command(`P20=${toLittleEndian(pc + 4n)};thread:${thread};`);
         const command = register(reply, "10");
         if (command === 0n) {
