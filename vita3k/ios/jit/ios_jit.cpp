@@ -256,11 +256,11 @@ std::string jit_status_text() {
     if (jit_pool_ready())
         return "JIT ready.";
     if (!jit_capability_enabled())
-        return "JIT is not enabled. Launch Vita3K from StikDebug, or with \"Launch with JIT\" in LiveContainer.";
+        return "JIT is not enabled. Tap Enable JIT, or launch Vita3K from StikDebug or with \"Launch with JIT\" in LiveContainer.";
     if (g_unhandled_universal_jit_breakpoint.load())
-        return "No JIT script answered. On iOS 26, set StikDebug's universal.js as Vita3K's JIT script, then reopen Vita3K.";
+        return "JIT attached, but nothing answered Vita3K's JIT requests. Tap Enable JIT (it brings Vita3K's own JIT script), or set StikDebug's universal.js as Vita3K's script.";
     if (!debugger_attached())
-        return "StikDebug detached before JIT was prepared. Re-enable JIT and reopen Vita3K.";
+        return "StikDebug let go before JIT was ready. Tap Enable JIT to attach it again.";
     return "JIT is attached but not prepared yet.";
 }
 

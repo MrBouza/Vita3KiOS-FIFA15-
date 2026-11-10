@@ -170,6 +170,13 @@
 	</array>
 
 	<!-- vita3k://launch/<TITLE ID> starts a game, e.g. from a Home Screen shortcut -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>stikjit</string>
+		<string>stosdebug</string>
+		<string>apple-magnifier</string>
+		<string>livecontainer</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

@@ -5,6 +5,7 @@ enable_language(Swift)
 
 set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/LibraryHost.swift
+	ios/ui/JITEnabler.swift
 	ios/ui/LibraryModel.swift
 	ios/ui/LibraryView.swift
 	ios/ui/SettingsView.swift

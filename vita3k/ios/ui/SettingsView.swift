@@ -621,7 +621,10 @@ struct JITSection: View {
             LabeledContent("Status", value: model.jitEnabled ? "Ready" : "Not ready")
             Text(model.jitStatus)
                 .font(.footnote)
-            Text("Launch Vita3K from StikDebug, or with “Launch with JIT” in LiveContainer. On iOS 26 with an A15 or newer chip, also choose StikDebug's universal.js as Vita3K's JIT script.")
+            if !model.jitEnabled {
+                EnableJITButtons()
+            }
+            Text("Enable JIT opens your JIT app (StikDebug, StosDebug or TrollStore; through LiveContainer when Vita3K runs inside it) and passes Vita3K's own JIT script where needed, so there's no script to set up. Vita3K notices when JIT attaches, at any time while it's open, and gets ready by itself.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

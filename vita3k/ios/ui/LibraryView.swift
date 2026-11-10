@@ -219,9 +219,12 @@ struct LibraryView: View {
             }
             .onChange(of: vitaHome) { _, _ in LibraryHost.updateOrientation() }
             .alert(model.jitPreparing ? "JIT is almost ready" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
-                Button("OK", role: .cancel) { pendingLaunch = nil }
+                if !model.jitPreparing {
+                    EnableJITButtons()
+                }
+                Button(model.jitPreparing ? "OK" : "Not now", role: .cancel) { pendingLaunch = nil }
             } message: {
-                Text(model.jitPreparing ? "Vita3K is still preparing JIT (\(model.jitProgress)/\(model.jitTarget)). Try again in a moment." : "\(model.jitStatus)\n\nClose Vita3K and launch it again with JIT enabled.")
+                Text(model.jitPreparing ? "Vita3K is still preparing JIT (\(model.jitProgress)/\(model.jitTarget)). Try again in a moment." : "\(model.jitStatus)\n\nTap Enable JIT: Vita3K opens your JIT app and gets ready by itself once JIT attaches.")
             }
             .modifier(DeleteAlerts(model: model, pendingDelete: $pendingDelete, pendingDeleteSave: $pendingDeleteSave))
             .modifier(ImportAlerts(model: model, zrifInput: $zrifInput, showingZrifEntry: $showingZrifEntry, zrifEntry: $zrifEntry, licenseMessage: licenseMessage))
@@ -332,8 +335,15 @@ struct StatusBar: View {
                     .padding(.vertical, 6)
                     .background(Capsule().fill(Theme.accent.opacity(0.2)))
                     .foregroundStyle(Theme.accent)
+            } else if jitEnabled {
+                Pill(text: "JIT ready", systemImage: "bolt.fill", good: true)
             } else {
-                Pill(text: jitEnabled ? "JIT ready" : "JIT off", systemImage: "bolt.fill", good: jitEnabled)
+                // Tap to enable JIT
+                Menu {
+                    EnableJITButtons()
+                } label: {
+                    Pill(text: "JIT off · Enable", systemImage: "bolt.fill", good: false)
+                }
             }
             Pill(text: hasFirmware ? "Firmware" : "No firmware", systemImage: "cpu", good: hasFirmware)
             Pill(text: hasFonts ? "Fonts" : "No fonts", systemImage: "textformat", good: hasFonts)

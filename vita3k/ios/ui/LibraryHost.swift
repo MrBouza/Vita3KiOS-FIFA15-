@@ -69,8 +69,9 @@ enum LibraryHost {
             MenuMusic.shared.libraryShown()
             // StikDebug opens Vita3K first and attaches its script a few seconds later (it shows
             // "Connecting..." meanwhile): the one check above came too early and JIT stayed off for
-            // the whole session. Keep looking for the debugger for a while instead.
-            if firstShow && !v3k_is_jit_enabled() { watchForJITScript(until: Date().addingTimeInterval(120)) }
+            // the whole session. Keep looking for the debugger for as long as Vita3K is open: a debugger
+            // can attach at any time (StikDebug, LiveContainer, a late "Connecting...")
+            if firstShow && !v3k_is_jit_enabled() { watchForJITScript(until: .distantFuture) }
         }
     }
 
@@ -117,7 +118,7 @@ enum LibraryHost {
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {
                 if hasShown && !v3k_is_jit_enabled() && window?.isHidden == false {
-                    watchForJITScript(until: Date().addingTimeInterval(60))
+                    watchForJITScript(until: .distantFuture)
                 }
             }
         }
