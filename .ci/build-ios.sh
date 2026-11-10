@@ -87,6 +87,20 @@ if [[ -z "$app_path" ]]; then
 fi
 echo "Built: $app_path"
 
+# ---- RAM helper extension (V3KRamHelper.appex) ----
+# CMake embeds it in PlugIns; copy it there if this Xcode didn't
+if [[ ! -d "$app_path/PlugIns/V3KRamHelper.appex" ]]; then
+    appex_path="$(find "$build_dir" -name 'V3KRamHelper.appex' -type d -path "*${config}-iphoneos*" -not -path "*/PlugIns/*" | head -n 1)"
+    if [[ -n "$appex_path" ]]; then
+        mkdir -p "$app_path/PlugIns"
+        cp -R "$appex_path" "$app_path/PlugIns/"
+        echo "Embedded $appex_path"
+    else
+        echo "V3KRamHelper.appex was not built" >&2
+        exit 1
+    fi
+fi
+
 # ---- App icon: the official Vita3K icon ----
 icon_work="$(mktemp -d)"
 plist="$app_path/Info.plist"
@@ -149,6 +163,12 @@ fi
 version="$("$pb" -c "Print :CFBundleShortVersionString" "$plist")"
 build_number="${GITHUB_RUN_NUMBER:-$(git -C "$repo_root" rev-list --count HEAD)}"
 "$pb" -c "Set :CFBundleVersion $build_number" "$plist"
+# The extension's versions must match the app's
+for appex_plist in "$app_path"/PlugIns/*.appex/Info.plist; do
+    [[ -f "$appex_plist" ]] || continue
+    "$pb" -c "Set :CFBundleVersion $build_number" "$appex_plist"
+    "$pb" -c "Set :CFBundleShortVersionString $version" "$appex_plist"
+done
 commit="$(git -C "$repo_root" rev-parse --short HEAD)"
 "$pb" -c "Delete :V3KCommit" "$plist" 2> /dev/null || true
 "$pb" -c "Add :V3KCommit string $commit" "$plist"

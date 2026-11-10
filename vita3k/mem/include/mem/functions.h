@@ -50,6 +50,11 @@ constexpr MemPerm most_restrictive_perm(MemPerm a, MemPerm b) {
 // Reserves the guest address space early, before other large mappings (such as the iOS JIT region
 // pool) can fragment it; the next init() adopts it. From Tsubomi by 125hz.
 bool prereserve_guest_memory();
+// iOS RAM helpers: backs part of a reserved, inaccessible host range with memory from elsewhere and
+// returns how many bytes (from the start of the range) it backed. init() offers it the guest's main
+// RAM, CDRAM and uncached ranges; `last` marks the final range of a boot.
+using GuestBackingProvider = uint64_t (*)(void *host, uint64_t size, bool last);
+void set_guest_backing_provider(GuestBackingProvider provider);
 bool init(MemState &state, const bool use_page_table);
 void deinit_mem(MemState &state);
 Address alloc(MemState &state, uint32_t size, const char *name, Address start_addr = user_main_memory_start);

@@ -29,6 +29,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("Cheats and mods are set per game: long-press a game › Game settings, patches & saves.")
                 }
+                MemorySection()
                 JITSection()
                 CreditsSection()
                 AboutSection()
@@ -498,6 +499,116 @@ struct EmulationSections: View {
 
 // MARK: - JIT, credits, about
 
+struct MemorySection: View {
+    @AppStorage("v3k.ramHelpers") private var ramHelpers = false
+    @AppStorage("v3k.ramHelpers.count") private var helperCount = 2
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $ramHelpers) {
+                Label("RAM helpers (beta)", systemImage: "memorychip")
+            }
+            .onChange(of: ramHelpers) { _, on in
+                if on { v3k_ram_helpers_prepare() }
+            }
+            if ramHelpers {
+                Stepper(value: $helperCount, in: 1...4) {
+                    LabeledContent("Helper processes", value: "\(helperCount)")
+                }
+            }
+            NavigationLink {
+                RAMCheckerView()
+            } label: {
+                Label("RAM checker", systemImage: "gauge.with.dots.needle.33percent")
+            }
+        } header: {
+            Text("Memory")
+        } footer: {
+            Text("Helper processes, each with its own iOS memory limit, lend memory for the PS Vita's RAM, so big games are less likely to be closed by iOS. Takes effect at the next game launch. In LiveContainer, turn on helper processes in Vita3K's app settings there too. Some signers remove app extensions; the RAM checker shows whether the helper is there.")
+        }
+    }
+}
+
+/// Live memory numbers: the device, Vita3K's own use and limit, and what the RAM helpers lend
+struct RAMCheckerView: View {
+    @AppStorage("v3k.ramHelpers") private var ramHelpers = false
+    @State private var probing = false
+    @State private var probeResult: String?
+
+    private func mib(_ bytes: UInt64) -> String {
+        bytes >= 1024 * 1024 * 1024
+            ? String(format: "%.2f GB", Double(bytes) / 1_073_741_824)
+            : "\(bytes / (1024 * 1024)) MB"
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let footprint = v3k_memory_footprint()
+            let available = v3k_memory_available()
+            let limit = footprint + available
+            let backed = v3k_ram_helpers_backed()
+            let inUse = v3k_ram_helpers_in_use()
+            Form {
+                Section("This device") {
+                    LabeledContent("Installed RAM", value: mib(v3k_memory_physical()))
+                }
+                Section {
+                    LabeledContent("Using now", value: mib(footprint))
+                    LabeledContent("Left before iOS closes it", value: mib(available))
+                    LabeledContent("Limit", value: mib(limit))
+                    ProgressView(value: limit > 0 ? Double(footprint) / Double(limit) : 0)
+                        .tint(available < 300 * 1024 * 1024 ? .red : available < 800 * 1024 * 1024 ? .orange : .green)
+                } header: {
+                    Text("Vita3K")
+                } footer: {
+                    Text(limit < 3 * 1024 * 1024 * 1024
+                         ? "A limit under 3 GB usually means the Increased Memory Limit entitlement isn't active. Signing tools like Impactor or GetMoreRam can add it."
+                         : "The Increased Memory Limit entitlement looks active.")
+                }
+                Section {
+                    LabeledContent("Setting", value: ramHelpers ? "On" : "Off")
+                    LabeledContent("Helper extension", value: v3k_ram_helpers_bundled() ? "Included" : "Missing")
+                    if v3k_ram_helpers_in_livecontainer() {
+                        LabeledContent("Running in", value: "LiveContainer")
+                    }
+                    LabeledContent("Helpers running", value: "\(v3k_ram_helpers_live())")
+                    LabeledContent("Lent this game", value: mib(backed))
+                    LabeledContent("Of that, in use", value: mib(inUse))
+                    Text(String(cString: v3k_ram_helpers_status()))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        probing = true
+                        probeResult = nil
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            let lend = v3k_ram_helpers_probe()
+                            DispatchQueue.main.async {
+                                probing = false
+                                probeResult = lend > 0 ? "A helper started and can lend about \(mib(lend))." : String(cString: v3k_ram_helpers_status())
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text("Test the RAM helper")
+                            if probing { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(probing || !v3k_ram_helpers_bundled())
+                    if let probeResult {
+                        Text(probeResult).font(.footnote)
+                    }
+                } header: {
+                    Text("RAM helpers")
+                } footer: {
+                    Text("Helpers start with a game and lend memory for its RAM; after that iOS doesn't count it against Vita3K. The numbers update every second.")
+                }
+            }
+        }
+        .navigationTitle("RAM checker")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct JITSection: View {
     @EnvironmentObject var model: LibraryModel
 
@@ -520,6 +631,7 @@ struct CreditsSection: View {
             CreditRow(name: "Tsubomi by 125hz", detail: "iOS 26 JIT (dynarmic/oaknut patch and region pool), guest memory pre-reservation, audio session and display fixes.", url: "https://github.com/125hz/Tsubomi")
             CreditRow(name: "MrBouza", detail: "Fixed FSR on iOS, added the on-screen keyboard for game text input, and fixed the 16 MB JIT cache limit.", url: "https://github.com/MrBouza")
             CreditRow(name: "Vita3K-Plus by nckstwrt", detail: "Many game compatibility fixes (graphics, audio, saves, timing) ported from this Vita3K fork.", url: "https://github.com/nckstwrt/Vita3K-Plus")
+            CreditRow(name: "MeloNX by Stossy11", detail: "The RAM donor technique behind RAM helpers (memory lent by helper extension processes).", url: "https://github.com/stossy11")
             CreditRow(name: "dynarmic & oaknut", detail: "ARM recompiler and arm64 assembler, by merryhime and contributors.", url: "https://github.com/merryhime/dynarmic")
             CreditRow(name: "MoltenVK", detail: "Vulkan on Apple's Metal, by the Khronos Group.", url: "https://github.com/KhronosGroup/MoltenVK")
             CreditRow(name: "SDL", detail: "Windowing, input and audio.", url: "https://github.com/libsdl-org/SDL")

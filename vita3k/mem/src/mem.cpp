@@ -25,6 +25,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstring>
+#include <iterator>
 #include <mutex>
 #include <utility>
 
@@ -88,6 +89,12 @@ static std::string get_error_msg() {
 // From Tsubomi by 125hz (https://github.com/125hz/Tsubomi).
 static void *g_prereserved_memory = nullptr;
 
+static GuestBackingProvider g_backing_provider = nullptr;
+
+void set_guest_backing_provider(GuestBackingProvider provider) {
+    g_backing_provider = provider;
+}
+
 bool prereserve_guest_memory() {
 #ifdef _WIN32
     // Not needed on desktop: the address space is large and nothing else
@@ -149,6 +156,23 @@ bool init(MemState &state, const bool use_page_table) {
             LOG_CRITICAL("mmap failed {}", get_error_msg());
             return false;
         }
+    }
+#endif
+
+#ifndef _WIN32
+    if (g_backing_provider) {
+        // Where a game's memory goes (SceSysmem): main RAM first, then CDRAM and uncached main RAM.
+        // Pages stay inaccessible until the allocator hands them out, exactly as without helpers.
+        struct Range {
+            Address start;
+            uint64_t size;
+        };
+        constexpr Range ranges[] = { { 0x80000000, GiB(1) }, { 0x60000000, MiB(256) }, { 0x70000000, MiB(256) } };
+        uint64_t backed = 0;
+        for (size_t i = 0; i < std::size(ranges); i++)
+            backed += g_backing_provider(state.memory.get() + ranges[i].start, ranges[i].size, i + 1 == std::size(ranges));
+        if (backed)
+            LOG_INFO("RAM helpers back {} MiB of the guest's memory", backed / MiB(1));
     }
 #endif
 

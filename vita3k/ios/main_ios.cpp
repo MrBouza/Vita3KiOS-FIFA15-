@@ -31,6 +31,7 @@
 #include "ios_platform.h"
 #include "ios_session.h"
 #include "jit/ios_jit.h"
+#include "ramhelper/ram_helpers.h"
 
 #include <app/session_controller.h>
 #include <audio/state.h>
@@ -164,6 +165,14 @@ int main(int argc, char *argv[]) {
     // Files dropped into Documents/Import through the Files app or a computer
     const auto import = ios::import_pending_files(documents / "Import");
     LOG_INFO("Startup import: {} installed, {} failed", import.installed.size(), import.failed.size());
+
+    // RAM helpers (Settings > Memory): helper processes lend memory for the guest's RAM. They start
+    // in the background now so the first boot doesn't wait for them
+    set_guest_backing_provider(v3k_ram_helpers_back);
+    if (v3k_ram_helpers_enabled())
+        LOG_INFO("RAM helpers: on, {} bundled{}", v3k_ram_helpers_bundled() ? "extension" : "extension NOT",
+            v3k_ram_helpers_in_livecontainer() ? ", running inside LiveContainer" : "");
+    v3k_ram_helpers_prepare();
 
     auto *emuenv = ios::get_emuenv();
 
