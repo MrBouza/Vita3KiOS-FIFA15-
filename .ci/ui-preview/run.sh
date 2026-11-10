@@ -3,6 +3,7 @@
 # the PS Vita home screen in several states. Usage: .ci/ui-preview/run.sh <output-dir>
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
+mkdir -p "${1:-.}"
 out="$(cd "${1:-.}" && pwd)"
 work="$(mktemp -d)"
 app="$work/Preview.app"
