@@ -177,10 +177,10 @@ enum VitaHomeLayout {
     /// Bubbles per row, top to bottom
     static let rows = [3, 4, 3]
     /// Row centres and the distance between bubbles in each row, measured from a real Vita (960x544 pixels)
-    static let rowY: [CGFloat] = [128, 282, 434]
+    static let rowY: [CGFloat] = [138, 290, 440]
     static let pitches: [CGFloat] = [229, 223, 229]
     static let centerX: CGFloat = 482
-    static let bubble: CGFloat = 140
+    static let bubble: CGFloat = 156
 
     /// Centre of slot `index` (0 ... 9) on a page, in Vita pixels
     static func slot(_ index: Int) -> CGPoint {
@@ -254,7 +254,9 @@ struct VitaHomeView: View {
     private var items: [VitaHomeItem] {
         // The Vita puts the system applications on the first page and new games after them
         let games = apps.sorted { ($0.lastPlayed, $1.title) > ($1.lastPlayed, $0.title) }.map { VitaHomeItem.game($0) }
-        return [.search, .contentManager, .settings, .themes, .music, .classicLibrary] + games
+        // Content Manager stays a bubble (always on the first page); the other system applications are
+        // buttons in the information bar
+        return [.contentManager] + games
     }
 
     private var recentApps: [GameApp] {
@@ -275,7 +277,9 @@ struct VitaHomeView: View {
                 VitaWallpaper(theme: theme, page: page, animated: openApp == nil && panel == nil && !searching && !locked).id(themeId)
 
                 homePages(space: space)
-                    .offset(x: openApp == nil ? 0 : -proxy.size.width * 0.3)
+                    // Opening a game zooms through the bubbles into its LiveArea
+                    .scaleEffect(openApp == nil ? 1 : 1.12)
+                    .blur(radius: openApp == nil ? 0 : 6)
                     .opacity(openApp == nil ? 1 : 0)
                     // Nothing underneath takes touches while a LiveArea, panel or search is open
                     .allowsHitTesting(openApp == nil && panel == nil && !searching && !locked)
@@ -292,12 +296,20 @@ struct VitaHomeView: View {
                         VitaLiveArea(app: app, space: space, theme: theme,
                                      start: { launch(app) }, info: { infoApp = app }, settings: { onDetails(app) })
                     }
-                    .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
+                    .transition(.asymmetric(insertion: .scale(scale: 0.86).combined(with: .opacity),
+                                            removal: .scale(scale: 0.94).combined(with: .opacity)))
                     .zIndex(2)
                 }
 
                 VitaInfoBar(space: space, theme: theme, notices: notices.count,
-                            openNotices: openApp == nil && panel == nil ? { openPanel(.notifications) } : nil, recent: recentApps)
+                            openNotices: openApp == nil && panel == nil ? { openPanel(.notifications) } : nil, recent: recentApps,
+                            buttons: locked || searching ? [] : [
+                                VitaBarButton(symbol: "magnifyingglass", title: "Search") { tap(.search) },
+                                VitaBarButton(symbol: "gearshape.fill", title: "Settings") { tap(.settings) },
+                                VitaBarButton(symbol: "paintpalette.fill", title: "Themes") { tap(.themes) },
+                                VitaBarButton(symbol: "music.note", title: "Music") { tap(.music) },
+                                VitaBarButton(symbol: "square.grid.2x2.fill", title: "Library") { tap(.classicLibrary) },
+                            ])
                     .frame(maxHeight: .infinity, alignment: .top).zIndex(3)
 
                 if let kind = panel {
@@ -358,7 +370,6 @@ struct VitaHomeView: View {
     }
 
     private func tap(_ item: VitaHomeItem) {
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         switch item {
         case .game(let app): open(app)
         case .search: withAnimation(.easeOut(duration: 0.2)) { searching = true }
@@ -386,7 +397,8 @@ struct VitaHomeView: View {
     }
 
     private func open(_ app: GameApp) {
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { openApp = app }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.9)
+        withAnimation(.spring(response: 0.48, dampingFraction: 0.84)) { openApp = app }
     }
 
     private func launch(_ app: GameApp) {
@@ -690,9 +702,14 @@ private struct VitaFloat: ViewModifier {
 private struct VitaBubbleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1)
-            .brightness(configuration.isPressed ? -0.08 : 0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.55), value: configuration.isPressed)
+            // squashes under the finger, then springs back past its size when let go
+            .scaleEffect(configuration.isPressed ? 0.86 : 1)
+            .brightness(configuration.isPressed ? 0.06 : 0)
+            .shadow(color: .white.opacity(configuration.isPressed ? 0.55 : 0), radius: configuration.isPressed ? 14 : 0)
+            .animation(configuration.isPressed ? .easeOut(duration: 0.12) : .spring(response: 0.36, dampingFraction: 0.45), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.8) }
+            }
     }
 }
 
@@ -842,6 +859,27 @@ struct VitaPageDots: View {
 
 // MARK: - Information bar
 
+/// A system application in the information bar
+struct VitaBarButton: Identifiable {
+    let symbol: String
+    let title: String
+    let action: () -> Void
+    var id: String { symbol }
+}
+
+/// Bar buttons light up and pop slightly when pressed
+private struct VitaBarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Capsule().fill(.white.opacity(configuration.isPressed ? 0.3 : 0)))
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.55), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7) }
+            }
+    }
+}
+
 struct VitaInfoBar: View {
     let space: VitaSpace
     let theme: VitaTheme
@@ -850,14 +888,27 @@ struct VitaInfoBar: View {
     var openNotices: (() -> Void)? = nil
     /// The games played last, shown as small circles after the home icon
     var recent: [GameApp] = []
+    /// System applications, as buttons after the home icon
+    var buttons: [VitaBarButton] = []
     @ObservedObject private var music = MenuMusic.shared
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             TimelineView(.everyMinute) { context in
                 HStack(spacing: space.len(12)) {
-                    Image(systemName: "house.fill").font(.system(size: space.len(17), weight: .semibold))
-                    ForEach(recent) { app in
+                    Image(systemName: "house.fill").font(.system(size: space.len(19), weight: .semibold))
+                    ForEach(buttons) { button in
+                        Button(action: button.action) {
+                            Image(systemName: button.symbol)
+                                .font(.system(size: space.len(20), weight: .semibold))
+                                .frame(width: max(space.len(50), 40), height: max(space.len(44), 34))
+                                .background(Capsule().fill(.white.opacity(0.12)))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(VitaBarButtonStyle())
+                        .accessibilityLabel(button.title)
+                    }
+                    ForEach(buttons.isEmpty ? recent : Array(recent.prefix(2))) { app in
                         Group {
                             if let icon = app.icon {
                                 Image(uiImage: icon).resizable().scaledToFill()
@@ -885,7 +936,7 @@ struct VitaInfoBar: View {
                 .padding(.leading, space.len(max(space.inset, 0) + 40))
                 // Clear of the big bubble (and the dog-ear) in the corner and of the phone's rounded corner
                 .padding(.trailing, space.len(max(space.inset, 0) + (openNotices != nil ? 150 : 58)))
-                .frame(height: space.len(32))
+                .frame(height: space.len(buttons.isEmpty ? 32 : 48))
                 .frame(maxWidth: .infinity)
                 .background(theme.barColor?.opacity(0.9) ?? Color.black.opacity(0.88))
             }
@@ -1187,14 +1238,23 @@ struct VitaLiveArea: View {
     @State private var starting = false
     @State private var showingManual = false
 
-    private var contents: String { (app.path as NSString).appendingPathComponent("sce_sys/livearea/contents") }
+    private var contents: String { (app.folder as NSString).appendingPathComponent("sce_sys/livearea/contents") }
 
     private func image(_ name: String?) -> UIImage? {
         guard let name, !name.isEmpty else { return nil }
         return VitaImageCache.image(atPath: (contents as NSString).appendingPathComponent(name))
     }
 
-    private var manualPages: [String] { VitaManual.pages(appPath: app.path) }
+    private var manualPages: [String] { VitaManual.pages(appPath: app.folder) }
+
+    /// The game's own picture (pic0, else the start-up picture)
+    private var gameArt: UIImage? {
+        let sys = (app.folder as NSString).appendingPathComponent("sce_sys")
+        for name in ["pic0.png", "pic1.png", "livearea/contents/startup.png"] {
+            if let picture = VitaImageCache.image(atPath: (sys as NSString).appendingPathComponent(name)) { return picture }
+        }
+        return nil
+    }
 
     var body: some View {
         let style = LiveAreaTemplate.styles[template.style] ?? LiveAreaTemplate.styles["a1"]!
@@ -1208,6 +1268,9 @@ struct VitaLiveArea: View {
             Group {
                 if let bg = image(template.background) ?? image("bg0.png") ?? image("bg.png") {
                     Image(uiImage: bg).resizable()
+                } else if let art = gameArt {
+                    // No LiveArea of its own: the game's picture fills it (as the Vita does for homebrew)
+                    Image(uiImage: art).resizable().scaledToFill()
                 } else {
                     Color(red: 148 / 255, green: 164 / 255, blue: 173 / 255)
                 }
@@ -1243,23 +1306,22 @@ struct VitaLiveArea: View {
                 }
             }
 
-            // Games whose LiveArea brings no pictures of its own get a card with the game's art and details
+            // Games whose LiveArea has no frames of their own get a strip with their details along the bottom
             if !template.frames.contains(where: { style.frames[$0.id] != nil && (image($0.background) != nil || image($0.image) != nil || $0.text != nil) }) {
-                VitaInfoCard(app: app, space: space)
-                    .position(x: space.x(90 + 250), y: space.y(70 + 185))
+                VitaInfoStrip(app: app, space: space)
+                    .frame(width: space.len(840), alignment: .leading)
+                    .position(x: space.x(60 + 420), y: space.y(544 - 62))
             }
 
-            // Manual: magenta button above the gate
-            if !manualPages.isEmpty {
-                Button { showingManual = true } label: {
-                    Text("Manual")
-                        .font(VitaFont.font(space.len(14)))
-                        .foregroundStyle(.white)
-                        .frame(width: space.len(70), height: space.len(70))
-                        .background(RoundedRectangle(cornerRadius: space.len(12), style: .continuous).fill(Color(red: 202 / 255, green: 0, blue: 106 / 255)))
+            // The row of buttons along the top of the LiveArea
+            HStack(spacing: space.len(26)) {
+                if !manualPages.isEmpty {
+                    VitaLiveAreaIcon(symbol: "book.fill", title: "Manual", colors: [Color(red: 0.95, green: 0.3, blue: 0.6), Color(red: 0.75, green: 0.05, blue: 0.4)], space: space) { showingManual = true }
                 }
-                .position(x: space.x(gate.midX), y: space.y(544 - 505 + 35))
+                VitaLiveAreaIcon(symbol: "info.circle.fill", title: "Information", colors: [Color(red: 0.4, green: 0.8, blue: 1), Color(red: 0.05, green: 0.45, blue: 0.85)], space: space, action: info)
+                VitaLiveAreaIcon(symbol: "slider.horizontal.3", title: "Settings", colors: [Color(red: 1, green: 0.8, blue: 0.3), Color(red: 0.95, green: 0.55, blue: 0.1)], space: space, action: settings)
             }
+            .position(x: space.x(gate.midX), y: space.y(44 + 46))
 
             // Gate with the Start button
             Button(action: pressStart) {
@@ -1269,7 +1331,11 @@ struct VitaLiveArea: View {
                             Image(uiImage: picture).resizable()
                         } else {
                             ZStack {
-                                Color(red: 47 / 255, green: 51 / 255, blue: 50 / 255)
+                                if let art = gameArt {
+                                    Image(uiImage: art).resizable().scaledToFill().overlay(Color.black.opacity(0.3))
+                                } else {
+                                    Color(red: 47 / 255, green: 51 / 255, blue: 50 / 255)
+                                }
                                 if let icon = app.icon {
                                     Image(uiImage: icon).resizable().frame(width: space.len(94), height: space.len(94))
                                         .padding(.bottom, space.len(32))
@@ -1334,61 +1400,71 @@ struct VitaLiveArea: View {
     }
 }
 
-/// The game's own picture with its details, for LiveAreas that are empty
-private struct VitaInfoCard: View {
+/// A LiveArea's details for games without frames of their own: title, ID, version, play time, rating
+private struct VitaInfoStrip: View {
     let app: GameApp
     let space: VitaSpace
 
-    private var picture: UIImage? {
-        let base = (app.path as NSString).appendingPathComponent("sce_sys")
-        for name in ["pic0.png", "pic1.png"] {
-            if let image = VitaImageCache.image(atPath: (base as NSString).appendingPathComponent(name)) { return image }
-        }
-        return nil
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: space.len(10)) {
-            Group {
-                if let picture {
-                    Image(uiImage: picture).resizable().scaledToFill()
-                } else if let icon = app.icon {
-                    ZStack {
-                        Color(white: 0.2)
-                        Image(uiImage: icon).resizable().scaledToFit().frame(width: space.len(150), height: space.len(150))
+        HStack(spacing: space.len(14)) {
+            VStack(alignment: .leading, spacing: space.len(3)) {
+                Text(app.title)
+                    .font(VitaFont.font(space.len(22), bold: true))
+                    .lineLimit(1)
+                HStack(spacing: space.len(12)) {
+                    Text("\(app.titleId) · v\(app.version)")
+                    Label(app.playTimeText, systemImage: "clock")
+                    if app.lastPlayed > 0 {
+                        Label(Date(timeIntervalSince1970: TimeInterval(app.lastPlayed)).formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
                     }
-                } else {
-                    Color(white: 0.2)
                 }
+                .font(VitaFont.font(space.len(14)))
+                .opacity(0.9)
+                .lineLimit(1)
             }
-            .frame(width: space.len(500), height: space.len(250))
-            .clipShape(RoundedRectangle(cornerRadius: space.len(10), style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: space.len(10), style: .continuous).strokeBorder(.white.opacity(0.8), lineWidth: 2))
-            .shadow(color: .black.opacity(0.4), radius: space.len(8), y: space.len(4))
-
-            Text(app.title)
-                .font(VitaFont.font(space.len(26), bold: true))
-                .lineLimit(2)
-            Text("\(app.titleId)  ·  v\(app.version)")
-                .font(VitaFont.font(space.len(16))).opacity(0.85)
-            HStack(spacing: space.len(14)) {
-                Label(app.playTimeText, systemImage: "clock").font(VitaFont.font(space.len(16)))
-                if app.lastPlayed > 0 {
-                    Label(Date(timeIntervalSince1970: TimeInterval(app.lastPlayed)).formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
-                        .font(VitaFont.font(space.len(16)))
-                }
-            }
-            .opacity(0.9)
+            Spacer(minLength: 0)
             if let compatibility = app.compatibility {
                 Text(compatibility.label)
-                    .font(VitaFont.font(space.len(15), bold: true))
+                    .font(VitaFont.font(space.len(14), bold: true))
                     .padding(.horizontal, space.len(12)).padding(.vertical, space.len(4))
                     .background(Capsule().fill(compatibility.color))
             }
         }
         .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
-        .frame(width: space.len(500), alignment: .leading)
+        .shadow(color: .black.opacity(0.7), radius: 2, y: 1)
+        .padding(.horizontal, space.len(18))
+        .padding(.vertical, space.len(10))
+        .background(LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom))
+    }
+}
+
+/// A glossy rounded button along the top of a LiveArea (Manual, Information, Settings)
+private struct VitaLiveAreaIcon: View {
+    let symbol: String
+    let title: String
+    let colors: [Color]
+    let space: VitaSpace
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: space.len(14), style: .continuous)
+                    .fill(LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom))
+                RoundedRectangle(cornerRadius: space.len(14), style: .continuous)
+                    .fill(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.0)], startPoint: .top, endPoint: .center))
+                    .padding(space.len(2))
+                Image(systemName: symbol)
+                    .font(.system(size: space.len(26), weight: .semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+            }
+            .frame(width: space.len(64), height: space.len(64))
+            .overlay(RoundedRectangle(cornerRadius: space.len(14), style: .continuous).strokeBorder(.white.opacity(0.9), lineWidth: 2))
+            .shadow(color: .black.opacity(0.35), radius: space.len(5), y: space.len(3))
+        }
+        .buttonStyle(VitaPressStyle())
+        .accessibilityLabel(title)
     }
 }
 
@@ -1409,7 +1485,7 @@ private struct VitaStartZoom: View {
     @State private var grown = false
 
     private var picture: UIImage? {
-        UIImage(contentsOfFile: (app.path as NSString).appendingPathComponent("sce_sys/pic0.png"))
+        UIImage(contentsOfFile: (app.folder as NSString).appendingPathComponent("sce_sys/pic0.png"))
     }
 
     var body: some View {

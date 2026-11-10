@@ -311,7 +311,7 @@ struct GameInfoView: View {
                      "sce_sys/pic0.png", "sce_sys/pic1.png"]
         var seen = Set<String>()
         return names.compactMap { name in
-            let path = (app.path as NSString).appendingPathComponent(name)
+            let path = (app.folder as NSString).appendingPathComponent(name)
             guard seen.insert(path).inserted else { return nil }
             return UIImage(contentsOfFile: path)
         }
@@ -371,5 +371,12 @@ struct GameInfoView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+extension GameApp {
+    /// The game's folder (ux0/app/<folder>): Vita3K lists apps by folder name, not by full path
+    var folder: String {
+        path.hasPrefix("/") ? path : VitaFirmware.absolute("ux0/app/" + path)
     }
 }
