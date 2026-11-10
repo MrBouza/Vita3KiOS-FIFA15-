@@ -139,6 +139,13 @@ enum LibraryHost {
         if let titleId = takeString(v3k_take_launch_request()) {
             externalLaunch = titleId
         }
+        // vita3k://launch/library switches the PS Vita home screen off (a way out that needs no taps in the app)
+        if let request = externalLaunch, ["library", "classic"].contains(request.lowercased()) {
+            externalLaunch = nil
+            UserDefaults.standard.set(false, forKey: "v3k.vitaHome")
+            updateOrientation()
+            return
+        }
         guard let titleId = externalLaunch else { return }
         // Only from the library: a running game isn't interrupted
         guard window?.isHidden == false else {
