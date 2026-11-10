@@ -132,7 +132,8 @@ struct Peelable<Content: View>: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .frame(width: max(fold * 2.6, 90), height: max(fold * 2.6, 90))
-                    .position(x: size.width - max(fold * 1.3, 45), y: max(fold * 1.3, 45))
+                    // The gesture belongs to the corner area only (position() comes after it): a gesture added
+                    // after position() would cover the whole page and take every touch
                     .gesture(
                         DragGesture(minimumDistance: 0, coordinateSpace: .named("peel"))
                             .onChanged { value in
@@ -144,7 +145,9 @@ struct Peelable<Content: View>: View {
                                 guard !finishing else { return }
                                 dragging = false
                                 let travel = hypot(size.width - value.predictedEndLocation.x, value.predictedEndLocation.y)
-                                if travel > size.width * 0.38 {
+                                let moved = hypot(value.translation.width, value.translation.height)
+                                // A tap on the corner finishes the peel too (no need to find the exact drag)
+                                if travel > size.width * 0.38 || moved < 8 {
                                     finishing = true
                                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                     withAnimation(.easeIn(duration: 0.38)) {
@@ -160,6 +163,7 @@ struct Peelable<Content: View>: View {
                                 }
                             }
                     )
+                    .position(x: size.width - max(fold * 1.3, 45), y: max(fold * 1.3, 45))
             }
             .coordinateSpace(name: "peel")
         }
@@ -268,6 +272,8 @@ struct VitaHomeView: View {
                 homePages(space: space)
                     .offset(x: openApp == nil ? 0 : -proxy.size.width * 0.3)
                     .opacity(openApp == nil ? 1 : 0)
+                    // Nothing underneath takes touches while a LiveArea, panel or search is open
+                    .allowsHitTesting(openApp == nil && panel == nil && !searching && !locked)
 
                 VitaPageDots(count: pages.count, current: page, space: space)
                     .opacity(openApp == nil ? 1 : 0)
@@ -317,6 +323,10 @@ struct VitaHomeView: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .sheet(item: $infoApp) { app in GameInfoView(app: app) }
+        // Deleting games can leave fewer pages than the one being shown
+        .onChange(of: pages.count) { _, count in
+            if page >= count { page = max(count - 1, 0) }
+        }
     }
 
     private func homePages(space: VitaSpace) -> some View {
@@ -648,7 +658,7 @@ struct VitaInfoBar: View {
                         .font(VitaFont.font(space.len(16)))
                         .lineLimit(1)
                         .opacity(0.85)
-                        .padding(.leading, space.len(70))
+                        .padding(.leading, space.len(70 + max(space.inset, 0)))
                 }
                 Spacer()
                 Image(systemName: "wifi").font(.system(size: space.len(17), weight: .semibold))
@@ -681,7 +691,8 @@ struct VitaInfoBar: View {
                 }
             }
             .foregroundStyle(.white)
-            .padding(.trailing, space.len(16))
+            // Clear of the dog-ear in the corner and of the phone's rounded corner
+            .padding(.trailing, space.len(max(space.inset, 0) + 58))
             .frame(height: space.len(32))
             .frame(maxWidth: .infinity)
             .background(theme.barColor?.opacity(0.85) ?? Color.black.opacity(0.5))
@@ -724,8 +735,8 @@ struct VitaStartScreen: View {
             // The frame of the start screen: 32 px in from the edges below the information bar, 20 px corners
             RoundedRectangle(cornerRadius: space.len(20), style: .continuous)
                 .strokeBorder(.white, lineWidth: max(space.len(2), 1))
-                .frame(width: space.size.width - space.len(64), height: space.size.height - space.len(32) - space.len(64))
-                .offset(x: space.len(32), y: space.len(32 + 32))
+                .frame(width: space.len(960 - 64), height: space.size.height - space.len(32) - space.len(64))
+                .offset(x: space.x(32), y: space.len(32 + 32))
 
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let rightAligned = theme.dateLayout == 2
@@ -736,16 +747,24 @@ struct VitaStartScreen: View {
                 ZStack(alignment: rightAligned ? .topTrailing : .topLeading) {
                     Text(context.date, format: .dateTime.weekday(.wide).month(.wide).day())
                         .font(VitaFont.font(space.len(30)))
-                        .offset(x: rightAligned ? -space.len(50) : space.len(60), y: space.len(dateY))
+                        .offset(x: rightAligned ? -space.len(max(space.inset, 0) + 50) : space.x(60), y: space.len(dateY))
                     Text(context.date, format: .dateTime.hour(.defaultDigits(amPM: .abbreviated)).minute())
                         .font(VitaFont.font(space.len(100)))
                         .monospacedDigit()
-                        .offset(x: rightAligned ? -space.len(50) : space.len(80), y: space.len(clockY - 12))
+                        .offset(x: rightAligned ? -space.len(max(space.inset, 0) + 50) : space.x(80), y: space.len(clockY - 12))
                 }
                 .foregroundStyle(theme.dateColor)
                 .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                 .frame(width: space.size.width, height: space.size.height, alignment: rightAligned ? .topTrailing : .topLeading)
             }
+
+            // A hint for anyone who has never held a Vita
+            Text("Drag the corner, or tap it, to start")
+                .font(VitaFont.font(space.len(15)))
+                .foregroundStyle(theme.dateColor.opacity(0.8))
+                .shadow(color: .black.opacity(0.4), radius: 2)
+                .frame(width: space.size.width)
+                .offset(y: space.size.height - space.len(58))
 
             VitaInfoBar(space: space, theme: theme)
         }
@@ -755,6 +774,28 @@ struct VitaStartScreen: View {
 }
 
 // MARK: - LiveArea
+
+/// Pictures of LiveAreas, kept after the first read (a LiveArea draws many times while it animates)
+enum VitaImageCache {
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
+    private static let missing = NSCache<NSString, NSNumber>()
+
+    static func image(atPath path: String) -> UIImage? {
+        let key = path as NSString
+        if let image = cache.object(forKey: key) { return image }
+        if missing.object(forKey: key) != nil { return nil }
+        guard let image = UIImage(contentsOfFile: path) else {
+            missing.setObject(1, forKey: key)
+            return nil
+        }
+        cache.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height * 4))
+        return image
+    }
+}
 
 /// What a game's sce_sys/livearea/contents/template.xml says
 struct LiveAreaTemplate {
@@ -897,7 +938,7 @@ struct VitaLiveArea: View {
 
     private func image(_ name: String?) -> UIImage? {
         guard let name, !name.isEmpty else { return nil }
-        return UIImage(contentsOfFile: (contents as NSString).appendingPathComponent(name))
+        return VitaImageCache.image(atPath: (contents as NSString).appendingPathComponent(name))
     }
 
     private var manualPages: [String] { VitaManual.pages(appPath: app.path) }
@@ -994,12 +1035,12 @@ struct VitaLiveArea: View {
                 .shadow(color: .black.opacity(0.45), radius: space.len(10), y: space.len(4))
             }
             .buttonStyle(VitaPressStyle())
-            .position(x: space.x(gate.midX), y: space.y(gate.midY))
             .contextMenu {
                 Button(action: pressStart) { Label("Start", systemImage: "play.fill") }
                 Button(action: info) { Label("Information", systemImage: "info.circle") }
                 Button(action: settings) { Label("Game settings, patches & saves", systemImage: "slider.horizontal.3") }
             }
+            .position(x: space.x(gate.midX), y: space.y(gate.midY))
 
             // Options (the Vita's triangle menu): information and the game's settings
             Menu {
