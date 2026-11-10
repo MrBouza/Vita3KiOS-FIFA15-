@@ -51,6 +51,7 @@ enum JITProvider: String, CaseIterable, Identifiable {
     }
 }
 
+@MainActor
 enum JITEnabler {
     static var inLiveContainer: Bool {
         ProcessInfo.processInfo.environment["LC_HOME_PATH"] != nil || Bundle.main.bundlePath.contains("LiveContainer")
@@ -175,8 +176,11 @@ enum DeviceTXM {
     /// "A" or "M" and the chip number, from the GPU's name ("Apple A17 Pro GPU")
     private static var chipGeneration: (series: String, number: Int)? {
         guard let name = MTLCreateSystemDefaultDevice()?.name.uppercased(),
-              let match = name.firstMatch(of: /APPLE\s+([MA])(\d+)/), let number = Int(match.2) else { return nil }
-        return (String(match.1), number)
+              let regex = try? NSRegularExpression(pattern: #"APPLE\s+([MA])(\d+)"#),
+              let match = regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
+              let series = Range(match.range(at: 1), in: name), let digits = Range(match.range(at: 2), in: name),
+              let number = Int(name[digits]) else { return nil }
+        return (String(name[series]), number)
     }
 
     /// nil when the firmware folder can't be read
