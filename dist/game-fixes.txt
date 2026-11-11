@@ -1,4 +1,4 @@
-# Vita3KiOS game fixes
+# Hinoki game fixes
 #
 # Recommended settings per game. The app downloads this file when the library opens and applies a
 # game's line when it starts, unless the player has given that game settings of their own.
@@ -34,3 +34,10 @@ PCSF00021 memory-mapping=on native-buffer=on surface-sync=on async-shaders=on | 
 # Killzone Mercenary: same game ran at ~40 FPS with these settings and ~19 FPS with page-table mapping,
 # high accuracy and surface sync on (owner's logs)
 PCSA00107 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing
+
+# Uncharted: Golden Abyss (US, EU): stuck on the splash. A thread calls a function pointer that holds a float
+# (0xC470DBF6 = -963.4) next to a table of real ones: something wrote picture/vertex-like data over game memory.
+# Test: GPU memory mapping off (no page sharing with GPU buffers) and exact floating point
+PCSA00029 memory-mapping=off fast-cpu=off | GPU memory mapping off and exact floating point: testing a fix for the game stopping on the splash screen
+PCSF00001 memory-mapping=off fast-cpu=off | GPU memory mapping off and exact floating point: testing a fix for the game stopping on the splash screen
+PCSF00012 memory-mapping=off fast-cpu=off | GPU memory mapping off and exact floating point: testing a fix for the game stopping on the splash screen

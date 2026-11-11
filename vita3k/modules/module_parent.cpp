@@ -35,6 +35,7 @@
 #include <util/find.h>
 #include <util/lock_and_find.h>
 #include <util/log.h>
+#include <util/recent_imports.h>
 #include <util/string_utils.h>
 #include <util/thermal.h>
 
@@ -151,6 +152,10 @@ static void log_import_call(char emulation_level, uint32_t nid, SceUID thread_id
 }
 
 void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread_id) {
+    // For crash reports: what each thread called last
+    if (!recent_imports::namer)
+        recent_imports::namer = import_name;
+    recent_imports::record(thread_id, nid, read_lr(cpu));
 #if defined(VITA3K_PLATFORM_IOS)
     // Heat: every 256 system calls, a game thread checks whether it should step down (util/thermal.h)
     {

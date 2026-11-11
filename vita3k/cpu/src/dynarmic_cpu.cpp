@@ -19,6 +19,7 @@
 #include <cpu/impl/dynarmic_cpu.h>
 #include <cpu/state.h>
 #include <util/log.h>
+#include <util/recent_imports.h>
 
 #include <mem/ptr.h>
 
@@ -467,15 +468,73 @@ public:
             // through megabytes of empty address space (Uncharted: Golden Abyss logged 50,000 invalid
             // reads and burned a core): stop it at the jump instead, and say once where it came from
             static std::atomic_flag reported = ATOMIC_FLAG_INIT;
-            if (!reported.test_and_set()) {
-                const uint32_t lr = cpu->get_lr();
-                const uint32_t call = (lr & ~1u) >= 4 ? (lr & ~1u) - ((lr & 1) ? 2 : 4) : 0;
-                LOG_CRITICAL("Thread {} jumped to unmapped address 0x{:08X}; LR 0x{:08X}, the call before it: {}\n{}", parent->thread_id, addr, lr,
-                    is_valid_addr(mem, call) ? disassemble(*parent, call, nullptr) : std::string("(unmapped)"), cpu->save_context().description());
-            }
+            if (!reported.test_and_set())
+                report_wild_jump(addr);
             return std::nullopt;
         }
         return MemoryRead32(addr);
+    }
+
+    // Everything a wild jump leaves behind: the code before the return address (in the caller's own
+    // mode), the memory the registers point at, the stack, and the thread's last system calls
+    void report_wild_jump(uint32_t addr) {
+        MemState &mem = *parent->mem;
+        const CPUContext ctx = cpu->save_context();
+        const uint32_t lr = cpu->get_lr();
+        const bool thumb_caller = lr & 1;
+        std::string out = fmt::format("Thread {} jumped to unmapped address 0x{:08X}; LR 0x{:08X} ({} caller)\n{}", parent->thread_id, addr, lr,
+            thumb_caller ? "Thumb" : "ARM", ctx.description());
+
+        // The caller's code: 0x30 bytes up to the return address, decoded from a point that lines up
+        const uint32_t ret = lr & ~1u;
+        out += "Code before the return address:\n";
+        for (uint32_t start_back : { 0x30u, 0x2Eu }) {
+            if (ret < start_back)
+                continue;
+            uint32_t at = ret - start_back;
+            std::string block;
+            bool lined_up = false;
+            for (int n = 0; n < 32 && at < ret + 4; ++n) {
+                if (!is_valid_addr(mem, at)) {
+                    block += fmt::format("  {:08X}: (unmapped)\n", at);
+                    break;
+                }
+                uint16_t size = 0;
+                const std::string insn = disassemble(*parent, at, thumb_caller, &size);
+                block += fmt::format("  {}{:08X}: {}\n", at == ret ? "> " : "  ", at, insn);
+                if (at == ret)
+                    lined_up = true;
+                at += size ? size : (thumb_caller ? 2 : 4);
+            }
+            if (lined_up || !thumb_caller) {
+                out += block;
+                break;
+            }
+        }
+
+        const auto dump = [&](const char *what, uint32_t base, int before, int words) {
+            const uint32_t from = (base & ~3u) - static_cast<uint32_t>(before) * 4;
+            out += fmt::format("{} 0x{:08X}:", what, base);
+            for (int i = 0; i < words; ++i) {
+                const uint32_t a = from + i * 4;
+                if (i % 8 == 0)
+                    out += fmt::format("\n  {:08X}:", a);
+                if (a >= mem.host_page_size && is_valid_addr(mem, a))
+                    out += fmt::format(" {:08X}", *Ptr<uint32_t>(a).get(mem));
+                else
+                    out += " --------";
+            }
+            out += "\n";
+        };
+        dump("Stack at SP", ctx.get_sp(), 4, 48);
+        for (int r = 0; r < 13; ++r) {
+            const uint32_t v = ctx.cpu_registers[r];
+            if (v >= mem.host_page_size && is_valid_addr(mem, v))
+                dump(fmt::format("Memory at r{}", r).c_str(), v, 8, 24);
+        }
+        out += fmt::format("Last system calls of thread {} (oldest first):\n{}", parent->thread_id, recent_imports::describe(parent->thread_id));
+        out += fmt::format("Last system calls of any thread:\n{}", recent_imports::describe(-1, 12));
+        LOG_CRITICAL("{}", out);
     }
 
     static void TraceInstruction(uint64_t self_, uint64_t address, uint64_t is_thumb) {
