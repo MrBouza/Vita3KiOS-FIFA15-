@@ -485,6 +485,9 @@ struct VitaBackgroundStyle: Identifiable {
     var hills: Color? = nil
     var bubbles = 12
     var shapes = false
+    var stars = false // twinkling points of light (night skies)
+    var aurora = false // slow ribbons of light across the sky
+    var petals = false // blossom petals drifting down
 
     private static func rgb(_ r: Double, _ g: Double, _ b: Double) -> Color { Color(red: r, green: g, blue: b) }
 
@@ -499,6 +502,16 @@ struct VitaBackgroundStyle: Identifiable {
                             rays: true, bubbles: 16),
         VitaBackgroundStyle(id: "violet", name: "Violet Dream", sky: [rgb(0.78, 0.58, 1.0), rgb(0.50, 0.30, 0.92), rgb(0.18, 0.08, 0.54)], bubbles: 18),
         VitaBackgroundStyle(id: "shapes", name: "PlayStation Shapes", sky: [rgb(0.36, 0.62, 0.86), rgb(0.10, 0.30, 0.62), rgb(0.03, 0.10, 0.30)]),
+        VitaBackgroundStyle(id: "aurora", name: "Midnight Aurora", sky: [rgb(0.02, 0.10, 0.26), rgb(0.02, 0.18, 0.30), rgb(0.01, 0.05, 0.14)],
+                            wave: rgb(0.55, 1.0, 0.85), bubbles: 6, stars: true, aurora: true),
+        VitaBackgroundStyle(id: "sakura", name: "Sakura Breeze", sky: [rgb(1.0, 0.86, 0.92), rgb(0.98, 0.66, 0.80), rgb(0.80, 0.44, 0.66)],
+                            bubbles: 8, petals: true),
+        VitaBackgroundStyle(id: "frost", name: "Frosted Glass", sky: [rgb(0.84, 0.93, 1.0), rgb(0.60, 0.78, 0.94), rgb(0.34, 0.52, 0.76)],
+                            wave: rgb(0.92, 0.98, 1.0), rays: true, bubbles: 22),
+        VitaBackgroundStyle(id: "crimson", name: "Crimson Pulse", sky: [rgb(0.80, 0.10, 0.18), rgb(0.48, 0.04, 0.12), rgb(0.14, 0.01, 0.05)],
+                            wave: rgb(1.0, 0.72, 0.72), bubbles: 10, shapes: true),
+        VitaBackgroundStyle(id: "starfield", name: "Starlit Night", sky: [rgb(0.10, 0.12, 0.34), rgb(0.05, 0.06, 0.20), rgb(0.01, 0.01, 0.08)],
+                            wave: rgb(0.70, 0.76, 1.0), bubbles: 4, stars: true),
     ]
 }
 
@@ -534,6 +547,52 @@ struct VitaStyledBackground: View {
                         ray.addLine(to: CGPoint(x: origin.x + CGFloat(cos(a + 0.07)) * h * 2.4, y: origin.y + CGFloat(sin(a + 0.07)) * h * 2.4))
                         ray.closeSubpath()
                         context.fill(ray, with: .color(.white.opacity(0.07)))
+                    }
+                }
+                if style.stars {
+                    for i in 0..<70 {
+                        let twinkle = 0.35 + 0.65 * abs(sin(t * (0.6 + Double(noise(i, 11)) * 1.4) + Double(i)))
+                        let r = 0.6 + noise(i, 12) * 1.6
+                        let star = CGRect(x: noise(i, 13) * w - r, y: noise(i, 14) * h * 0.78 - r, width: r * 2, height: r * 2)
+                        context.fill(Path(ellipseIn: star), with: .color(.white.opacity(twinkle * 0.85)))
+                    }
+                }
+                if style.aurora {
+                    // Three soft ribbons that sway slowly, green to teal to violet
+                    let colors: [Color] = [Color(red: 0.3, green: 1.0, blue: 0.7), Color(red: 0.2, green: 0.8, blue: 1.0), Color(red: 0.7, green: 0.45, blue: 1.0)]
+                    for band in 0..<3 {
+                        var ribbon = Path()
+                        let top = h * (0.18 + CGFloat(band) * 0.11)
+                        let thickness = h * (0.16 - CGFloat(band) * 0.03)
+                        var x: CGFloat = -20
+                        ribbon.move(to: CGPoint(x: x, y: top))
+                        while x <= w + 20 {
+                            let y = top + CGFloat(sin(Double(x / w) * 3.4 + t * (0.10 + Double(band) * 0.04) + Double(band) * 2.1)) * h * 0.07
+                            ribbon.addLine(to: CGPoint(x: x, y: y))
+                            x += 16
+                        }
+                        while x >= -20 {
+                            let y = top + thickness + CGFloat(sin(Double(x / w) * 2.6 + t * (0.08 + Double(band) * 0.03) + Double(band))) * h * 0.05
+                            ribbon.addLine(to: CGPoint(x: x, y: y))
+                            x -= 16
+                        }
+                        ribbon.closeSubpath()
+                        context.fill(ribbon, with: .linearGradient(Gradient(colors: [colors[band].opacity(0.0), colors[band].opacity(0.28), colors[band].opacity(0.0)]),
+                                                                   startPoint: CGPoint(x: 0, y: top - h * 0.06), endPoint: CGPoint(x: 0, y: top + thickness + h * 0.06)))
+                    }
+                }
+                if style.petals {
+                    for i in 0..<26 {
+                        let size = (0.012 + noise(i, 15) * 0.014) * h
+                        let fall = CGFloat((t * (0.02 + Double(noise(i, 16)) * 0.025) + Double(noise(i, 17))).truncatingRemainder(dividingBy: 1))
+                        let cx = (noise(i, 18) + CGFloat(sin(t * 0.5 + Double(i))) * 0.04 + fall * 0.15).truncatingRemainder(dividingBy: 1.1) * w
+                        let cy = -size + fall * (h + size * 2)
+                        var local = context
+                        local.translateBy(x: cx, y: cy)
+                        local.rotate(by: .radians(t * (0.6 + Double(noise(i, 19))) + Double(i)))
+                        let petal = Path(ellipseIn: CGRect(x: -size, y: -size * 0.55, width: size * 2, height: size * 1.1))
+                        local.fill(petal, with: .color(Color(red: 1.0, green: 0.93, blue: 0.96).opacity(0.85)))
+                        local.stroke(petal, with: .color(Color(red: 0.95, green: 0.6, blue: 0.75).opacity(0.5)), lineWidth: 0.8)
                     }
                 }
                 if style.shapes {

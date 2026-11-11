@@ -41,6 +41,8 @@ uint64_t v3k_ram_helpers_back(void *host, uint64_t size, bool last);
 
 // Starts helpers in the background so the next boot doesn't wait for them
 void v3k_ram_helpers_prepare(void);
+// After a game: ends the helpers that lent it memory (they stay alive while it runs) and prepares new ones
+void v3k_ram_helpers_game_ended(void);
 
 // RAM checker
 uint32_t v3k_ram_helpers_live(void);

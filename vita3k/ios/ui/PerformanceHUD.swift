@@ -19,7 +19,7 @@ enum HUDSettings {
         Item(key: "frametime", title: "Frame time", detail: "Milliseconds per frame", defaultOn: false),
         Item(key: "minmax", title: "Min / average / max FPS", detail: "Over the last seconds", defaultOn: false),
         Item(key: "cpu", title: "CPU use", detail: "Share of all CPU cores the emulator uses", defaultOn: false),
-        Item(key: "memory", title: "Memory", detail: "Used, and left before iOS would close the app", defaultOn: true),
+        Item(key: "memory", title: "Memory", detail: "Used, and left before iOS would close the app; with RAM helpers on, what they lend", defaultOn: true),
         Item(key: "thermal", title: "Thermal state", detail: "As reported by iOS: Normal, Fair, Serious, Critical", defaultOn: true),
         Item(key: "battery", title: "Battery", detail: "Level and charging", defaultOn: false),
         Item(key: "resolution", title: "Resolution", detail: "Internal rendering resolution", defaultOn: false),
@@ -57,6 +57,8 @@ private struct PerfSample: Decodable {
 final class PerformanceHUDView: UIView {
     private let label = UILabel()
     private var timer: Timer?
+    private var helperUse: UInt64 = 0
+    private var helperUseCheckedAt = Date.distantPast
     let corner = HUDSettings.position
 
     override init(frame: CGRect) {
@@ -135,6 +137,23 @@ final class PerformanceHUDView: UIView {
             let used = ByteCountFormatter.string(fromByteCount: Int64(sample.memoryUsed), countStyle: .memory)
             let free = ByteCountFormatter.string(fromByteCount: Int64(sample.memoryAvailable), countStyle: .memory)
             line("RAM \(used) · \(free) left", color: sample.memoryAvailable < 600_000_000 ? .systemOrange : .white)
+            // RAM helpers: how much of the game's memory they carry right now (Settings › Memory)
+            if v3k_ram_helpers_enabled() {
+                let lent = v3k_ram_helpers_backed()
+                if lent > 0 {
+                    // Counting the touched pages walks the memory map: every 2 seconds is plenty
+                    if Date().timeIntervalSince(helperUseCheckedAt) > 2 {
+                        helperUse = v3k_ram_helpers_in_use()
+                        helperUseCheckedAt = Date()
+                    }
+                    let lentText = ByteCountFormatter.string(fromByteCount: Int64(lent), countStyle: .memory)
+                    let usedText = ByteCountFormatter.string(fromByteCount: Int64(helperUse), countStyle: .memory)
+                    let alive = v3k_ram_helpers_live()
+                    line("Helpers \(alive) · \(lentText) lent · \(usedText) in use", color: alive > 0 ? .systemGreen : .systemYellow)
+                } else {
+                    line("Helpers: not lending (see Settings › Memory)", color: .systemOrange)
+                }
+            }
         }
         if HUDSettings.isOn("thermal") {
             switch ProcessInfo.processInfo.thermalState {

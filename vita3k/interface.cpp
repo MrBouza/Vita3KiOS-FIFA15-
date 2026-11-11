@@ -378,12 +378,10 @@ static std::vector<std::string> get_archive_contents_path(const ZipPtr &zip, std
         if (is_junk_entry(name))
             continue;
         const std::string lower = string_utils::tolower(name);
-        if (lower.ends_with("sce_module/steroid.suprx")) {
-            LOG_CRITICAL("A Vitamin dump was detected, aborting installation...");
-            error = "This is a Vitamin dump, which Vita3K can't run. Use a NoNpDrm dump or a .pkg with its license.";
-            content_path.clear();
-            break;
-        }
+        // Vitamin dumps are installed like any decrypted dump: the game runs without Vitamin's loader
+        // (module_parent.cpp skips it). Vitamin could rip some files badly, so a NoNpDrm dump is still better
+        if (lower.ends_with("sce_module/steroid.suprx"))
+            LOG_WARN("Vitamin dump detected: installing it (its steroid.suprx loader won't be used). If the game misbehaves, a NoNpDrm dump of it is more reliable");
 
         // A content root holds sce_sys/param.sfo (or theme.xml for a theme) right below it. Matched as
         // a whole path part, any case, either slash

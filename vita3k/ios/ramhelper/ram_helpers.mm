@@ -108,7 +108,8 @@ std::vector<Backed> g_backed;
 NSMutableArray *g_shmems = nil; // keeps the shared memory objects of this boot
 std::string g_status = "Not used yet";
 std::atomic<bool> g_start_failed{ false };
-bool g_new_boot = true; // the next range offered starts a new boot // the extension could not be started: don't keep waiting on every boot
+bool g_new_boot = true; // the next range offered starts a new boot
+bool g_lending = false; // the live helpers lent memory to the running game (they stay alive until it ends)
 size_t g_next = 0;
 
 void set_status(const std::string &status, bool error = false) {
@@ -223,9 +224,23 @@ bool start_helper() {
         return false;
     }
     NSError *error = nil;
-    id<V3KExtensionAPI> extension = [(Class<V3KExtensionAPI>)extension_class extensionWithIdentifier:identifier error:&error];
+    id<V3KExtensionAPI> extension = nil;
+    // LiveContainer answers this through its own hooks, which can take a moment to be ready at launch: try a few times
+    for (int attempt = 0; attempt < 4 && !extension; attempt++) {
+        if (attempt)
+            [NSThread sleepForTimeInterval:0.5];
+        error = nil;
+        extension = [(Class<V3KExtensionAPI>)extension_class extensionWithIdentifier:identifier error:&error];
+    }
     if (!extension) {
-        set_status(std::string("The RAM helper could not be loaded: ") + (error.localizedDescription.UTF8String ?: "unknown error"), true);
+        RAM_LOG_WARN("extensionWithIdentifier failed: {} (domain {}, code {})", error.localizedDescription.UTF8String ?: "no error given",
+            error.domain.UTF8String ?: "none", static_cast<long>(error.code));
+        if (v3k_ram_helpers_in_livecontainer())
+            set_status("LiveContainer could not start the RAM helper. It needs LiveContainer 3.8.13 or newer (helper process support); update LiveContainer, or install Vita3K on its own", true);
+        else
+            set_status(std::string("iOS could not find the RAM helper (") + (error.localizedDescription.UTF8String ?: "no reason given")
+                    + "). Reinstall without removing app extensions (SideStore/AltStore can strip them)",
+                true);
         g_start_failed = true;
         return false;
     }
@@ -306,7 +321,7 @@ std::shared_ptr<Helper> helper_with_room(uint64_t length) {
                     const uint64_t available = reply ? xpc_dictionary_get_uint64(reply, V3K_RAM_KEY_AVAILABLE) : 0;
                     helper.remaining = available > HELPER_HEADROOM ? available - HELPER_HEADROOM : 0;
                     helper.budget_known = true;
-                    RAM_LOG_INFO("helper {} can lend {} MiB", g_helpers.size(), helper.remaining / MiB);
+                    RAM_LOG_INFO("helper {} can lend {} MiB", helper.index, helper.remaining / MiB);
                 }
                 if (helper.remaining >= length) {
                     g_next = (g_next + i + 1) % g_helpers.size();
@@ -451,6 +466,11 @@ uint64_t v3k_ram_helpers_back(void *host, uint64_t size, bool last) {
             [g_shmems removeAllObjects];
         }
     }
+    // The previous game's lenders (if v3k_ram_helpers_game_ended wasn't called) hold memory nobody uses now
+    if (g_lending) {
+        g_lending = false;
+        end_helpers();
+    }
     if (g_start_failed) {
         // Tried and failed earlier in this run of the app: don't make every boot wait again
         if (last)
@@ -484,16 +504,34 @@ uint64_t v3k_ram_helpers_back(void *host, uint64_t size, bool last) {
                 total += backed.size;
         }
         const size_t helpers = live_count();
-        end_helpers();
+        // The lenders stay alive while the game runs: the memory stays theirs (charged to them, not to Vita3K)
+        // for the whole session. Ending them right away (what earlier builds did) left the memory without
+        // an owner, and pages the game touched later could be counted against Vita3K again
+        g_lending = total > 0;
+        if (!g_lending)
+            end_helpers();
         RAM_LOG_INFO("this app: {} MiB footprint, {} MiB still available to it (the lent memory is not counted here)", v3k_memory_footprint() / MiB, v3k_memory_available() / MiB);
         if (total)
             set_status(fmt::format("{} MiB of the PS Vita's memory lent by {} helper process{}", total / MiB, helpers, helpers == 1 ? "" : "es"));
         else if (!g_start_failed)
             set_status("The helpers had no memory to lend", true);
-        // Ready for the next boot
-        v3k_ram_helpers_prepare();
     }
     return offset;
+}
+
+void v3k_ram_helpers_game_ended(void) {
+    if (!g_lending)
+        return;
+    g_lending = false;
+    {
+        std::lock_guard lock(g_lock);
+        g_backed.clear();
+        [g_shmems removeAllObjects];
+    }
+    end_helpers();
+    RAM_LOG_INFO("game ended: lenders released, their memory is free again");
+    // Ready for the next boot
+    v3k_ram_helpers_prepare();
 }
 
 void v3k_ram_helpers_prepare(void) {

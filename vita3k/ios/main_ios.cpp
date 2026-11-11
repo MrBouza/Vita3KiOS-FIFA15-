@@ -49,6 +49,7 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <mach/mach.h>
 #include <os/proc.h>
 
 #include <atomic>
@@ -120,6 +121,27 @@ namespace {
 
 void show_message(const std::string &title, const std::string &message) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title.c_str(), message.c_str(), nullptr);
+}
+
+// Where this app's memory (what iOS counts against its limit) goes, for the log: CPU-side pages,
+// compressed pages, memory tagged as graphics (Metal), purgeable memory it owns, and the rest (mostly
+// memory wired for the GPU, e.g. game memory Metal reads directly). Plus what the RAM helpers carry.
+std::string memory_breakdown() {
+    task_vm_info_data_t info{};
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS)
+        return "unavailable";
+    constexpr uint64_t MiB = 1024 * 1024;
+    const uint64_t graphics = info.ledger_tag_graphics_footprint;
+    const uint64_t purgeable = info.ledger_purgeable_nonvolatile;
+    const uint64_t known = info.internal + info.compressed + graphics + purgeable;
+    const uint64_t other = info.phys_footprint > known ? info.phys_footprint - known : 0;
+    std::string text = fmt::format("footprint {} MiB = CPU pages {} + compressed {} + graphics {} + own purgeable {} + GPU-wired/other {}",
+        info.phys_footprint / MiB, info.internal / MiB, info.compressed / MiB, graphics / MiB, purgeable / MiB, other / MiB);
+    if (v3k_ram_helpers_backed())
+        text += fmt::format("; RAM helpers: {} alive, {} MiB lent, {} MiB of it used by the game", v3k_ram_helpers_live(),
+            v3k_ram_helpers_backed() / MiB, v3k_ram_helpers_in_use() / MiB);
+    return text;
 }
 
 } // namespace
@@ -225,7 +247,7 @@ int main(int argc, char *argv[]) {
             // For the summary at the end of the session
             const auto session_start = last_progress;
             double fps_total = 0.0, fps_min = 0.0, fps_max = 0.0;
-            int fps_samples = 0, hot_samples = 0, stalls = 0;
+            int fps_samples = 0, hot_samples = 0, stalls = 0, memory_samples = 0;
             uint64_t least_memory = os_proc_available_memory();
             const auto record_status = [&](double fps) {
                 ios::crash::session_status(fmt::format("{} MiB of memory left{}{}{}{}",
@@ -281,6 +303,9 @@ int main(int argc, char *argv[]) {
                             hot_samples++;
                     }
                     least_memory = std::min<uint64_t>(least_memory, os_proc_available_memory());
+                    // Every 30 seconds (and under memory pressure) say where the memory goes
+                    if (++memory_samples % 3 == 1 || os_proc_available_memory() < 600ull * 1024 * 1024)
+                        LOG_INFO("Memory: {}", memory_breakdown());
                     last_memory_log = now;
                     frames_at_memory_log = last_frames;
                 }
@@ -385,6 +410,7 @@ int main(int argc, char *argv[]) {
         ios::crash::session_ended();
         v3k_pad_clear_quit_request();
         LOG_INFO("{} exited with code {}, {} free JIT caches", title_id, result, ios::jit_pool_available());
+        v3k_ram_helpers_game_ended();
         if (gpu_errors >= renderer::vulkan::PERSISTENT_DEVICE_LOST_ERRORS) {
             // GPU memory mapping lets shaders read game memory directly, which is the usual way a
             // Vita game can fault the GPU: turn it off for this game and say so
