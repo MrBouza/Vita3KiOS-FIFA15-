@@ -27,6 +27,7 @@
 #include <io/vfs.h>
 #include <kernel/load_self.h>
 #include <kernel/state.h>
+#include <kernel/types.h>
 #include <module/load_module.h>
 #include <nids/functions.h>
 #include <packages/license.h>
@@ -35,6 +36,7 @@
 #include <util/lock_and_find.h>
 #include <util/log.h>
 #include <util/string_utils.h>
+#include <util/thermal.h>
 
 #include <unordered_set>
 
@@ -149,6 +151,18 @@ static void log_import_call(char emulation_level, uint32_t nid, SceUID thread_id
 }
 
 void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread_id) {
+#if defined(VITA3K_PLATFORM_IOS)
+    // Heat: every 256 system calls, a game thread checks whether it should step down (util/thermal.h)
+    {
+        static thread_local uint32_t calls = 0;
+        static thread_local int thermal_qos = 0;
+        if ((++calls & 255) == 0) {
+            const ThreadStatePtr self = emuenv.kernel.get_thread(thread_id);
+            if (self)
+                thermal::follow_game_qos(thermal_qos, self->priority > SCE_KERNEL_GAME_DEFAULT_PRIORITY_ACTUAL);
+        }
+    }
+#endif
     // HLE - call our C++ function
     if (emuenv.kernel.debugger.watch_import_calls) {
         const std::unordered_set<uint32_t> hle_nid_blacklist = {

@@ -26,6 +26,7 @@
 
 #include <util/log.h>
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <unordered_map>
@@ -310,8 +311,9 @@ static void log_metal_vertex_layout(const SceGxmVertexProgram &program, int stre
 }
 #endif
 
-// vertex count is only used with double buffer mapping
-static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t instance_count, uint32_t max_index) {
+// vertex count is only used with double buffer mapping (and on Apple for the streams that must be copied)
+static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t instance_count, uint32_t max_index,
+    const void *index_data, size_t index_count, SceGxmIndexFormat index_format) {
     GxmRecordState &state = context.record;
     const SceGxmVertexProgram &vertex_program = *state.vertex_program.get(mem);
     VertexProgram *vkvert = vertex_program.renderer_data.get();
@@ -351,6 +353,40 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
         return;
 
 #ifdef __APPLE__
+    // With memory mapping on, the GXM side doesn't look at the indices, so each stream's length covers only
+    // the first vertex: fine when the GPU reads the game's memory directly, but a stream Metal makes us copy
+    // (odd stride, unaligned attributes or address) then had only its first vertex copied and every other
+    // vertex read zeros. With page-table mapping that drew huge triangles all pointing at one spot (Madden
+    // NFL 13's stadium and field). Measure those streams from the indices here, as double buffer does.
+    if (context.state.features.enable_memory_mapping && context.state.mapping_method != MappingMethod::DoubleBuffer) {
+        bool copied = false;
+        for (int i = 0; i < max_stream_idx; i++) {
+            if (!state.vertex_streams[i].data)
+                continue;
+            const MetalStreamLayout &layout = cached_metal_layout(vertex_program, i);
+            if (vertex_program.streams[i].stride % 4 != 0 || layout.repack || (state.vertex_streams[i].data.address() & 3) != 0)
+                copied = true;
+        }
+        if (copied) {
+            if (max_index == 0 && index_data && index_count) {
+                if (index_format == SCE_GXM_INDEX_FORMAT_U16) {
+                    const uint16_t *data = static_cast<const uint16_t *>(index_data);
+                    max_index = *std::max_element(data, data + index_count);
+                } else {
+                    const uint32_t *data = static_cast<const uint32_t *>(index_data);
+                    max_index = *std::max_element(data, data + index_count);
+                }
+            }
+            for (const SceGxmVertexAttribute &attribute : vertex_program.attributes) {
+                const size_t attribute_size = gxm::attribute_format_size(static_cast<SceGxmAttributeFormat>(attribute.format)) * attribute.componentCount;
+                const SceGxmVertexStream &stream = vertex_program.streams[attribute.streamIndex];
+                const SceGxmIndexSource index_source = static_cast<SceGxmIndexSource>(stream.indexSource);
+                const size_t passed = gxm::is_stream_instancing(index_source) ? ((instance_count > 0 ? instance_count - 1 : 0) * stream.stride) : (static_cast<size_t>(max_index) * stream.stride);
+                const size_t length = attribute.offset + passed + attribute_size;
+                state.vertex_streams[attribute.streamIndex].size = std::max<size_t>(state.vertex_streams[attribute.streamIndex].size, length);
+            }
+        }
+    }
     log_metal_vertex_layout(vertex_program, max_stream_idx);
 #endif
     for (int i = 0; i < max_stream_idx; i++) {
@@ -750,7 +786,7 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     }
 
     // bind the vertex streams
-    bind_vertex_streams(context, mem, instance_count, max_index);
+    bind_vertex_streams(context, mem, instance_count, max_index, indices_ptr, count, format);
 
     if (ordered_fetch) {
         if (ordered_indices) {

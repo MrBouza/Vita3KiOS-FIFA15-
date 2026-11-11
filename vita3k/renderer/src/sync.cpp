@@ -84,6 +84,8 @@ COMMAND(handle_set_screen_filter) {
         break;
 
     case Backend::Vulkan:
+        // the player's choice: a filter stepped down for heat is not put back over it
+        dynamic_cast<vulkan::VKState &>(renderer).screen_renderer.filter_before_cooling.clear();
         dynamic_cast<vulkan::VKState &>(renderer).screen_renderer.set_filter(*filter);
         break;
     }

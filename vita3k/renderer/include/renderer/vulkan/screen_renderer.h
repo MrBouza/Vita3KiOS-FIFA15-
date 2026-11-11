@@ -93,6 +93,10 @@ public:
     void render(vk::ImageView image_view, vk::ImageLayout layout, const Viewport &viewport);
     void swap_window();
     void set_filter(const std::string_view &filter);
+    // While the phone is hot: the costly upscalers (FSR, Bicubic, FXAA) give way to bilinear, and come back
+    // once it has cooled down
+    void follow_thermal_filter(bool cool_down);
+    std::string filter_before_cooling;
 
 private:
     void create_render_pass();

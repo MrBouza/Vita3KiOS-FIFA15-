@@ -73,6 +73,20 @@ inline void follow_render_qos(int &current) {
     current = wanted;
 }
 
+// Game threads again, followed while they run (every few hundred system calls): while the phone is hot
+// (and should be kept cool) or in Low Power Mode, the game's own background threads, the ones it gave a
+// lower priority than its default (streaming, loading, audio decoding helpers), move to utility class,
+// where iOS is free to run them on the efficiency cores at low clocks. The game's main and render
+// threads keep their class, so the frame rate holds while the heat drops. `current` starts at 0 (the
+// class set at thread start).
+inline void follow_game_qos(int &current, bool background_thread) {
+    const int wanted = (background_thread && should_step_down()) ? 1 : 0;
+    if (wanted == current)
+        return;
+    pthread_set_qos_class_self_np(wanted ? QOS_CLASS_UTILITY : game_thread_qos(), 0);
+    current = wanted;
+}
+
 // Background workers (shader compilation), called once per job. They were started from the main
 // thread and inherited its user-interactive class: four of them racing the performance cores to top
 // clock whenever a game met new shaders. With "Keep the phone cool" they run user-initiated, and

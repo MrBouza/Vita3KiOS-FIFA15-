@@ -68,15 +68,16 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 
-	<!-- ProMotion displays: allow frame pacing above 60 Hz -->
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
 	<key>LSSupportsGameMode</key>
 	<true/>
 	<key>GCSupportsGameMode</key>
 	<true/>
+	<!-- No 120 Hz on ProMotion iPhones: a PS Vita never draws more than 60 frames a second, and letting the
+	     display and the app's own animations run at 120 Hz only added heat -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
+	<false/>
 	<!-- Game controllers can drive the app, not only the touch screen -->
 	<key>GCSupportsControllerUserInteraction</key>
 	<true/>

@@ -615,6 +615,24 @@ void ScreenRenderer::swap_window() {
     current_cmd_buffer = nullptr;
 }
 
+void ScreenRenderer::follow_thermal_filter(bool cool_down) {
+    if (!filter)
+        return;
+    if (cool_down && filter_before_cooling.empty()) {
+        const std::string name{ filter->get_name() };
+        if (name == "FSR" || name == "Bicubic" || name == "FXAA") {
+            LOG_INFO("The phone is hot: screen filter {} -> Bilinear until it cools down", name);
+            set_filter("Bilinear");
+            filter_before_cooling = name;
+        }
+    } else if (!cool_down && !filter_before_cooling.empty()) {
+        LOG_INFO("The phone has cooled down: screen filter back to {}", filter_before_cooling);
+        const std::string name = filter_before_cooling;
+        filter_before_cooling.clear();
+        set_filter(name);
+    }
+}
+
 void ScreenRenderer::set_filter(const std::string_view &filter) {
     if (this->filter && filter == this->filter->get_name())
         return;

@@ -37,6 +37,7 @@
 #include <util/align.h>
 #include <util/android_driver.h>
 #include <util/log.h>
+#include <util/thermal.h>
 #include <util/warning.h>
 #include <vkutil/vkutil.h>
 
@@ -1285,6 +1286,9 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState 
         frame = display.next_rendered_frame;
     }
 
+#if defined(VITA3K_PLATFORM_IOS)
+    screen_renderer.follow_thermal_filter(thermal::should_step_down());
+#endif
     update_overlays();
     bool has_overlays = false;
     if (overlay_manager) {
