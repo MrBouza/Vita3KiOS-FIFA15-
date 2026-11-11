@@ -73,6 +73,18 @@ final class PerformanceHUDView: UIView {
         label.layer.shadowRadius = 1.5
         label.layer.shadowOffset = .zero
         addSubview(label)
+        isHidden = true
+    }
+
+    /// Shown and updating, or hidden and idle (the game menu can turn it on and off mid-game)
+    private(set) var active = false
+
+    func setActive(_ active: Bool) {
+        self.active = active
+        timer?.invalidate()
+        timer = nil
+        isHidden = !active
+        guard active else { return }
         UIDevice.current.isBatteryMonitoringEnabled = HUDSettings.isOn("battery")
         update()
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
