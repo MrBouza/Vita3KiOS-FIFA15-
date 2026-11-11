@@ -159,7 +159,7 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
         if ((++calls & 255) == 0) {
             const ThreadStatePtr self = emuenv.kernel.get_thread(thread_id);
             if (self)
-                thermal::follow_game_qos(thermal_qos, self->priority > SCE_KERNEL_GAME_DEFAULT_PRIORITY_ACTUAL);
+                thermal::follow_game_qos(thermal_qos, self->get_priority() > SCE_KERNEL_GAME_DEFAULT_PRIORITY_ACTUAL);
         }
     }
 #endif
