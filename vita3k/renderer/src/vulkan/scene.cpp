@@ -422,6 +422,11 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
                 }
 #endif
                 context.vertex_stream_ring_buffer.allocate(context.prerender_cmd, stream_size, stream);
+                // The copy lives in the ring buffer: bind that buffer, not whatever this slot held before. With
+                // memory mapping on (where the slots start as, and usually are, mapping buffers), a copied
+                // stream kept the previous draw's buffer with the ring buffer's offset and its vertices were
+                // read from unrelated memory: the giant triangles shooting out of Madden NFL 13's field
+                context.vertex_stream_buffers[i] = context.vertex_stream_ring_buffer.handle();
                 context.vertex_stream_offsets[i] = context.vertex_stream_ring_buffer.data_offset;
             }
 

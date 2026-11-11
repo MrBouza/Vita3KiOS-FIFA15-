@@ -33,9 +33,12 @@
 #include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <cstdio>
+#include <libkern/OSCacheControl.h>
 #include <mach/mach.h>
 #include <os/proc.h>
 #include <sys/mman.h>
+#include <unistd.h>
 #endif
 
 #include <algorithm>
@@ -243,6 +246,87 @@ bool prewarm_ios_jit_code_cache_pool() {
 
 std::size_t ios_jit_code_cache_pool_progress() {
     return ios_jit_regions_prepared;
+}
+
+// RAM: a prepared code cache costs physical memory from the moment it is prepared (the JIT app touches
+// every page), used or not: about 900 MiB for the whole pool, while games use a few dozen MiB of it. The
+// pages of the caches waiting in the pool are given back to iOS: the cache keeps its place and its JIT
+// permission, and pages come back zeroed when a thread takes it (dynarmic writes its code from scratch
+// anyway). Whether the JIT app's prepared memory takes this is checked once per install on one cache:
+// a marker file records the test, and a crash during it (the next launch finds the marker) turns the
+// trimming off for good.
+static std::string jit_trim_marker(const char *name) {
+    const char *home = getenv("HOME");
+    return std::string(home ? home : "/tmp") + "/Library/Caches/" + name;
+}
+
+static bool marker_exists(const std::string &path) {
+    return access(path.c_str(), F_OK) == 0;
+}
+
+static void create_marker(const std::string &path) {
+    if (FILE *file = fopen(path.c_str(), "w")) {
+        fputs("1", file);
+        fflush(file);
+        fsync(fileno(file));
+        fclose(file);
+    }
+}
+
+static bool jit_trim_works() {
+    static int result = -1;
+    if (result >= 0)
+        return result == 1;
+    const std::string broken = jit_trim_marker("v3k-jit-trim-broken");
+    const std::string testing = jit_trim_marker("v3k-jit-trim-testing");
+    const std::string ok = jit_trim_marker("v3k-jit-trim-ok");
+    if (marker_exists(broken)) {
+        result = 0;
+        return false;
+    }
+    if (marker_exists(testing)) {
+        // the test killed the app last time
+        rename(testing.c_str(), broken.c_str());
+        LOG_WARN("iOS JIT: giving unused code cache memory back crashed last time: it stays off");
+        result = 0;
+        return false;
+    }
+    if (marker_exists(ok)) {
+        result = 1;
+        return true;
+    }
+    oaknut::detail::PreparedJitRegion region;
+    if (!oaknut::detail::take_prepared_jit_region(IOS_TINY_CODE_CACHE_SIZE, region))
+        return false; // try again once the pool has one
+    create_marker(testing);
+    bool works = madvise(region.rw, region.size, MADV_FREE_REUSABLE) == 0;
+    if (works) {
+        // mov w0, #42 ; ret, written through the writable alias of the released pages, run from the executable one
+        region.rw[0] = 0x52800540;
+        region.rw[1] = 0xd65f03c0;
+        sys_icache_invalidate(region.rx, 8);
+        works = reinterpret_cast<int (*)()>(region.rx)() == 42;
+        madvise(region.rw, region.size, MADV_FREE_REUSABLE);
+    }
+    oaknut::detail::return_prepared_jit_region(region);
+    remove(testing.c_str());
+    create_marker(works ? ok : broken);
+    LOG_INFO("iOS JIT: giving unused code cache memory back {}", works ? "works here: on" : "is not possible here: off");
+    result = works ? 1 : 0;
+    return works;
+}
+
+std::size_t trim_ios_jit_code_cache_pool() {
+    if (!oaknut::detail::requires_universal_jit() || !jit_trim_works())
+        return 0;
+    auto &pool = oaknut::detail::jit_region_pool();
+    const std::lock_guard lock(pool.mutex);
+    std::size_t released = 0;
+    for (const auto &region : pool.regions) {
+        if (madvise(region.rw, region.size, MADV_FREE_REUSABLE) == 0)
+            released += region.size;
+    }
+    return released;
 }
 
 std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size) {

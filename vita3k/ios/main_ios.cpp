@@ -304,8 +304,13 @@ int main(int argc, char *argv[]) {
                     }
                     least_memory = std::min<uint64_t>(least_memory, os_proc_available_memory());
                     // Every 30 seconds (and under memory pressure) say where the memory goes
-                    if (++memory_samples % 3 == 1 || os_proc_available_memory() < 600ull * 1024 * 1024)
+                    if (++memory_samples % 3 == 1 || os_proc_available_memory() < 600ull * 1024 * 1024) {
+#if defined(__aarch64__)
+                        // Caches threads gave back while the game runs (finished threads) hold code nobody runs
+                        trim_ios_jit_code_cache_pool();
+#endif
                         LOG_INFO("Memory: {}", memory_breakdown());
+                    }
                     last_memory_log = now;
                     frames_at_memory_log = last_frames;
                 }
@@ -411,6 +416,11 @@ int main(int argc, char *argv[]) {
         v3k_pad_clear_quit_request();
         LOG_INFO("{} exited with code {}, {} free JIT caches", title_id, result, ios::jit_pool_available());
         v3k_ram_helpers_game_ended();
+#if defined(__aarch64__)
+        // The game's code caches went back to the pool: their memory too
+        if (const std::size_t released = trim_ios_jit_code_cache_pool())
+            LOG_INFO("JIT: gave {} MiB of code cache memory back to iOS after the game", released / (1024 * 1024));
+#endif
         if (gpu_errors >= renderer::vulkan::PERSISTENT_DEVICE_LOST_ERRORS) {
             // GPU memory mapping lets shaders read game memory directly, which is the usual way a
             // Vita game can fault the GPU: turn it off for this game and say so

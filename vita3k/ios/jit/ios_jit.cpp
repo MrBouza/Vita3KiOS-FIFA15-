@@ -27,6 +27,7 @@
 #include <spdlog/spdlog.h>
 
 #include <dlfcn.h>
+#include <os/proc.h>
 #include <signal.h>
 #include <sys/sysctl.h>
 #include <sys/ucontext.h>
@@ -218,6 +219,10 @@ bool prepare_jit_pool() {
     for (int i = 0; i < 20 && debugger_attached(); i++)
         usleep(50 * 1000);
     LOG_INFO("Debugger attached after detach request: {}", debugger_attached() ? "yes" : "no");
+    // The caches cost their full size in RAM from the moment they are prepared: give back what isn't used yet
+    if (const std::size_t released = trim_ios_jit_code_cache_pool())
+        LOG_INFO("JIT: gave {} MiB of unused code cache memory back to iOS ({} MiB available now)", released / (1024 * 1024),
+            os_proc_available_memory() / (1024 * 1024));
     return true;
 #else
     g_jit_pool_ready = true;

@@ -399,7 +399,7 @@ struct EmulationSections: View {
             Toggle(isOn: $keepCool) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Keep the phone cool")
-                    Text("Less heat and battery use, a bit less top speed. When the phone gets hot (or in Low Power Mode) it eases off more: the game's background threads move to the efficiency cores, shader compiling slows, and FSR, Bicubic or FXAA become Bilinear until it cools down. Applies from the next game launch.")
+                    Text("Less heat and battery use, a bit less top speed. The game's background threads and shader compiling stay on the efficiency cores. At the first sign of warmth (or in Low Power Mode) it eases off more, before the phone gets hot: the renderer steps down and FSR, Bicubic or FXAA become Bilinear until it cools. Applies from the next game launch.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

@@ -38,6 +38,13 @@ inline std::atomic<bool> &phone_is_hot() {
     return value;
 }
 
+// iOS's thermal state: 0 nominal, 1 fair, 2 serious, 3 critical. "Fair" is the first sign of warmth:
+// easing off there keeps the phone from ever reaching "serious"
+inline std::atomic<int> &thermal_level() {
+    static std::atomic<int> value{ 0 };
+    return value;
+}
+
 // iOS Low Power Mode: the player asked for battery over speed, so the steps below apply even with
 // "Keep the phone cool" off
 inline std::atomic<bool> &low_power_mode() {
@@ -48,7 +55,7 @@ inline std::atomic<bool> &low_power_mode() {
 // One step down for the threads that follow it: the phone is hot and should be kept cool, or Low
 // Power Mode is on
 inline bool should_step_down() {
-    return (keep_cool().load(std::memory_order_relaxed) && phone_is_hot().load(std::memory_order_relaxed))
+    return (keep_cool().load(std::memory_order_relaxed) && thermal_level().load(std::memory_order_relaxed) >= 1)
         || low_power_mode().load(std::memory_order_relaxed);
 }
 
@@ -73,14 +80,17 @@ inline void follow_render_qos(int &current) {
     current = wanted;
 }
 
-// Game threads again, followed while they run (every few hundred system calls): while the phone is hot
-// (and should be kept cool) or in Low Power Mode, the game's own background threads, the ones it gave a
+// Game threads again, followed while they run (every few hundred system calls): with "Keep the phone
+// cool" (or in Low Power Mode) the game's own background threads, the ones it gave a
 // lower priority than its default (streaming, loading, audio decoding helpers), move to utility class,
 // where iOS is free to run them on the efficiency cores at low clocks. The game's main and render
 // threads keep their class, so the frame rate holds while the heat drops. `current` starts at 0 (the
 // class set at thread start).
 inline void follow_game_qos(int &current, bool background_thread) {
-    const int wanted = (background_thread && should_step_down()) ? 1 : 0;
+    // With "Keep the phone cool" the background threads stay off the top clocks all the time, not only
+    // once the phone is warm: the heat that never builds up needs no cooling down
+    const bool ease = keep_cool().load(std::memory_order_relaxed) || should_step_down();
+    const int wanted = (background_thread && ease) ? 1 : 0;
     if (wanted == current)
         return;
     pthread_set_qos_class_self_np(wanted ? QOS_CLASS_UTILITY : game_thread_qos(), 0);
@@ -95,10 +105,10 @@ inline void follow_game_qos(int &current, bool background_thread) {
 // `current` starts at -1 (not set yet).
 inline void follow_worker_qos(int &current) {
     int wanted = 0;
-    if (should_step_down())
+    // Shaders compile in the background (the game draws without them for a frame or two), so with
+    // "Keep the phone cool" they never need the performance cores' top clocks
+    if (should_step_down() || keep_cool().load(std::memory_order_relaxed))
         wanted = 2;
-    else if (keep_cool().load(std::memory_order_relaxed))
-        wanted = 1;
     if (wanted == current)
         return;
     static constexpr qos_class_t classes[] = { QOS_CLASS_USER_INTERACTIVE, QOS_CLASS_USER_INITIATED, QOS_CLASS_UTILITY };

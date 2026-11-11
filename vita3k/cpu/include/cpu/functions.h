@@ -111,6 +111,9 @@ bool prewarm_ios_jit_code_cache_pool();
 std::size_t ios_jit_code_cache_pool_progress();
 // Prepared code caches of a size currently free in the pool
 std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size);
+// Gives the physical memory of the caches waiting unused in the pool back to iOS (they keep their
+// place and come back zeroed when used). Returns the bytes released (0 if trimming is off).
+std::size_t trim_ios_jit_code_cache_pool();
 #endif
 #if defined(VITA3K_PLATFORM_IOS)
 // "Fast CPU": lets the recompiler take floating-point shortcuts (NaN handling, reciprocal precision,

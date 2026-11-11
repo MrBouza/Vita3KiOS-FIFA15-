@@ -19,6 +19,8 @@
 
 #include "ios_platform.h"
 
+extern "C" void v3k_log_ui(const char *message);
+
 #include <util/app_activity.h>
 #include <util/thermal.h>
 
@@ -156,6 +158,11 @@ bool keep_cool_enabled() {
 static void update_thermal_state() {
     const NSProcessInfoThermalState state = NSProcessInfo.processInfo.thermalState;
     thermal::phone_is_hot() = state >= NSProcessInfoThermalStateSerious;
+    const int level = static_cast<int>(state);
+    if (thermal::thermal_level().exchange(level) != level) {
+        static const char *const names[] = { "nominal", "fair", "serious", "critical" };
+        v3k_log_ui([NSString stringWithFormat:@"Thermal state: %s", names[level < 0 ? 0 : (level > 3 ? 3 : level)]].UTF8String);
+    }
 }
 
 static void update_power_state() {
