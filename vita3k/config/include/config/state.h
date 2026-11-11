@@ -100,6 +100,7 @@ struct Config {
         bool spirv_shader = false;
         bool texture_cache = true;
         bool stretch_the_display_area = false;
+        bool widescreen_hack = false;
         bool fullscreen_hd_res_pixel_perfect = false;
         int file_loading_delay = 0;
         bool psn_signed_in = false;

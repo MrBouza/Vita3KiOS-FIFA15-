@@ -125,6 +125,8 @@ void draw(GLState &renderer, GLContext &context, const FeatureState &features, S
     vert_ublock.viewport_flag = (context.record.viewport_flat) ? 0.0f : 1.0f;
     vert_ublock.z_offset = context.record.z_offset;
     vert_ublock.z_scale = context.record.z_scale;
+    vert_ublock.wide_x_scale = 1.0f;
+    vert_ublock.wide_attr_shift = 0.0f;
     vert_ublock.screen_width = static_cast<float>(context.record.color_surface.width);
     vert_ublock.screen_height = static_cast<float>(context.record.color_surface.height);
 

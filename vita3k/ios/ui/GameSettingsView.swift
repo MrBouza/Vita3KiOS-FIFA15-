@@ -19,6 +19,7 @@ struct GameSettings: Codable {
     var fpsHack = false
     var disableSurfaceSync = false
     var stretchDisplay = false
+    var widescreen = false
     var asyncShaders = true
     var shaderCache = true
     var nativeBuffer = false
@@ -298,6 +299,7 @@ struct GameSettingsView: View {
                     }
                 }
                 toggle("Stretch to screen", \.stretchDisplay, "stretch-display", "Fills the whole screen instead of keeping the Vita's shape.")
+                toggle("Widescreen (experimental)", \.widescreen, "widescreen", "Widens 3D scenes to fill the screen instead of stretching them. The HUD and menus still stretch. Takes effect on the next launch of the game.")
             }
             Toggle(isOn: Binding(get: { preciseMath }, set: { on in
                 preciseMath = on
