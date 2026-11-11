@@ -545,7 +545,29 @@ public:
         LOG_TRACE("{} ({}): {} {}", log_hex(self_), self.parent->thread_id, log_hex(address), disassembly);
     }
 
+    // Write watch: the address of the guest instruction now running (memory callbacks don't see PC)
+    uint32_t watch_pc = 0;
+    bool watch_thumb = false;
+
+    static void NoteWatchPc(uint64_t self_, uint64_t address, uint64_t is_thumb) {
+        ArmDynarmicCallback &self = *reinterpret_cast<ArmDynarmicCallback *>(self_);
+        self.watch_pc = static_cast<uint32_t>(address);
+        self.watch_thumb = is_thumb != 0;
+    }
+
+    template <typename T>
+    void report_watched_write(Dynarmic::A32::VAddr addr, T value) {
+        if (!write_watch::may_report())
+            return;
+        MemState &mem = *parent->mem;
+        const std::string insn = watch_pc >= mem.host_page_size && is_valid_addr(mem, watch_pc) ? disassemble(*parent, watch_pc, watch_thumb, nullptr) : std::string("?");
+        LOG_CRITICAL("Watch: thread {} wrote {}-bit 0x{:X} at 0x{:08X} from 0x{:08X} ({}): {} | LR 0x{:08X}", parent->thread_id, sizeof(T) * 8,
+            static_cast<uint64_t>(value), addr, watch_pc, watch_thumb ? "Thumb" : "ARM", insn, cpu->get_lr());
+    }
+
     void PreCodeTranslationHook(bool is_thumb, Dynarmic::A32::VAddr pc, Dynarmic::A32::IREmitter &ir) override {
+        if (write_watch::active())
+            ir.CallHostFunction(&NoteWatchPc, ir.Imm64(reinterpret_cast<uint64_t>(this)), ir.Imm64(pc), ir.Imm64(is_thumb));
         if (cpu->log_code) {
             ir.CallHostFunction(&TraceInstruction, ir.Imm64(reinterpret_cast<uint64_t>(this)), ir.Imm64(pc), ir.Imm64(is_thumb));
         }
@@ -602,6 +624,8 @@ public:
     void MemoryWrite(Dynarmic::A32::VAddr addr, T value) {
         if (invalid_access("write", addr))
             return;
+        if (write_watch::hits(addr, sizeof(T)))
+            report_watched_write(addr, value);
         *Ptr<T>(addr).get(*parent->mem) = value;
         if (cpu->log_mem) {
             LOG_TRACE("Write uint{}_t at addr: 0x{:x}, val = 0x{:x}", sizeof(T) * 8, addr, value);
@@ -628,6 +652,8 @@ public:
     bool MemoryWriteExclusive(Dynarmic::A32::VAddr addr, T value, T expected) {
         if (invalid_access("exclusive write", addr))
             return false;
+        if (write_watch::hits(addr, sizeof(T)))
+            report_watched_write(addr, value);
         const bool result = Ptr<T>(addr).atomic_compare_and_swap(*parent->mem, value, expected);
         if (cpu->log_mem) {
             LOG_TRACE("Write uint{}_t at addr: 0x{:x}, val = 0x{:x}, expected = 0x{:x}", sizeof(T) * 8, addr, value, expected);
@@ -731,10 +757,12 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     Dynarmic::A32::UserConfig config{};
     config.arch_version = Dynarmic::A32::ArchVersion::v7;
     config.callbacks = cb.get();
+    // A write watch needs every guest write to come through the callbacks
+    const bool slow_memory = log_mem || write_watch::active();
     if (parent->mem->use_page_table) {
-        config.page_table = (log_mem || !cpu_opt) ? nullptr : reinterpret_cast<decltype(config.page_table)>(parent->mem->page_table.get());
+        config.page_table = (slow_memory || !cpu_opt) ? nullptr : reinterpret_cast<decltype(config.page_table)>(parent->mem->page_table.get());
         config.absolute_offset_page_table = true;
-    } else if (!log_mem && cpu_opt) {
+    } else if (!slow_memory && cpu_opt) {
         config.fastmem_pointer = std::bit_cast<uintptr_t>(parent->mem->memory.get());
     }
     config.hook_hint_instructions = true;

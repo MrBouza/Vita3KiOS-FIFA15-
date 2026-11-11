@@ -28,6 +28,8 @@
 #include <kernel/load_self.h>
 #include <kernel/state.h>
 #include <kernel/types.h>
+#include <mem/functions.h>
+#include <mem/ptr.h>
 #include <module/load_module.h>
 #include <nids/functions.h>
 #include <packages/license.h>
@@ -39,7 +41,9 @@
 #include <util/string_utils.h>
 #include <util/thermal.h>
 
+#include <mutex>
 #include <unordered_set>
+#include <vector>
 
 static constexpr bool LOG_UNK_NIDS_ALWAYS = false;
 
@@ -151,6 +155,30 @@ static void log_import_call(char emulation_level, uint32_t nid, SceUID thread_id
     }
 }
 
+// Write watch (util/recent_imports.h): logs the watched words the first time, then every change, and
+// whether it came from guest code (seen "before" a call) or from the system call itself ("inside")
+static void check_watch(EmuEnvState &emuenv, uint32_t nid, SceUID thread_id, const char *when) {
+    static std::mutex watch_mutex;
+    static std::vector<uint32_t> last;
+    const uint32_t begin = write_watch::begin.load() & ~3u;
+    const uint32_t end = write_watch::end.load();
+    if (end <= begin || !is_valid_addr_range(emuenv.mem, begin, end))
+        return;
+    std::vector<uint32_t> now((end - begin) / 4);
+    for (size_t i = 0; i < now.size(); i++)
+        now[i] = *Ptr<uint32_t>(begin + static_cast<uint32_t>(i) * 4).get(emuenv.mem);
+    const std::lock_guard lock(watch_mutex);
+    if (now == last)
+        return;
+    std::string words;
+    for (size_t i = 0; i < now.size(); i++)
+        words += fmt::format("{}{:08X}{}", i % 8 ? " " : (i ? "\n  " : "  "), now[i], (!last.empty() && last[i] != now[i]) ? "*" : "");
+    const char *name = import_name(nid);
+    LOG_CRITICAL("Watch: 0x{:08X}..0x{:08X} {} at {} {} (thread {}), changed words marked *:\n{}", begin, end,
+        last.empty() ? "first seen" : "changed", when, name ? name : "?", thread_id, words);
+    last = std::move(now);
+}
+
 void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread_id) {
     // For crash reports: what each thread called last
     if (!recent_imports::namer)
@@ -179,8 +207,12 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
         log_import_call('H', nid, thread_id, hle_nid_blacklist, lr);
     }
     const ImportFn *fn = resolve_import(nid);
+    if (write_watch::active())
+        check_watch(emuenv, nid, thread_id, "before");
     if (fn) {
         (*fn)(emuenv, cpu, thread_id);
+        if (write_watch::active())
+            check_watch(emuenv, nid, thread_id, "inside");
     } else {
         const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
         // make the function return 0

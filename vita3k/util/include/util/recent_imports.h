@@ -63,3 +63,28 @@ inline std::string describe(int thread_id, uint32_t max = 24) {
 }
 
 } // namespace recent_imports
+
+// A debugging watch on a few words of guest memory: every guest instruction and every system call
+// that changes them is logged (with the instruction's address). Set before a game starts; while it
+// is set, new guest threads run without fast memory so their writes can be seen.
+namespace write_watch {
+
+inline std::atomic<uint32_t> begin{ 0 };
+inline std::atomic<uint32_t> end{ 0 };
+inline std::atomic<int> reports{ 0 };
+constexpr int MAX_REPORTS = 48;
+
+inline bool active() {
+    return end.load(std::memory_order_relaxed) != 0;
+}
+
+inline bool hits(uint32_t addr, uint32_t size) {
+    const uint32_t e = end.load(std::memory_order_relaxed);
+    return e && addr < e && addr + size > begin.load(std::memory_order_relaxed);
+}
+
+inline bool may_report() {
+    return reports.fetch_add(1, std::memory_order_relaxed) < MAX_REPORTS;
+}
+
+} // namespace write_watch

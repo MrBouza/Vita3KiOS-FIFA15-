@@ -45,6 +45,7 @@
 #include <renderer/vulkan/device_lost.h>
 #include <sdl-frontend/session.h>
 #include <util/log.h>
+#include <util/recent_imports.h>
 #include <util/thermal.h>
 
 #include <SDL3/SDL.h>
@@ -210,6 +211,15 @@ int main(int argc, char *argv[]) {
         // Re-reserve guest memory before every launch, so a second session gets the same clean
         // address range as the first instead of whatever the previous session left fragmented
         prereserve_guest_memory();
+
+        // Uncharted: Golden Abyss stops on the splash calling a function pointer that holds a float: watch
+        // the table it reads (same address every boot) to catch what writes it. Debug only, slower boot.
+        const bool uncharted = title_id == "PCSA00029" || title_id == "PCSF00001" || title_id == "PCSF00012";
+        write_watch::reports = 0;
+        write_watch::begin = uncharted ? 0x81946680u : 0u;
+        write_watch::end = uncharted ? 0x819466C0u : 0u;
+        if (uncharted)
+            LOG_INFO("Debug write watch on 0x81946680..0x819466C0 for this game");
 
         LOG_INFO("Launching {} (JIT {}, {} free JIT caches, {} MiB of memory available)", title_id,
             ios::jit_pool_ready() ? "ready" : "NOT ready", ios::jit_pool_available(),
