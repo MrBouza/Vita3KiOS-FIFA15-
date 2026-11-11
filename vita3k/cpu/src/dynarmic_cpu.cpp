@@ -460,8 +460,10 @@ public:
     std::optional<std::uint32_t> MemoryReadCode(Dynarmic::A32::VAddr addr) override {
         if (cpu->log_mem)
             LOG_TRACE("Instruction fetch at address 0x{:X}", addr);
-        if (addr < KiB(4))
+        if (addr < KiB(4)) {
+            report_trace(fmt::format("jump to 0x{:08X}", addr).c_str());
             return std::nullopt;
+        }
         MemState &mem = *parent->mem;
         if (addr >= mem.host_page_size && !is_valid_addr(mem, addr)) {
             // A thread jumped into memory that holds nothing. Reading zeros there ran "andeq r0, r0, r0"
@@ -470,6 +472,7 @@ public:
             static std::atomic_flag reported = ATOMIC_FLAG_INIT;
             if (!reported.test_and_set())
                 report_wild_jump(addr);
+            report_trace(fmt::format("jump to 0x{:08X}", addr).c_str());
             return std::nullopt;
         }
         return MemoryRead32(addr);
@@ -545,14 +548,77 @@ public:
         LOG_TRACE("{} ({}): {} {}", log_hex(self_), self.parent->thread_id, log_hex(address), disassembly);
     }
 
-    // Write watch: the address of the guest instruction now running (memory callbacks don't see PC)
+    // Write watch: the address of the guest instruction now running (memory callbacks don't see PC),
+    // and the thread's last instructions with SP and LR as each one started
     uint32_t watch_pc = 0;
     bool watch_thumb = false;
+    static constexpr uint32_t TRACE_LENGTH = 384;
+    struct TraceEntry {
+        uint32_t pc;
+        uint32_t sp;
+        uint32_t lr;
+        bool thumb;
+    };
+    std::array<TraceEntry, TRACE_LENGTH> trace{};
+    uint32_t trace_next = 0;
 
-    static void NoteWatchPc(uint64_t self_, uint64_t address, uint64_t is_thumb) {
+    static void NoteWatchPc(uint64_t self_, uint64_t pc_thumb, uint64_t sp_lr) {
         ArmDynarmicCallback &self = *reinterpret_cast<ArmDynarmicCallback *>(self_);
-        self.watch_pc = static_cast<uint32_t>(address);
-        self.watch_thumb = is_thumb != 0;
+        self.watch_pc = static_cast<uint32_t>(pc_thumb);
+        self.watch_thumb = (pc_thumb >> 32) != 0;
+        self.trace[self.trace_next++ % TRACE_LENGTH] = { self.watch_pc, static_cast<uint32_t>(sp_lr), static_cast<uint32_t>(sp_lr >> 32), self.watch_thumb };
+    }
+
+    // The trace, oldest first, with each instruction decoded; only when the watch is on
+    std::string describe_trace() {
+        if (!write_watch::active() || trace_next == 0)
+            return {};
+        MemState &mem = *parent->mem;
+        std::string out = fmt::format("Last {} instructions of thread {} (address, SP and LR before it):\n", std::min(trace_next, TRACE_LENGTH), parent->thread_id);
+        const uint32_t first = trace_next > TRACE_LENGTH ? trace_next - TRACE_LENGTH : 0;
+        for (uint32_t i = first; i < trace_next; i++) {
+            const TraceEntry &e = trace[i % TRACE_LENGTH];
+            const std::string insn = e.pc >= mem.host_page_size && is_valid_addr(mem, e.pc) ? disassemble(*parent, e.pc, e.thumb, nullptr) : std::string("?");
+            out += fmt::format("  {:08X}{} sp={:08X} lr={:08X}  {}\n", e.pc, e.thumb ? "t" : "a", e.sp, e.lr, insn);
+        }
+        return out;
+    }
+
+    // Raw bytes, to decode offline
+    std::string dump_bytes(uint32_t from, uint32_t size) {
+        MemState &mem = *parent->mem;
+        std::string out;
+        for (uint32_t a = from & ~15u; a < from + size; a += 16) {
+            out += fmt::format("  {:08X}:", a);
+            for (uint32_t b = 0; b < 16; b += 4)
+                out += (a + b >= mem.host_page_size && is_valid_addr(mem, a + b)) ? fmt::format(" {:08X}", *Ptr<uint32_t>(a + b).get(mem)) : std::string(" --------");
+            out += "\n";
+        }
+        return out;
+    }
+
+    // Once per game: the trace and the code around it, when a watched game's thread goes wrong
+    void report_trace(const char *why) {
+        if (!write_watch::active())
+            return;
+        static std::atomic_flag reported = ATOMIC_FLAG_INIT;
+        if (reported.test_and_set())
+            return;
+        std::string out = fmt::format("Trace ({}):\n{}", why, describe_trace());
+        // The code the trace ran through, as words, for an offline disassembler
+        uint32_t lo = UINT32_MAX, hi = 0;
+        const uint32_t first = trace_next > TRACE_LENGTH ? trace_next - TRACE_LENGTH : 0;
+        for (uint32_t i = first; i < trace_next; i++) {
+            const uint32_t pc = trace[i % TRACE_LENGTH].pc;
+            if (pc < 0x81000000u || pc >= 0x82000000u)
+                continue;
+            lo = std::min(lo, pc);
+            hi = std::max(hi, pc);
+        }
+        if (lo <= hi && hi - lo < 0x2000)
+            out += fmt::format("Code 0x{:08X}..0x{:08X}:\n{}", lo - 0x40, hi + 0x40, dump_bytes(lo - 0x40, hi - lo + 0x80));
+        out += fmt::format("Last system calls of thread {} (oldest first):\n{}", parent->thread_id, recent_imports::describe(parent->thread_id, 40));
+        LOG_CRITICAL("{}", out);
     }
 
     template <typename T>
@@ -567,7 +633,8 @@ public:
 
     void PreCodeTranslationHook(bool is_thumb, Dynarmic::A32::VAddr pc, Dynarmic::A32::IREmitter &ir) override {
         if (write_watch::active())
-            ir.CallHostFunction(&NoteWatchPc, ir.Imm64(reinterpret_cast<uint64_t>(this)), ir.Imm64(pc), ir.Imm64(is_thumb));
+            ir.CallHostFunction(&NoteWatchPc, ir.Imm64(reinterpret_cast<uint64_t>(this)), ir.Imm64(pc | (static_cast<uint64_t>(is_thumb) << 32)),
+                ir.Pack2x32To1x64(ir.GetRegister(Dynarmic::A32::Reg::SP), ir.GetRegister(Dynarmic::A32::Reg::LR)));
         if (cpu->log_code) {
             ir.CallHostFunction(&TraceInstruction, ir.Imm64(reinterpret_cast<uint64_t>(this)), ir.Imm64(pc), ir.Imm64(is_thumb));
         }
@@ -587,6 +654,7 @@ public:
                 LOG_ERROR("Executing: {}", disassemble(*parent, pc, nullptr));
         } else if (!mem.invalid_access_logged.test_and_set()) {
             LOG_ERROR("Invalid {} at 0x{:x} by thread {} (pc 0x{:x}). Set LOG_INVALID_ACCESS for full reports", access, addr, parent->thread_id, pc);
+            report_trace(fmt::format("invalid {} at 0x{:08X}", access, addr).c_str());
         } else {
             LOG_ERROR("Invalid {} at 0x{:x} by thread {} (pc 0x{:x})", access, addr, parent->thread_id, pc);
         }
