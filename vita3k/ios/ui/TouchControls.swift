@@ -354,8 +354,8 @@ final class ControlsOverlayView: UIView {
     private var shortcutTimer: Timer?
     private var shortcutHeldSince: Date?
     private weak var menuAlert: UIAlertController?
-    // Settings › Performance overlay; stays visible when the controls are hidden
-    private let hud: PerformanceHUDView? = HUDSettings.enabled ? PerformanceHUDView(frame: .zero) : nil
+    // Settings › Performance overlay (or the game menu, mid-game); stays visible when the controls are hidden
+    private let hud = PerformanceHUDView(frame: .zero)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -430,7 +430,8 @@ final class ControlsOverlayView: UIView {
         toastLabel.alpha = 0
         toastLabel.isUserInteractionEnabled = false
         addSubview(toastLabel)
-        if let hud { addSubview(hud) }
+        addSubview(hud)
+        hud.setActive(HUDSettings.enabled)
         updateRearButton()
 
         // Controller theme
@@ -558,6 +559,10 @@ final class ControlsOverlayView: UIView {
             self?.menuClosed()
             self?.controlsHidden.toggle()
         })
+        alert.addAction(UIAlertAction(title: hud.active ? "Hide performance overlay" : "Show performance overlay", style: .default) { [weak self] _ in
+            self?.menuClosed()
+            self?.togglePerformanceOverlay()
+        })
         alert.addAction(UIAlertAction(title: "Quit game", style: .destructive) { [weak self] _ in
             self?.menuClosed()
             self?.confirmQuit()
@@ -567,6 +572,14 @@ final class ControlsOverlayView: UIView {
         })
         menuAlert = alert
         (root.presentedViewController ?? root).present(alert, animated: true)
+    }
+
+    /// Same switch as Settings › Performance overlay, so the choice sticks for the next game
+    private func togglePerformanceOverlay() {
+        let on = !hud.active
+        UserDefaults.standard.set(on, forKey: "v3k.hud.enabled")
+        hud.setActive(on)
+        setNeedsLayout()
     }
 
     private func confirmQuit() {
@@ -779,7 +792,7 @@ final class ControlsOverlayView: UIView {
         topHandle.frame = CGRect(x: (exitButton.frame.minX + hideButton.frame.maxX) / 2 - 32, y: exitButton.frame.minY, width: 64, height: 18)
         if let editor { bringSubviewToFront(editor); editor.refresh() }
 
-        if let hud {
+        if !hud.isHidden {
             let size = hud.sizeThatFits(bounds.size)
             // Below the shoulder buttons at the top, above the screen edge at the bottom
             let top = max(l.frame.maxY, r.frame.maxY, area.minY + 36) + 8
@@ -842,7 +855,7 @@ final class ControlsOverlayView: UIView {
 
         applyPlacements(in: controls)
 
-        if let hud {
+        if !hud.isHidden {
             // Over the game picture, in the chosen corner
             let size = hud.sizeThatFits(bounds.size)
             let left = area.minX, rightEdge = area.maxX - size.width
