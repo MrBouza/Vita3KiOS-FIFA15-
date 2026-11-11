@@ -551,9 +551,13 @@ struct VitaStyledBackground: View {
                 }
                 if style.stars {
                     for i in 0..<70 {
-                        let twinkle = 0.35 + 0.65 * abs(sin(t * (0.6 + Double(noise(i, 11)) * 1.4) + Double(i)))
-                        let r = 0.6 + noise(i, 12) * 1.6
-                        let star = CGRect(x: noise(i, 13) * w - r, y: noise(i, 14) * h * 0.78 - r, width: r * 2, height: r * 2)
+                        let rate: Double = 0.6 + Double(noise(i, 11)) * 1.4
+                        let wave: Double = sin(t * rate + Double(i))
+                        let twinkle: Double = 0.35 + 0.65 * abs(wave)
+                        let r: CGFloat = 0.6 + noise(i, 12) * 1.6
+                        let sx: CGFloat = noise(i, 13) * w - r
+                        let sy: CGFloat = noise(i, 14) * h * 0.78 - r
+                        let star = CGRect(x: sx, y: sy, width: r * 2, height: r * 2)
                         context.fill(Path(ellipseIn: star), with: .color(.white.opacity(twinkle * 0.85)))
                     }
                 }
@@ -561,38 +565,51 @@ struct VitaStyledBackground: View {
                     // Three soft ribbons that sway slowly, green to teal to violet
                     let colors: [Color] = [Color(red: 0.3, green: 1.0, blue: 0.7), Color(red: 0.2, green: 0.8, blue: 1.0), Color(red: 0.7, green: 0.45, blue: 1.0)]
                     for band in 0..<3 {
+                        let b = Double(band)
+                        let top: CGFloat = h * (0.18 + CGFloat(band) * 0.11)
+                        let thickness: CGFloat = h * (0.16 - CGFloat(band) * 0.03)
+                        let upperSpeed: Double = 0.10 + b * 0.04
+                        let lowerSpeed: Double = 0.08 + b * 0.03
                         var ribbon = Path()
-                        let top = h * (0.18 + CGFloat(band) * 0.11)
-                        let thickness = h * (0.16 - CGFloat(band) * 0.03)
                         var x: CGFloat = -20
                         ribbon.move(to: CGPoint(x: x, y: top))
                         while x <= w + 20 {
-                            let y = top + CGFloat(sin(Double(x / w) * 3.4 + t * (0.10 + Double(band) * 0.04) + Double(band) * 2.1)) * h * 0.07
+                            let phase: Double = Double(x / w) * 3.4 + t * upperSpeed + b * 2.1
+                            let y: CGFloat = top + CGFloat(sin(phase)) * h * 0.07
                             ribbon.addLine(to: CGPoint(x: x, y: y))
                             x += 16
                         }
                         while x >= -20 {
-                            let y = top + thickness + CGFloat(sin(Double(x / w) * 2.6 + t * (0.08 + Double(band) * 0.03) + Double(band))) * h * 0.05
+                            let phase: Double = Double(x / w) * 2.6 + t * lowerSpeed + b
+                            let y: CGFloat = top + thickness + CGFloat(sin(phase)) * h * 0.05
                             ribbon.addLine(to: CGPoint(x: x, y: y))
                             x -= 16
                         }
                         ribbon.closeSubpath()
-                        context.fill(ribbon, with: .linearGradient(Gradient(colors: [colors[band].opacity(0.0), colors[band].opacity(0.28), colors[band].opacity(0.0)]),
-                                                                   startPoint: CGPoint(x: 0, y: top - h * 0.06), endPoint: CGPoint(x: 0, y: top + thickness + h * 0.06)))
+                        let tint = colors[band]
+                        let glow = Gradient(colors: [tint.opacity(0.0), tint.opacity(0.28), tint.opacity(0.0)])
+                        let from = CGPoint(x: 0, y: top - h * 0.06)
+                        let to = CGPoint(x: 0, y: top + thickness + h * 0.06)
+                        context.fill(ribbon, with: .linearGradient(glow, startPoint: from, endPoint: to))
                     }
                 }
                 if style.petals {
+                    let petalFill = Color(red: 1.0, green: 0.93, blue: 0.96).opacity(0.85)
+                    let petalEdge = Color(red: 0.95, green: 0.6, blue: 0.75).opacity(0.5)
                     for i in 0..<26 {
-                        let size = (0.012 + noise(i, 15) * 0.014) * h
-                        let fall = CGFloat((t * (0.02 + Double(noise(i, 16)) * 0.025) + Double(noise(i, 17))).truncatingRemainder(dividingBy: 1))
-                        let cx = (noise(i, 18) + CGFloat(sin(t * 0.5 + Double(i))) * 0.04 + fall * 0.15).truncatingRemainder(dividingBy: 1.1) * w
-                        let cy = -size + fall * (h + size * 2)
+                        let size: CGFloat = (0.012 + noise(i, 15) * 0.014) * h
+                        let speed: Double = 0.02 + Double(noise(i, 16)) * 0.025
+                        let fall = CGFloat((t * speed + Double(noise(i, 17))).truncatingRemainder(dividingBy: 1))
+                        let sway = CGFloat(sin(t * 0.5 + Double(i))) * 0.04
+                        let across: CGFloat = (noise(i, 18) + sway + fall * 0.15).truncatingRemainder(dividingBy: 1.1)
+                        let cy: CGFloat = -size + fall * (h + size * 2)
+                        let spin: Double = t * (0.6 + Double(noise(i, 19))) + Double(i)
                         var local = context
-                        local.translateBy(x: cx, y: cy)
-                        local.rotate(by: .radians(t * (0.6 + Double(noise(i, 19))) + Double(i)))
+                        local.translateBy(x: across * w, y: cy)
+                        local.rotate(by: .radians(spin))
                         let petal = Path(ellipseIn: CGRect(x: -size, y: -size * 0.55, width: size * 2, height: size * 1.1))
-                        local.fill(petal, with: .color(Color(red: 1.0, green: 0.93, blue: 0.96).opacity(0.85)))
-                        local.stroke(petal, with: .color(Color(red: 0.95, green: 0.6, blue: 0.75).opacity(0.5)), lineWidth: 0.8)
+                        local.fill(petal, with: .color(petalFill))
+                        local.stroke(petal, with: .color(petalEdge), lineWidth: 0.8)
                     }
                 }
                 if style.shapes {
