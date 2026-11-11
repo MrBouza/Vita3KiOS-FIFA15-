@@ -621,7 +621,7 @@ void ScreenRenderer::follow_thermal_filter(bool cool_down) {
     if (cool_down && filter_before_cooling.empty()) {
         const std::string name{ filter->get_name() };
         if (name == "FSR" || name == "Bicubic" || name == "FXAA") {
-            LOG_INFO("The phone is hot: screen filter {} -> Bilinear until it cools down", name);
+            LOG_INFO("The phone is warming up: screen filter {} -> Bilinear until it cools down", name);
             set_filter("Bilinear");
             filter_before_cooling = name;
         }

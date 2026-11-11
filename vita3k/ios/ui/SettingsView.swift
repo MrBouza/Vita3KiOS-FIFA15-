@@ -308,7 +308,7 @@ struct TouchControlsSection: View {
 
 struct EmulationSections: View {
     @EnvironmentObject var model: LibraryModel
-    @AppStorage("v3k.fastCPU") private var fastCPU = false
+    @AppStorage("v3k.fastCPU") private var fastCPU = true
     @AppStorage("v3k.keepCool") private var keepCool = true
     @State private var confirmClearShaders = false
 
@@ -392,7 +392,7 @@ struct EmulationSections: View {
             Toggle(isOn: $fastCPU) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Fast CPU")
-                    Text("Faster maths shortcuts. Turn it off if a game has physics or animation glitches.")
+                    Text("Faster maths shortcuts: less CPU work per frame, so more speed and less heat. On by default; turn it off if a game has physics or animation glitches.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

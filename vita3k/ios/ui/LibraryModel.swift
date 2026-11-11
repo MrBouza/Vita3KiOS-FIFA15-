@@ -259,7 +259,7 @@ final class LibraryModel: ObservableObject {
     func launch(_ app: GameApp) {
         // Fast CPU: the game fixes list can turn it off (or on) for a game
         let fastCPUFix = v3k_game_fix_flag(app.titleId, "fast-cpu")
-        v3k_set_fast_cpu(fastCPUFix >= 0 ? fastCPUFix == 1 : UserDefaults.standard.bool(forKey: "v3k.fastCPU"))
+        v3k_set_fast_cpu(fastCPUFix >= 0 ? fastCPUFix == 1 : (UserDefaults.standard.object(forKey: "v3k.fastCPU") as? Bool ?? true))
         // The overlay is drawn by the app now (PerformanceHUD.swift): keep the core's own one off
         if settings.performanceOverlay {
             _ = v3k_set_setting_bool("performance-overlay", false)

@@ -30,11 +30,14 @@
 |  |  |
 |---|---|
 | 🎮 **Full Vita3K core** | The same CPU recompiler, GXM → Vulkan renderer (via MoltenVK) and HLE as desktop Vita3K, kept in sync with upstream. |
-| ⚡ **JIT on iOS 26** | Through StikDebug's `universal.js` (from Tsubomi). JIT memory is set up in one batched step, so launch takes about two seconds. |
-| 📦 **Installs everything** | `.pkg`, `.vpk`, `.zip` and dumped folders, including **updates and DLC**. A zip full of `.pkg`s installs in the right order: game → update → DLC. Updates don't ask for a zRIF. |
+| 🫧 **Vita home screen** | A PS Vita style home screen: glossy bubbles, a LiveArea for every game (artwork and details from the game itself), a top bar with recent games, and 12 animated backgrounds (Frutiger Aero to Midnight Aurora), plus firmware themes. The classic library is one tap away. |
+| ⚡ **JIT on iOS 26** | Through StikDebug's `universal.js` (from Tsubomi), or with one tap: **Enable JIT** opens StikDebug (or StosDebug / TrollStore) with everything filled in. JIT memory is set up in one batched step, and the memory it doesn't use is given back to iOS. |
+| 🧠 **RAM helpers** | Helper processes lend their memory to the game, so big games fit on phones with less RAM (optional, Settings → Memory, with a RAM checker). |
+| 🌡 **Keeps cool** | *Keep the phone cool* (on by default) keeps background work off the top CPU clocks and eases off at the first sign of warmth, before iOS reports the phone as hot. |
+| 📦 **Installs everything** | `.pkg`, `.vpk`, `.zip`, dumped folders and Vitamin dumps, including **updates and DLC**. A zip full of `.pkg`s installs in the right order: game → update → DLC. Updates don't ask for a zRIF. |
 | 🛠 **Per-game everything** | Settings, community **patches**, **cheats** (VitaCheat database built in), **mods** (rePatch layout), updates & DLC, and save backups, all from one sheet. |
-| 🚀 **Performance options** | 60 FPS mode, Fast CPU, upscaling up to 4×, background shader compilation and a shader cache kept between sessions. |
-| 📊 **Performance overlay** | Pick what to show: FPS, frame time, CPU, memory, thermals, battery, resolution. Place it where you like. |
+| 🚀 **Performance options** | 60 FPS mode, Fast CPU, upscaling up to 4×, an experimental per-game widescreen mode, background shader compilation and a shader cache kept between sessions. |
+| 📊 **Performance overlay** | Pick what to show: FPS, frame time, CPU, memory (and what the RAM helpers lend), thermals, battery, resolution. Place it where you like, and show or hide it from the game menu. |
 | 🎨 **Looks the part** | Eight animated themes that respond to tilt, original menu music made on the device, and touch-control themes (PlayStation, Xbox-style letters, Nintendo-style, Neon, Minimal). |
 | 🕹 **Controls your way** | Play in landscape or upright (portrait mode puts the game on top and the controls below). Drag and pinch the touch controls into your own layout, use the rear touchpad, and tilt the iPhone for motion games. Any MFi, Xbox, PlayStation or Switch controller works too, with remapping and a ✕/○ swap. |
 | 📸 **Game menu** | Screenshots straight to Photos, rear touchpad, layout editor, show/hide controls, quit. Open it with ✕ on screen, Home/PS on a controller, or by holding Select + Start. |
@@ -73,6 +76,8 @@ Vita3K translates game code while it runs, so it needs JIT. Without JIT, games w
 - **LiveContainer:** long-press Vita3K → Settings → turn on **Launch with JIT** and set **JIT Launch Script** to `universal.js`. In LiveContainer's settings, choose StikDebug as the JIT enabler.
 - **Installed directly:** in StikDebug, assign `universal.js` to Vita3K and enable JIT.
 
+**One tap:** if JIT is off, tap **JIT off · Enable** in the status bar (or **Settings → JIT → Enable JIT**). Vita3K opens StikDebug with its bundle ID (inside LiveContainer, its process) and, where StikDebug needs one, its own JIT script, then keeps running in the background until the debugger attaches.
+
 The status pill turns green (**JIT ready**) once Vita3K has set up its JIT memory.
 
 **iOS 17.4–18, or older chips.** Enabling JIT in StikDebug, or LiveContainer's "Launch with JIT", is enough.
@@ -104,6 +109,8 @@ Go to **Settings → Storage → Choose folder or drive…** to keep games, save
 - **Fast CPU** trades some floating-point accuracy for speed. It helps CPU-heavy games, but switch it off if a game misbehaves.
 - **Upscaling** costs GPU time. Try 1.5× or 2× on Pro models, and keep an eye on the thermals line in the overlay.
 - **Low Power Mode** and a hot iPhone slow games down a lot. The library tells you when either is the case.
+- **Keep the phone cool** is on by default. If the phone still gets warm, it steps FSR, Bicubic and FXAA down to Bilinear until it cools; that's expected.
+- **RAM helpers** (Settings → Memory) help on phones with 4 GB or less. Inside LiveContainer they need LiveContainer 3.8.13 or newer.
 - **First runs** stutter while shaders compile. The cache is saved, so the second session is smoother.
 
 ## Known issues
@@ -142,7 +149,8 @@ If Vita3KiOS is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-f
 
 - **[Vita3K](https://github.com/Vita3K/Vita3K)** and its contributors: the emulator this app is built on. Please support the upstream project.
 - **[Tsubomi](https://github.com/125hz/Tsubomi)** by **125hz**: the iOS 26 JIT implementation and JIT region pool, guest memory pre-reservation, the iOS audio session setup and the high-density game window.
-- **[MrBouza](https://github.com/MrBouza)**: fixed FSR on iOS (PR #1), added the on-screen keyboard for game text input (PR #2), and fixed the 16 MB JIT cache limit.
+- **[MrBouza](https://github.com/MrBouza)**: fixed FSR on iOS (PR #1), the on-screen keyboard for game text input (PR #2), game audio after switching apps (PR #3), fewer JIT caches on low-memory devices (PR #4), the widescreen mode (PR #5) and the in-game performance overlay switch (PR #6), and fixed the 16 MB JIT cache limit.
+- **MeloNX** by **Stossy11**: the RAM helper approach (memory lent by helper processes) and the one-tap JIT enabler links.
 - **[Vita3K-Plus](https://github.com/nckstwrt/Vita3K-Plus)** by **nckstwrt**: many game compatibility fixes (graphics, audio, saves, timing) ported from this Vita3K fork. Also GPL.
 - **[dynarmic](https://github.com/merryhime/dynarmic)** and **oaknut** by merryhime, **[MoltenVK](https://github.com/KhronosGroup/MoltenVK)**, **[SDL](https://github.com/libsdl-org/SDL)**, and the other libraries in `external/`.
 

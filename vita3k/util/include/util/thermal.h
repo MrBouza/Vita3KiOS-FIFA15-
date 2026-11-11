@@ -72,11 +72,17 @@ inline qos_class_t game_thread_qos() {
 // while the phone is hot and the player wants it kept cool, or in Low Power Mode. The vblank, display
 // and GPU-wait threads stay at full priority: they barely work, and slowing them made frames uneven.
 // `current` starts at 0 (user-interactive, set at thread start).
+// If the phone still reaches "serious" with "Keep the phone cool", one more step (default class).
+inline bool phone_still_heating() {
+    return keep_cool().load(std::memory_order_relaxed) && thermal_level().load(std::memory_order_relaxed) >= 2;
+}
+
 inline void follow_render_qos(int &current) {
-    const int wanted = should_step_down() ? 1 : 0;
+    const int wanted = phone_still_heating() ? 2 : should_step_down() ? 1 : 0;
     if (wanted == current)
         return;
-    pthread_set_qos_class_self_np(wanted ? QOS_CLASS_USER_INITIATED : QOS_CLASS_USER_INTERACTIVE, 0);
+    static constexpr qos_class_t classes[] = { QOS_CLASS_USER_INTERACTIVE, QOS_CLASS_USER_INITIATED, QOS_CLASS_DEFAULT };
+    pthread_set_qos_class_self_np(classes[wanted], 0);
     current = wanted;
 }
 
@@ -89,11 +95,18 @@ inline void follow_render_qos(int &current) {
 inline void follow_game_qos(int &current, bool background_thread) {
     // With "Keep the phone cool" the background threads stay off the top clocks all the time, not only
     // once the phone is warm: the heat that never builds up needs no cooling down
+    // and if the phone still reaches "serious", the game's main threads step down one class too (default:
+    // still the performance cores, without the race to their top clocks)
     const bool ease = keep_cool().load(std::memory_order_relaxed) || should_step_down();
-    const int wanted = (background_thread && ease) ? 1 : 0;
+    int wanted = 0;
+    if (background_thread && ease)
+        wanted = 2;
+    else if (!background_thread && phone_still_heating())
+        wanted = 1;
     if (wanted == current)
         return;
-    pthread_set_qos_class_self_np(wanted ? QOS_CLASS_UTILITY : game_thread_qos(), 0);
+    const qos_class_t classes[] = { game_thread_qos(), QOS_CLASS_DEFAULT, QOS_CLASS_UTILITY };
+    pthread_set_qos_class_self_np(classes[wanted], 0);
     current = wanted;
 }
 
