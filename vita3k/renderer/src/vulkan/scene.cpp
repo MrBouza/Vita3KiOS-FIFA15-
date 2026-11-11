@@ -664,8 +664,11 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
             const void *index_data = indices.get(mem);
             float x0 = 1e30f, x1 = -1e30f;
             for (size_t v = 0; v < std::min<size_t>(count, 64); v++) {
-                const uint32_t vi = !index_data ? static_cast<uint32_t>(v)
-                    : (format == SCE_GXM_INDEX_FORMAT_U16 ? static_cast<const uint16_t *>(index_data)[v] : static_cast<const uint32_t *>(index_data)[v]);
+                uint32_t vi = static_cast<uint32_t>(v);
+                if (index_data && format == SCE_GXM_INDEX_FORMAT_U16)
+                    vi = static_cast<const uint16_t *>(index_data)[v];
+                else if (index_data)
+                    vi = static_cast<const uint32_t *>(index_data)[v];
                 float x;
                 memcpy(&x, bytes + static_cast<size_t>(vi) * stride + a.offset, sizeof(x));
                 x0 = std::min(x0, x);
