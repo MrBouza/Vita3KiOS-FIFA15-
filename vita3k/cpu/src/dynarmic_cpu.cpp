@@ -461,6 +461,20 @@ public:
             LOG_TRACE("Instruction fetch at address 0x{:X}", addr);
         if (addr < KiB(4))
             return std::nullopt;
+        MemState &mem = *parent->mem;
+        if (addr >= mem.host_page_size && !is_valid_addr(mem, addr)) {
+            // A thread jumped into memory that holds nothing. Reading zeros there ran "andeq r0, r0, r0"
+            // through megabytes of empty address space (Uncharted: Golden Abyss logged 50,000 invalid
+            // reads and burned a core): stop it at the jump instead, and say once where it came from
+            static std::atomic_flag reported = ATOMIC_FLAG_INIT;
+            if (!reported.test_and_set()) {
+                const uint32_t lr = cpu->get_lr();
+                const uint32_t call = (lr & ~1u) >= 4 ? (lr & ~1u) - ((lr & 1) ? 2 : 4) : 0;
+                LOG_CRITICAL("Thread {} jumped to unmapped address 0x{:08X}; LR 0x{:08X}, the call before it: {}\n{}", parent->thread_id, addr, lr,
+                    is_valid_addr(mem, call) ? disassemble(*parent, call, nullptr) : std::string("(unmapped)"), cpu->save_context().description());
+            }
+            return std::nullopt;
+        }
         return MemoryRead32(addr);
     }
 

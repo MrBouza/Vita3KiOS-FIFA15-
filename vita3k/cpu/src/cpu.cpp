@@ -25,6 +25,7 @@
 #include <util/types.h>
 
 #include <algorithm>
+#include <chrono>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -67,7 +68,18 @@ static void delete_cpu_state(CPUState *state) {
     delete state;
 }
 
+// Threads get a fresh JIT while a game boots: reuse is for games that keep starting threads while they
+// run (Ultimate Marvel vs. Capcom 3), and a game's first threads (its main thread among them) shouldn't
+// start from another thread's JIT. Uncharted: Golden Abyss's main thread did, and jumped into unmapped
+// memory a moment later; not proven to be the cause, but nothing is lost by starting those fresh.
+static std::atomic<int64_t> reuse_allowed_after{ 0 };
+
+static int64_t steady_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 void flush_cpu_pool() {
+    reuse_allowed_after = steady_ms() + 20000;
     std::vector<PooledCpu> pooled;
     {
         const std::lock_guard lock(cpu_pool_mutex);
@@ -80,6 +92,10 @@ void flush_cpu_pool() {
 }
 
 static CPUStatePtr take_pooled_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, MemState &mem) {
+    if (reuse_allowed_after.load(std::memory_order_relaxed) == 0)
+        reuse_allowed_after = steady_ms() + 20000; // the first game since launch
+    if (steady_ms() < reuse_allowed_after.load(std::memory_order_relaxed))
+        return CPUStatePtr();
     PooledCpu entry;
     {
         const std::lock_guard lock(cpu_pool_mutex);
