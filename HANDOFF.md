@@ -17,7 +17,7 @@ AltStore push hit a GitHub 500, so `dist/altstore/source.json` was updated by ha
 ## 1. Project
 
 - **What it is:** an iOS fork of Vita3K, the PS Vita emulator.
-- **Repo:** `oledz-i/Vita3KiOS` on GitHub, branch `main`. Remotes: `origin`/`github` (this fork) and
+- **Repo:** `oledz-i/Hinoki` on GitHub, branch `main`. Remotes: `origin`/`github` (this fork) and
   `upstream` (`Vita3K/Vita3K`).
 - **Built from:** Vita3K, Tsubomi (by 125hz, an earlier iOS port; several iOS pieces come from it),
   dynarmic/oaknut (CPU JIT), MoltenVK (Vulkan on Metal) and SDL3.
@@ -76,11 +76,11 @@ AltStore push hit a GitHub 500, so `dist/altstore/source.json` was updated by ha
 - `[skip ci]` in a commit message skips builds.
 - **CI quirks:**
   - macOS runners sometimes never start and the run is cancelled after ~15 min. Fix:
-    `gh run rerun <id> -R oledz-i/Vita3KiOS`.
+    `gh run rerun <id> -R oledz-i/Hinoki`.
   - Watch a commit's runs:
-    `gh api "repos/oledz-i/Vita3KiOS/actions/runs?head_sha=$(git rev-parse HEAD)" --jq '.workflow_runs[] | "\(.name) \(.status) \(.conclusion)"'`.
+    `gh api "repos/oledz-i/Hinoki/actions/runs?head_sha=$(git rev-parse HEAD)" --jq '.workflow_runs[] | "\(.name) \(.status) \(.conclusion)"'`.
   - Failed build errors:
-    `gh run view <id> -R oledz-i/Vita3KiOS --log-failed | grep -E "error:"`.
+    `gh run view <id> -R oledz-i/Hinoki --log-failed | grep -E "error:"`.
   - The GraphQL `gh release view` was blocked in the old session; the REST `gh api repos/.../releases`
     works.
 - **Local formatting:** only clang-format 18 was available locally; CI uses 22. They disagree on

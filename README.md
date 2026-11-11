@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/oledz-i/Vita3KiOS?include_prereleases&label=release&color=6c5ce7" alt="Latest release"></a>
-  <a href="../../actions/workflows/ios.yml"><img src="https://img.shields.io/github/actions/workflow/status/oledz-i/Vita3KiOS/ios.yml?branch=main&label=build" alt="Build status"></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/oledz-i/Hinoki?include_prereleases&label=release&color=6c5ce7" alt="Latest release"></a>
+  <a href="../../actions/workflows/ios.yml"><img src="https://img.shields.io/github/actions/workflow/status/oledz-i/Hinoki/ios.yml?branch=main&label=build" alt="Build status"></a>
   <img src="https://img.shields.io/badge/iOS-17.4%2B-0a84ff" alt="iOS 17.4+">
   <img src="https://img.shields.io/badge/license-GPL--2.0--or--later-lightgrey" alt="GPL-2.0-or-later">
   <a href="https://discord.gg/pZyQDPHKF"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join the Discord"></a>
@@ -59,7 +59,7 @@
 **AltStore / SideStore** (in-app updates). Add this source:
 
 ```
-https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json
+https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json
 ```
 
 **LiveContainer, TrollStore or another signer.** Download `Hinoki-<version>.ipa` from [Releases](../../releases/latest).
@@ -129,8 +129,8 @@ CI builds every push on GitHub Actions ([`ios.yml`](.github/workflows/ios.yml)).
 To build locally on a Mac with Xcode 26 and a bootstrapped [vcpkg](https://github.com/microsoft/vcpkg):
 
 ```sh
-git clone --recursive https://github.com/oledz-i/Vita3KiOS
-cd Vita3KiOS
+git clone --recursive https://github.com/oledz-i/Hinoki
+cd Hinoki
 VCPKG_ROOT=/path/to/vcpkg bash .ci/build-ios.sh artifacts
 ```
 

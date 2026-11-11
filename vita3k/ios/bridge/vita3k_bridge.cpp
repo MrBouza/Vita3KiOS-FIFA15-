@@ -1688,7 +1688,7 @@ bool v3k_delete_game_content(const char *title_id, bool update) {
 
 namespace {
 constexpr const char *COMPAT_DB_ZIP = "https://github.com/Vita3K/compatibility/releases/download/compat_db/app_compat_db.xml.zip";
-constexpr const char *GAME_FIXES_URL = "https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/game-fixes.txt";
+constexpr const char *GAME_FIXES_URL = "https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/game-fixes.txt";
 } // namespace
 
 bool v3k_update_compat_db(void) {
