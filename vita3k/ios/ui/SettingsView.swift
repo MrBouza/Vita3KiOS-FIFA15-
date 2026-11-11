@@ -79,7 +79,7 @@ struct AppearanceSection: View {
                     }
                 }
                 .onChange(of: vitaTheme) { _, _ in MenuMusic.shared.settingsChanged() }
-                Text("Themes installed in Vita3K (ux0/theme) show up here, with their wallpapers.")
+                Text("Themes installed in Hinoki (ux0/theme) show up here, with their wallpapers.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 12)], spacing: 12) {
@@ -528,7 +528,7 @@ struct MemorySection: View {
         } header: {
             Text("Memory")
         } footer: {
-            Text("Helper processes, each with its own iOS memory limit, lend memory for the PS Vita's RAM, so big games are less likely to be closed by iOS. Takes effect at the next game launch. In LiveContainer, turn on helper processes in Vita3K's app settings there too. Some signers remove app extensions; the RAM checker shows whether the helper is there.")
+            Text("Helper processes, each with its own iOS memory limit, lend memory for the PS Vita's RAM, so big games are less likely to be closed by iOS. Takes effect at the next game launch. In LiveContainer, turn on helper processes in Hinoki's app settings there too. Some signers remove app extensions; the RAM checker shows whether the helper is there.")
         }
     }
 }
@@ -563,7 +563,7 @@ struct RAMCheckerView: View {
                     ProgressView(value: limit > 0 ? Double(footprint) / Double(limit) : 0)
                         .tint(available < 300 * 1024 * 1024 ? .red : available < 800 * 1024 * 1024 ? .orange : .green)
                 } header: {
-                    Text("Vita3K")
+                    Text("Hinoki")
                 } footer: {
                     Text(limit < 3 * 1024 * 1024 * 1024
                          ? "A limit under 3 GB usually means the Increased Memory Limit entitlement isn't active. Signing tools like Impactor or GetMoreRam can add it."
@@ -604,7 +604,7 @@ struct RAMCheckerView: View {
                 } header: {
                     Text("RAM helpers")
                 } footer: {
-                    Text("Helpers start with a game and lend memory for its RAM; after that iOS doesn't count it against Vita3K. The numbers update every second.")
+                    Text("Helpers start with a game and lend memory for its RAM; after that iOS doesn't count it against Hinoki. The numbers update every second.")
                 }
             }
         }
@@ -624,7 +624,7 @@ struct JITSection: View {
             if !model.jitEnabled {
                 EnableJITButtons()
             }
-            Text("Enable JIT opens your JIT app (StikDebug, StosDebug or TrollStore; through LiveContainer when Vita3K runs inside it) and passes Vita3K's own JIT script where needed, so there's no script to set up. Vita3K notices when JIT attaches, at any time while it's open, and gets ready by itself.")
+            Text("Enable JIT opens your JIT app (StikDebug, StosDebug or TrollStore; through LiveContainer when Hinoki runs inside it) and passes Hinoki's own JIT script where needed, so there's no script to set up. Vita3K notices when JIT attaches, at any time while it's open, and gets ready by itself.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -645,7 +645,7 @@ struct CreditsSection: View {
         } header: {
             Text("Credits")
         } footer: {
-            Text("Vita3KiOS is free software under the GNU GPL v2 or later.")
+            Text("Hinoki is free software under the GNU GPL v2 or later.")
         }
     }
 }
@@ -669,6 +669,8 @@ struct AboutSection: View {
 
     var body: some View {
         Section("About") {
+            HinokiLockup()
+                .padding(.vertical, 6)
             LabeledContent("Version", value: appVersion)
             LabeledContent("Core", value: model.version)
             ShareLink(item: URL(fileURLWithPath: String(cString: v3k_log_path()))) {

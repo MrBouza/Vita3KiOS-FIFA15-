@@ -1,11 +1,11 @@
 {
-  "name": "Vita3KiOS",
+  "name": "Hinoki",
   "identifier": "org.vita3k.ios.source",
   "subtitle": "PS Vita emulator for iOS",
-  "description": "Vita3KiOS is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n\n- Install games, updates and DLC from .vpk, .zip, .pkg or a dumped folder\n- JIT through StikDebug, works in LiveContainer\n- Per-game settings, community patches, cheats and mods\n- On-screen controls you can rearrange, controller support and button remapping\n- External storage: keep your games on a USB drive, SSD or SD card\n\nYou need your own PS Vita firmware and games.\n\nDiscord (help and bug reports): https://discord.gg/pZyQDPHKF",
+  "description": "Hinoki (formerly Vita3KiOS) is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n\n- A PS Vita style home screen with LiveAreas, or a classic library\n- Install games, updates and DLC from .vpk, .zip, .pkg, a dumped folder or a Vitamin dump\n- One-tap JIT through StikDebug, works in LiveContainer\n- RAM helpers for big games, and Keep the phone cool\n- Per-game settings, community patches, cheats and mods\n- On-screen controls you can rearrange, controller support and button remapping\n- External storage: keep your games on a USB drive, SSD or SD card\n\nYou need your own PS Vita firmware and games.\n\nDiscord (help and bug reports): https://discord.gg/pZyQDPHKF",
   "iconURL": "https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/icon.png",
   "website": "https://github.com/oledz-i/Vita3KiOS",
-  "tintColor": "#E97F02",
+  "tintColor": "#22392E",
   "news": [],
   "apps": [
     {
@@ -84,12 +84,12 @@
           "minOSVersion": "17.4"
         }
       ],
-      "name": "Vita3KiOS",
+      "name": "Hinoki",
       "developerName": "oledz-i",
       "subtitle": "PS Vita emulator",
-      "localizedDescription": "Vita3KiOS is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n\n- Install games, updates and DLC from .vpk, .zip, .pkg or a dumped folder\n- JIT through StikDebug, works in LiveContainer\n- Per-game settings, community patches, cheats and mods\n- On-screen controls you can rearrange, controller support and button remapping\n- External storage: keep your games on a USB drive, SSD or SD card\n\nYou need your own PS Vita firmware and games.\n\nDiscord (help and bug reports): https://discord.gg/pZyQDPHKF",
+      "localizedDescription": "Hinoki (formerly Vita3KiOS) is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n\n- A PS Vita style home screen with LiveAreas, or a classic library\n- Install games, updates and DLC from .vpk, .zip, .pkg, a dumped folder or a Vitamin dump\n- One-tap JIT through StikDebug, works in LiveContainer\n- RAM helpers for big games, and Keep the phone cool\n- Per-game settings, community patches, cheats and mods\n- On-screen controls you can rearrange, controller support and button remapping\n- External storage: keep your games on a USB drive, SSD or SD card\n\nYou need your own PS Vita firmware and games.\n\nDiscord (help and bug reports): https://discord.gg/pZyQDPHKF",
       "iconURL": "https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/icon.png",
-      "tintColor": "#E97F02",
+      "tintColor": "#22392E",
       "category": "games",
       "screenshots": [],
       "appPermissions": {

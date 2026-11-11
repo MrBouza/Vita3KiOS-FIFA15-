@@ -236,10 +236,10 @@ bool start_helper() {
         RAM_LOG_WARN("extensionWithIdentifier failed: {} (domain {}, code {})", error.localizedDescription.UTF8String ?: "no error given",
             error.domain.UTF8String ?: "none", static_cast<long>(error.code));
         if (v3k_ram_helpers_in_livecontainer())
-            set_status("LiveContainer could not start the RAM helper. It needs LiveContainer 3.8.13 or newer (helper process support); update LiveContainer, or install Vita3K on its own", true);
+            set_status("Your app container (LiveContainer, Strata, ...) could not start the RAM helper. It needs helper process / app extension support for apps inside it (LiveContainer 3.8.13 or newer); otherwise install Hinoki on its own", true); update LiveContainer, or install Vita3K on its own", true);
         else
             set_status(std::string("iOS could not find the RAM helper (") + (error.localizedDescription.UTF8String ?: "no reason given")
-                    + "). Reinstall without removing app extensions (SideStore/AltStore can strip them)",
+                    + "). Reinstall Hinoki without removing app extensions (SideStore/AltStore can strip them)",
                 true);
         g_start_failed = true;
         return false;

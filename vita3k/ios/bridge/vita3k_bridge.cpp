@@ -377,7 +377,7 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
         else if (ext == ".bin")
             outcome.errors.push_back(fmt::format("{}: not a license file (a work.bin is exactly 512 bytes).", file.filename().string()));
         else
-            outcome.errors.push_back(fmt::format("{}: Vita3K doesn't know this kind of file. Import .vpk, .zip, .pkg, .pup, work.bin/.rif/.zrif licenses, or a game folder.", file.filename().string()));
+            outcome.errors.push_back(fmt::format("{}: Hinoki doesn't know this kind of file. Import .vpk, .zip, .pkg, .pup, work.bin/.rif/.zrif licenses, or a game folder.", file.filename().string()));
         return false;
     }
     }
@@ -1102,7 +1102,7 @@ char *v3k_export_save_data(const char *title_id, char **message) {
     }
     LOG_INFO("Exported the save data of {} to {}", app->title_id, zip_path.string());
     if (message)
-        *message = dup_string("Saved to Files › Vita3KiOS › Save Backups.");
+        *message = dup_string("Saved to Files › Hinoki › Save Backups.");
     return dup_string(zip_path.string());
 }
 
@@ -1293,7 +1293,7 @@ bool v3k_import_save_data(const char *title_id, const char *path, char **message
             fs::remove_all(incoming, ec);
             return result(false, "The current save could not be backed up, so nothing was changed: " + reason);
         }
-        kept = " The previous save is in Files › Vita3KiOS › Save Backups.";
+        kept = " The previous save is in Files › Hinoki › Save Backups.";
     }
     fs::remove_all(target, ec);
     fs::rename(incoming, target, ec);
@@ -1816,7 +1816,7 @@ int v3k_game_fix_flag(const char *title_id, const char *key) {
 char *v3k_make_problem_report(char **message) {
     auto *emuenv = ios::get_emuenv();
     const fs::path folder = fs::path(v3k_log_path()).parent_path();
-    const fs::path zip_path = fs::temp_directory_path() / fmt::format("Vita3KiOS-report-{}.zip", std::time(nullptr));
+    const fs::path zip_path = fs::temp_directory_path() / fmt::format("Hinoki-report-{}.zip", std::time(nullptr));
     mz_zip_archive zip{};
     if (!mz_zip_writer_init_file(&zip, zip_path.string().c_str(), 0)) {
         if (message)
@@ -1832,7 +1832,7 @@ char *v3k_make_problem_report(char **message) {
         if (fs::exists(file, ec))
             mz_zip_writer_add_file(&zip, name, file.string().c_str(), nullptr, 0, MZ_BEST_COMPRESSION);
     }
-    std::string info = fmt::format("Vita3KiOS {}\nDevice: {}\niOS: {}\nJIT: {}\n", v3k_version(), ios::get_device_model(), ios::get_os_version(),
+    std::string info = fmt::format("Hinoki {}\nDevice: {}\niOS: {}\nJIT: {}\n", v3k_version(), ios::get_device_model(), ios::get_os_version(),
         v3k_is_jit_enabled() ? "enabled" : "not enabled");
     if (char *settings = v3k_settings_json()) {
         info += std::string("Settings: ") + settings + "\n";

@@ -22,6 +22,20 @@ struct PreviewApp: App {
 
     var body: some Scene {
         WindowGroup {
+            if scenario == "brand" {
+                // The in-app Hinoki mark and lockup (Settings › About)
+                VStack(spacing: 40) {
+                    HinokiMark().frame(width: 220, height: 220)
+                    HinokiLockup(markSize: 64)
+                    HStack(spacing: 24) {
+                        HinokiMark().frame(width: 60, height: 60)
+                        HinokiMark().frame(width: 40, height: 40)
+                        HinokiMark().frame(width: 29, height: 29)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(white: 0.96))
+            } else {
             VitaHomeView(apps: apps, onLaunch: { _ in }, onDetails: { _ in }, onDelete: { _ in }, onDeleteSave: { _ in },
                          onImportFiles: {}, onImportFolder: {}, onEnterZrif: {}, preview: scenario)
                 .environmentObject(model)
@@ -33,6 +47,7 @@ struct PreviewApp: App {
                         }
                     }
                 }
+            }
         }
     }
 

@@ -168,7 +168,7 @@ struct LibraryView: View {
                     JITSetupOverlay(progress: model.jitProgress, target: model.jitTarget)
                 }
             }
-            .navigationTitle("Vita3K")
+            .navigationTitle("Hinoki")
             .toolbar(vitaHome ? .hidden : .automatic, for: .navigationBar)
             // The Vita home screen has its own Search bubble: the library's search bar would cover it
             .modifier(LibrarySearch(enabled: !vitaHome, text: $search))
@@ -224,7 +224,7 @@ struct LibraryView: View {
                 }
                 Button(model.jitPreparing ? "OK" : "Not now", role: .cancel) { pendingLaunch = nil }
             } message: {
-                Text(model.jitPreparing ? "Vita3K is still preparing JIT (\(model.jitProgress)/\(model.jitTarget)). Try again in a moment." : "\(model.jitStatus)\n\nTap Enable JIT: Vita3K opens your JIT app and gets ready by itself once JIT attaches.")
+                Text(model.jitPreparing ? "Hinoki is still preparing JIT (\(model.jitProgress)/\(model.jitTarget)). Try again in a moment." : "\(model.jitStatus)\n\nTap Enable JIT: Hinoki opens your JIT app and gets ready by itself once JIT attaches.")
             }
             .modifier(DeleteAlerts(model: model, pendingDelete: $pendingDelete, pendingDeleteSave: $pendingDeleteSave))
             .modifier(ImportAlerts(model: model, zrifInput: $zrifInput, showingZrifEntry: $showingZrifEntry, zrifEntry: $zrifEntry, licenseMessage: licenseMessage))
@@ -503,7 +503,7 @@ struct EmptyLibrary: View {
                 .foregroundStyle(Theme.accentGradient)
                 .padding(.top, 40)
             Text("Your library is empty").font(.title2.bold())
-            Text("Add games as .vpk, .zip, .pkg (with its zRIF or work.bin) or a dumped game folder.\nYou can also drop files into the Import folder of Vita3K in the Files app.")
+            Text("Add games as .vpk, .zip, .pkg (with its zRIF or work.bin) or a dumped game folder.\nYou can also drop files into the Import folder of Hinoki in the Files app.")
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.65))
@@ -529,7 +529,7 @@ struct JITSetupOverlay: View {
             VStack(spacing: 14) {
                 ProgressView().controlSize(.large).tint(Theme.accent)
                 Text(target > 0 ? "Setting up JIT \(progress)/\(target)" : "Setting up JIT").font(.headline).monospacedDigit()
-                Text("StikDebug is preparing executable memory for the emulator. Keep Vita3K open, this can take a little while.")
+                Text("StikDebug is preparing executable memory for the emulator. Keep Hinoki open, this can take a little while.")
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.7))
@@ -573,7 +573,7 @@ struct CrashReportView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var reportFile: URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Vita3KiOS crash report.txt")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Hinoki crash report.txt")
         try? report.report.write(to: url, atomically: true, encoding: .utf8)
         return url
     }
@@ -705,7 +705,7 @@ private struct DeleteAlerts: ViewModifier {
                 }
                 Button("Cancel", role: .cancel) { pendingDelete = nil }
             } message: {
-                Text("The game is removed from Vita3K. Save data is kept.")
+                Text("The game is removed from Hinoki. Save data is kept.")
             }
             .alert("Delete the save data of \(pendingDeleteSave?.title ?? "")?", isPresented: Binding(get: { pendingDeleteSave != nil }, set: { if !$0 { pendingDeleteSave = nil } })) {
                 Button("Delete", role: .destructive) {

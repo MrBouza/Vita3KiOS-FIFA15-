@@ -150,7 +150,7 @@ int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
 
-    SDL_SetAppMetadata("Vita3K", nullptr, "org.vita3k.ios");
+    SDL_SetAppMetadata("Hinoki", nullptr, "org.vita3k.ios");
 
     // MoltenVK reads these when the Vulkan instance is created (the layer settings in renderer.cpp
     // say the same; this covers builds where that extension is not honoured)
@@ -162,7 +162,7 @@ int main(int argc, char *argv[]) {
 
     const fs::path documents = fs::path(ios::get_documents_path());
     if (!ios::initialize(documents)) {
-        show_message("Vita3K", "The emulator failed to initialise. Check vita3k.log in the app's folder in the Files app.");
+        show_message("Hinoki", "The emulator failed to initialise. Check vita3k.log in the app's folder in the Files app.");
         return 1;
     }
 

@@ -1922,7 +1922,7 @@ struct VitaPanel: View {
             }
             .padding(space.len(40))
             if all.count == 1 {
-                Text("Themes you install in Vita3K (ux0/theme) show up here too.")
+                Text("Themes you install in Hinoki (ux0/theme) show up here too.")
                     .font(VitaFont.font(space.len(15))).foregroundStyle(.white.opacity(0.6))
                     .padding(.bottom, space.len(20))
             }

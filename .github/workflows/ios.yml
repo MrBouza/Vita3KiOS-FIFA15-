@@ -177,7 +177,7 @@ jobs:
             gh release edit "$tag" --notes-file "$notes_file"
           else
             gh release create "$tag" "$IPA_PATH" --target "$GITHUB_SHA" \
-              --title "Vita3KiOS ${IPA_VERSION}" --notes-file "$notes_file"
+              --title "Hinoki ${IPA_VERSION}" --notes-file "$notes_file"
           fi
 
           # Update the AltStore / SideStore source on main
@@ -190,6 +190,6 @@ jobs:
             "$IPA_VERSION" "$IPA_BUILD" "$IPA_PATH" "$url" "$notes_file"
           git add dist/altstore/source.json
           if ! git diff --cached --quiet; then
-            git commit -m "AltStore source: Vita3KiOS ${IPA_VERSION}"
+            git commit -m "AltStore source: Hinoki ${IPA_VERSION}"
             git push origin HEAD:main
           fi

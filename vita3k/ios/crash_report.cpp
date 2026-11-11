@@ -215,7 +215,7 @@ void write_signal(int sig, uintptr_t pc, const char *image, uintptr_t offset, ui
     const int fd = open(g_report_path.data(), O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd < 0)
         return;
-    safe_write(fd, "Vita3KiOS crashed");
+    safe_write(fd, "Hinoki crashed");
     if (g_current_game[0]) {
         safe_write(fd, " while running ");
         safe_write(fd, g_current_game.data());
@@ -291,7 +291,7 @@ void write_note(const std::string &text) {
     if (!g_report_path[0])
         return;
     std::ofstream report(g_report_path.data(), std::ios::app);
-    report << "Vita3KiOS";
+    report << "Hinoki";
     if (g_current_game[0])
         report << " (" << g_current_game.data() << ")";
     report << ": " << text << "\n\n";

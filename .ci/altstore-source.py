@@ -18,10 +18,12 @@ if len(sys.argv) > 7 and os.path.exists(sys.argv[7]):
 
 raw = f"https://raw.githubusercontent.com/{repo}/main/dist/altstore"
 description = (
-    "Vita3KiOS is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n"
+    "Hinoki (formerly Vita3KiOS) is a PlayStation Vita emulator for iPhone and iPad, built on the Vita3K core.\n"
     "\n"
-    "- Install games, updates and DLC from .vpk, .zip, .pkg or a dumped folder\n"
-    "- JIT through StikDebug, works in LiveContainer\n"
+    "- A PS Vita style home screen with LiveAreas, or a classic library\n"
+    "- Install games, updates and DLC from .vpk, .zip, .pkg, a dumped folder or a Vitamin dump\n"
+    "- One-tap JIT through StikDebug, works in LiveContainer\n"
+    "- RAM helpers for big games, and Keep the phone cool\n"
     "- Per-game settings, community patches, cheats and mods\n"
     "- On-screen controls you can rearrange, controller support and button remapping\n"
     "- External storage: keep your games on a USB drive, SSD or SD card\n"
@@ -37,13 +39,13 @@ else:
     source = {}
 
 source.update({
-    "name": "Vita3KiOS",
+    "name": "Hinoki",
     "identifier": "org.vita3k.ios.source",
     "subtitle": "PS Vita emulator for iOS",
     "description": description,
     "iconURL": f"{raw}/icon.png",
     "website": f"https://github.com/{repo}",
-    "tintColor": "#E97F02",
+    "tintColor": "#22392E",
     "news": source.get("news", []),
 })
 
@@ -54,12 +56,12 @@ if app is None:
     apps.append(app)
 
 app.update({
-    "name": "Vita3KiOS",
+    "name": "Hinoki",
     "developerName": "oledz-i",
     "subtitle": "PS Vita emulator",
     "localizedDescription": description,
     "iconURL": f"{raw}/icon.png",
-    "tintColor": "#E97F02",
+    "tintColor": "#22392E",
     "category": "games",
     "screenshots": app.get("screenshots", []),
     "appPermissions": {
@@ -76,7 +78,7 @@ entry = {
     "version": version,
     "buildVersion": str(build),
     "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "localizedDescription": notes or f"Vita3KiOS {version}",
+    "localizedDescription": notes or f"Hinoki {version}",
     "downloadURL": download_url,
     "size": os.path.getsize(ipa_path),
     "minOSVersion": "17.4",

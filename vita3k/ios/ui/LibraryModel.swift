@@ -306,7 +306,7 @@ final class LibraryModel: ObservableObject {
     func chooseStorage(_ url: URL) {
         _ = url.startAccessingSecurityScopedResource() // kept open: games run from there
         guard let bookmark = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) else {
-            lastMessage = "Vita3K can't keep access to that folder. Try another location."
+            lastMessage = "Hinoki can't keep access to that folder. Try another location."
             return
         }
         let previous = UserDefaults.standard.data(forKey: "v3k.storageBookmark")

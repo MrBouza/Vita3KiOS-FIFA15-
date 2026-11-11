@@ -415,7 +415,7 @@ struct GameSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else if cheats.isEmpty {
-                Text("There are no cheats for \(app.title) (\(app.titleId)) in the database. You can add your own VitaCheat .psv file to Files › Vita3KiOS › patch › cheats.")
+                Text("There are no cheats for \(app.title) (\(app.titleId)) in the database. You can add your own VitaCheat .psv file to Files › Hinoki › patch › cheats.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else if let version = cheats.first(where: { !$0.versionMatches })?.gameVersion {
@@ -431,7 +431,7 @@ struct GameSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(cheat.name)
                         if !cheat.supported {
-                            Text("Uses a code type Vita3KiOS can't run yet").font(.caption2).foregroundStyle(.orange)
+                            Text("Uses a code type Hinoki can't run yet").font(.caption2).foregroundStyle(.orange)
                         } else if !cheat.author.isEmpty {
                             Text("by \(cheat.author)").font(.caption2).foregroundStyle(.secondary)
                         }
@@ -478,7 +478,7 @@ struct GameSettingsView: View {
         } header: {
             Text("Mods")
         } footer: {
-            Text("Files of a mod replace the game's files, like rePatch on a PS Vita: Vita rePatch mods work as they are. You can also copy files into Files › Vita3KiOS › vita › ux0 › rePatch › \(app.titleId). Changes apply the next time the game starts.")
+            Text("Files of a mod replace the game's files, like rePatch on a PS Vita: Vita rePatch mods work as they are. You can also copy files into Files › Hinoki › vita › ux0 › rePatch › \(app.titleId). Changes apply the next time the game starts.")
         }
     }
 
@@ -513,7 +513,7 @@ struct GameSettingsView: View {
         } header: {
             Text("Data")
         } footer: {
-            Text("Deleting the shader cache only makes the next launch stutter while shaders compile again; do it if graphics break after an update. Exported saves are also kept in Files › Vita3KiOS › Save Backups.\n\nImport takes a save from another Vita3K or a modded Vita, as a zip or a folder. From a Vita, export it decrypted first (VitaShell: \"Open decrypted\" on the save, or Vita Save Manager). The current save is backed up to Save Backups before it is replaced.")
+            Text("Deleting the shader cache only makes the next launch stutter while shaders compile again; do it if graphics break after an update. Exported saves are also kept in Files › Hinoki › Save Backups.\n\nImport takes a save from another Vita3K or a modded Vita, as a zip or a folder. From a Vita, export it decrypted first (VitaShell: \"Open decrypted\" on the save, or Vita Save Manager). The current save is backed up to Save Backups before it is replaced.")
         }
     }
 

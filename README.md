@@ -1,12 +1,13 @@
 <p align="center">
-  <img src="dist/altstore/icon.png" width="128" alt="Vita3KiOS icon">
+  <img src="dist/altstore/icon.png" width="128" alt="Hinoki icon">
 </p>
 
-<h1 align="center">Vita3KiOS</h1>
+<h1 align="center">Hinoki</h1>
 
 <p align="center">
   <b>A PlayStation Vita emulator for iPhone and iPad, built on <a href="https://github.com/Vita3K/Vita3K">Vita3K</a>.</b><br>
-  The full Vita3K core in a native iOS app, with JIT on iOS 26.
+  The full Vita3K core in a native iOS app, with JIT on iOS 26.<br>
+  <sub>Formerly Vita3KiOS. Hinoki (檜) is the Japanese cypress.</sub>
 </p>
 
 <p align="center">
@@ -15,11 +16,11 @@
   <img src="https://img.shields.io/badge/iOS-17.4%2B-0a84ff" alt="iOS 17.4+">
   <img src="https://img.shields.io/badge/license-GPL--2.0--or--later-lightgrey" alt="GPL-2.0-or-later">
   <a href="https://discord.gg/pZyQDPHKF"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join the Discord"></a>
-  <a href="https://ko-fi.com/Oledz"><img src="https://img.shields.io/badge/Ko--fi-support%20Vita3KiOS-ff5e5b?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
+  <a href="https://ko-fi.com/Oledz"><img src="https://img.shields.io/badge/Ko--fi-support%20Hinoki-ff5e5b?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
 </p>
 
 <p align="center">
-  <img src="dist/readme/preview.jpg" alt="Vita3KiOS interface preview" width="100%">
+  <img src="dist/readme/preview.jpg" alt="Hinoki interface preview" width="100%">
   <br><sub><i>Interface preview. The games shown are placeholders, not real titles.</i></sub>
 </p>
 
@@ -41,7 +42,7 @@
 | 🎨 **Looks the part** | Eight animated themes that respond to tilt, original menu music made on the device, and touch-control themes (PlayStation, Xbox-style letters, Nintendo-style, Neon, Minimal). |
 | 🕹 **Controls your way** | Play in landscape or upright (portrait mode puts the game on top and the controls below). Drag and pinch the touch controls into your own layout, use the rear touchpad, and tilt the iPhone for motion games. Any MFi, Xbox, PlayStation or Switch controller works too, with remapping and a ✕/○ swap. |
 | 📸 **Game menu** | Screenshots straight to Photos, rear touchpad, layout editor, show/hide controls, quit. Open it with ✕ on screen, Home/PS on a controller, or by holding Select + Start. |
-| 📱 **Feels native** | Put any game on your Home Screen (`vita3k://launch/<TITLE ID>` links), long-press the app icon for recent games, and use "Open in Vita3K" from Files or Safari. |
+| 📱 **Feels native** | Put any game on your Home Screen (`vita3k://launch/<TITLE ID>` links), long-press the app icon for recent games, and use "Open in Hinoki" from Files or Safari. |
 | 💾 **External storage** | Keep games on a USB-C SSD, thumb drive or SD reader. |
 | 🩺 **Crash reports** | If a game crashes, the next launch shows what happened. **Report a problem** in Settings bundles the logs, crash report, device and settings into one file for the Discord. |
 | ✅ **Knows your games** | Each game shows its state on the Vita3K compatibility list, and games with known issues get recommended settings automatically from an online fixes list ([`dist/game-fixes.txt`](dist/game-fixes.txt)) that can be updated without a new release. |
@@ -61,7 +62,7 @@
 https://raw.githubusercontent.com/oledz-i/Vita3KiOS/main/dist/altstore/source.json
 ```
 
-**LiveContainer, TrollStore or another signer.** Download `Vita3KiOS-<version>.ipa` from [Releases](../../releases/latest).
+**LiveContainer, TrollStore or another signer.** Download `Hinoki-<version>.ipa` from [Releases](../../releases/latest).
 
 **Test builds.** Every commit is built: open the newest successful run of the [iOS workflow](../../actions/workflows/ios.yml) → **Artifacts** (you need to be signed in to GitHub).
 
@@ -73,22 +74,22 @@ Vita3K translates game code while it runs, so it needs JIT. Without JIT, games w
 
 **iOS 26 on A15/M2 or newer (iPhone 13 and later).** You need StikDebug's `universal.js` script:
 
-- **LiveContainer:** long-press Vita3K → Settings → turn on **Launch with JIT** and set **JIT Launch Script** to `universal.js`. In LiveContainer's settings, choose StikDebug as the JIT enabler.
-- **Installed directly:** in StikDebug, assign `universal.js` to Vita3K and enable JIT.
+- **LiveContainer:** long-press Hinoki → Settings → turn on **Launch with JIT** and set **JIT Launch Script** to `universal.js`. In LiveContainer's settings, choose StikDebug as the JIT enabler.
+- **Installed directly:** in StikDebug, assign `universal.js` to Hinoki and enable JIT.
 
-**One tap:** if JIT is off, tap **JIT off · Enable** in the status bar (or **Settings → JIT → Enable JIT**). Vita3K opens StikDebug with its bundle ID (inside LiveContainer, its process) and, where StikDebug needs one, its own JIT script, then keeps running in the background until the debugger attaches.
+**One tap:** if JIT is off, tap **JIT off · Enable** in the status bar (or **Settings → JIT → Enable JIT**). Hinoki opens StikDebug with its bundle ID (inside LiveContainer, its process) and, where StikDebug needs one, its own JIT script, then keeps running in the background until the debugger attaches.
 
-The status pill turns green (**JIT ready**) once Vita3K has set up its JIT memory.
+The status pill turns green (**JIT ready**) once Hinoki has set up its JIT memory.
 
 **iOS 17.4–18, or older chips.** Enabling JIT in StikDebug, or LiveContainer's "Launch with JIT", is enough.
 
 ## Getting started
 
 1. **Firmware.** Download the Vita firmware (`PSVUPDAT.PUP`) and fonts (`PSP2UPDAT.PUP`) from PlayStation's site. Tap **+** → **Files** and pick them.
-2. **Games.** Use the same **+** button for `.vpk`, `.pkg`, `.zip` or a dumped game folder. You can also share a file to Vita3K (**Open in Vita3K** in Files or Safari), or drop files into **Files → On My iPhone → Vita3K → Import**.
-3. **Updates & DLC.** Install the game first, then its update and DLC `.pkg`s, one at a time or together in a zip or folder. Vita3K sorts them so the game always goes in first.
+2. **Games.** Use the same **+** button for `.vpk`, `.pkg`, `.zip` or a dumped game folder. You can also share a file to Hinoki (**Open in Hinoki** in Files or Safari), or drop files into **Files → On My iPhone → Hinoki → Import**.
+3. **Updates & DLC.** Install the game first, then its update and DLC `.pkg`s, one at a time or together in a zip or folder. Hinoki sorts them so the game always goes in first.
 
-**zRIF licences.** Game and DLC `.pkg`s need their zRIF. Vita3K asks for it, or you can put a `.zrif` text file with the same name next to the `.pkg`. Updates use the base game's licence and don't ask.
+**zRIF licences.** Game and DLC `.pkg`s need their zRIF. Hinoki asks for it, or you can put a `.zrif` text file with the same name next to the `.pkg`. Updates use the base game's licence and don't ask.
 
 Long-press a game for its settings, patches, cheats, mods, updates & DLC, and save backups. **Add to Home Screen…** in the same sheet copies a launch link and walks you through making a Home Screen icon with Shortcuts.
 
@@ -141,7 +142,7 @@ The iOS code lives in `vita3k/ios/`: the app target, SwiftUI frontend, C bridge 
 
 **Need help or found a bug?** Join the **[Discord](https://discord.gg/pZyQDPHKF)**. When reporting a problem, say which game and where it broke, and attach the crash report and `vita3k.log` (**Settings → About → Share log**).
 
-If Vita3KiOS is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-fi.com/Oledz)**. Thank you!
+If Hinoki is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-fi.com/Oledz)**. Thank you!
 
 <a href="https://ko-fi.com/Oledz"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi"></a>
 
@@ -156,6 +157,6 @@ If Vita3KiOS is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-f
 
 ## Legal
 
-Vita3KiOS doesn't include any games, firmware or keys. Only use content you dumped from hardware you own. This project isn't affiliated with or endorsed by Sony Interactive Entertainment. "PlayStation" and "PS Vita" are trademarks of their respective owners.
+Hinoki doesn't include any games, firmware or keys. Only use content you dumped from hardware you own. This project isn't affiliated with or endorsed by Sony Interactive Entertainment. "PlayStation" and "PS Vita" are trademarks of their respective owners.
 
 Licensed under the GNU General Public License v2 or later, like Vita3K. See [COPYING.txt](COPYING.txt).

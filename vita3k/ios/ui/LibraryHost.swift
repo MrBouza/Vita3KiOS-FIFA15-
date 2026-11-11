@@ -163,7 +163,7 @@ enum LibraryHost {
         if let app = model.apps.first(where: { $0.titleId.caseInsensitiveCompare(titleId) == .orderedSame }) {
             model.launchRequested = app
         } else {
-            model.lastMessage = "\(titleId) isn't installed in Vita3K."
+            model.lastMessage = "\(titleId) isn't installed in Hinoki."
         }
     }
 

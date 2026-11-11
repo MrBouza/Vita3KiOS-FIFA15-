@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vita3KiOS: builds an unsigned IPA with a plain Xcode project.
+# Hinoki (formerly Vita3KiOS): builds an unsigned IPA with a plain Xcode project.
 #   1. CMake generates Vita3K.xcodeproj
 #   2. xcodebuild builds it (no signing)
 #   3. the .app is zipped into Payload/ as an .ipa
@@ -101,37 +101,29 @@ if [[ ! -d "$app_path/PlugIns/V3KRamHelper.appex" ]]; then
     fi
 fi
 
-# ---- App icon: the official Vita3K icon ----
+# ---- App icon: Hinoki ----
 icon_work="$(mktemp -d)"
 plist="$app_path/Info.plist"
 pb=/usr/libexec/PlistBuddy
 
-# 1. Liquid Glass icon compiled from the Icon Composer file (dist/image/Vita3K.icon)
-if xcrun actool "$repo_root/dist/image/Vita3K.icon" \
+# 1. Liquid Glass icon compiled from the Icon Composer file (dist/image/Hinoki.icon)
+if xcrun actool "$repo_root/dist/image/Hinoki.icon" \
         --compile "$app_path" \
         --platform iphoneos \
         --minimum-deployment-target 17.4 \
         --target-device iphone --target-device ipad \
-        --app-icon Vita3K \
+        --app-icon Hinoki \
         --output-partial-info-plist "$icon_work/partial.plist" > "$icon_work/actool.log" 2>&1; then
     "$pb" -c "Merge $icon_work/partial.plist" "$plist" || true
-    echo "Compiled Vita3K.icon"
+    echo "Compiled Hinoki.icon"
 else
-    echo "actool could not compile Vita3K.icon, using PNG icons only:"
+    echo "actool could not compile Hinoki.icon, using PNG icons only:"
     cat "$icon_work/actool.log"
 fi
 
-# 2. PNG fallbacks (LiveContainer, older iOS): the logo on the icon's orange gradient
-python3 - "$repo_root/vita3k/org.vita3k.vita3k.svg" "$icon_work/icon.svg" <<'PY'
-import sys
-svg = open(sys.argv[1]).read()
-start = svg.index('>', svg.index('<svg')) + 1
-background = ('<defs><linearGradient id="v3kbg" x1="0" y1="0" x2="0" y2="0.7">'
-              '<stop offset="0" stop-color="#F8CA00"/><stop offset="1" stop-color="#E97F02"/>'
-              '</linearGradient></defs><rect x="0" y="0" width="270.93" height="270.93" fill="url(#v3kbg)"/>')
-open(sys.argv[2], 'w').write(svg[:start] + background + svg[start:])
-PY
-if sips -s format png -z 1024 1024 "$icon_work/icon.svg" --out "$icon_work/icon-1024.png" > /dev/null; then
+# 2. PNG fallbacks (LiveContainer, older iOS): the mark on cypress green, pre-rendered
+cp "$repo_root/dist/image/hinoki-icon-1024.png" "$icon_work/icon-1024.png"
+if [[ -f "$icon_work/icon-1024.png" ]]; then
     for spec in "120:AppIcon60x60@2x.png" "180:AppIcon60x60@3x.png" "152:AppIcon76x76@2x~ipad.png" "167:AppIcon83.5x83.5@2x~ipad.png"; do
         sips -z "${spec%%:*}" "${spec%%:*}" "$icon_work/icon-1024.png" --out "$app_path/${spec#*:}" > /dev/null
     done
@@ -179,9 +171,9 @@ staging="$(mktemp -d)"
 mkdir -p "$staging/Payload"
 cp -R "$app_path" "$staging/Payload/"
 if [[ "${VITA3KIOS_RELEASE:-0}" == 1 ]]; then
-    ipa_name="Vita3KiOS-${version}.ipa"
+    ipa_name="Hinoki-${version}.ipa"
 else
-    ipa_name="Vita3KiOS-${version}-${commit}.ipa"
+    ipa_name="Hinoki-${version}-${commit}.ipa"
 fi
 (cd "$staging" && zip -qry "$ipa_name" Payload)
 mv "$staging/$ipa_name" "$output_dir/"

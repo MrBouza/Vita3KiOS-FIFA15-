@@ -300,7 +300,7 @@ bool download(const std::string &url, std::string &data, std::string &error) {
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:nsurl
                                                                cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
                                                            timeoutInterval:30];
-        [request setValue:@"Vita3KiOS" forHTTPHeaderField:@"User-Agent"];
+        [request setValue:@"Hinoki" forHTTPHeaderField:@"User-Agent"];
 
         __block NSData *body = nil;
         __block NSInteger status = 0;
