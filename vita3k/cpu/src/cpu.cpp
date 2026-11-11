@@ -25,8 +25,8 @@
 #include <util/types.h>
 
 #include <algorithm>
-#include <chrono>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
