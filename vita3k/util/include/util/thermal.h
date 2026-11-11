@@ -78,7 +78,11 @@ inline bool phone_still_heating() {
 }
 
 inline void follow_render_qos(int &current) {
-    const int wanted = phone_still_heating() ? 2 : should_step_down() ? 1 : 0;
+    int wanted = 0;
+    if (phone_still_heating())
+        wanted = 2;
+    else if (should_step_down())
+        wanted = 1;
     if (wanted == current)
         return;
     static constexpr qos_class_t classes[] = { QOS_CLASS_USER_INTERACTIVE, QOS_CLASS_USER_INITIATED, QOS_CLASS_DEFAULT };
