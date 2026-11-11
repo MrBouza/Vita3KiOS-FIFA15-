@@ -680,7 +680,32 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
         emuenv.self_path = !emuenv.cfg.self_path.empty() ? emuenv.cfg.self_path : EBOOT_PATH;
     }
 
-    main_module_id = load_module(emuenv, "app0:" + emuenv.self_path);
+    main_module_id = -1;
+    // Uncharted: Golden Abyss ships a launcher: its eboot.bin is a few kilobytes that start the game proper
+    // (uncharted.self) with sceAppMgrLoadExec. Handing over through that relaunch left the game stuck on
+    // its splash screen on iOS, with a thread running off into unmapped memory. Loading the known target in
+    // the launcher's place, as the Xbox port (ReVita) does, starts the game the way it expects to start.
+    // If the target doesn't load, the launcher runs as before.
+    if (launch_request.self_path.empty() && emuenv.cfg.self_path.empty()) {
+        static constexpr const char *launcher_targets[] = { "uncharted.self" };
+        vfs::FileBuffer eboot;
+        if (vfs::read_app_file(eboot, emuenv.vita_fs_path, emuenv.io.app_path, EBOOT_PATH) && eboot.size() < 0x10000) {
+            for (const char *target : launcher_targets) {
+                vfs::FileBuffer probe;
+                if (!vfs::read_app_file(probe, emuenv.vita_fs_path, emuenv.io.app_path, target))
+                    continue;
+                LOG_INFO("eboot.bin is a launcher ({} bytes): starting {} directly", eboot.size(), target);
+                main_module_id = load_module(emuenv, std::string("app0:") + target);
+                if (main_module_id >= 0) {
+                    emuenv.self_path = target;
+                    break;
+                }
+                LOG_WARN("{} did not load: using the launcher", target);
+            }
+        }
+    }
+    if (main_module_id < 0)
+        main_module_id = load_module(emuenv, "app0:" + emuenv.self_path);
 
     if (main_module_id >= 0) {
         const auto module = emuenv.kernel.loaded_modules[main_module_id];
