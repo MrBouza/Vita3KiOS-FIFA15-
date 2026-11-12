@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <mutex>
@@ -231,6 +232,12 @@ struct PortPair {
     bool operator<(const PortPair &o) const { return std::tie(port, vport) < std::tie(o.port, o.vport); }
 };
 
+std::string pair_text(const PortPair &p) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%u/0x%04X", p.port, p.vport);
+    return buf;
+}
+
 struct Accepted {
     uint32_t ip; // host order
     PortPair pair;
@@ -296,29 +303,37 @@ public:
 
     bool register_dgram(uint16_t local_port, PortPair pair) {
         std::lock_guard<std::mutex> lock(state_mutex);
-        if (dgram_by_pair.count(pair))
+        if (dgram_by_pair.count(pair)) {
+            RELAY_WARN("game datagram socket " + pair_text(pair) + " is already taken");
             return false;
+        }
         dgram_by_pair[pair] = local_port;
         dgram_by_local[local_port] = pair;
+        RELAY_INFO("game opened datagram socket " + pair_text(pair));
         return true;
     }
 
     bool register_listener(uint16_t local_port, PortPair pair) {
         std::lock_guard<std::mutex> lock(state_mutex);
-        if (listener_by_pair.count(pair))
+        if (listener_by_pair.count(pair)) {
+            RELAY_WARN("game stream listener " + pair_text(pair) + " is already taken");
             return false;
+        }
         listener_by_pair[pair] = local_port;
         listener_by_local[local_port] = pair;
+        RELAY_INFO("game listens for streams on " + pair_text(pair));
         return true;
     }
 
     void unregister(uint16_t local_port) {
         std::lock_guard<std::mutex> lock(state_mutex);
         if (const auto it = dgram_by_local.find(local_port); it != dgram_by_local.end()) {
+            RELAY_INFO("game closed datagram socket " + pair_text(it->second));
             dgram_by_pair.erase(it->second);
             dgram_by_local.erase(it);
         }
         if (const auto it = listener_by_local.find(local_port); it != listener_by_local.end()) {
+            RELAY_INFO("game stopped listening on " + pair_text(it->second));
             listener_by_pair.erase(it->second);
             listener_by_local.erase(it);
         }
@@ -380,6 +395,11 @@ private:
     int64_t last_ping = 0;
     int64_t last_rtt_log = 0;
     int64_t next_reconnect = 0;
+    // Traffic counters, logged every 10 s while they change
+    uint64_t dgrams_sent = 0, dgrams_received = 0, dgrams_unclaimed = 0, streams_opened = 0, streams_refused = 0;
+    uint64_t logged_total = 0;
+    int64_t last_traffic_log = 0;
+    int unclaimed_logged = 0;
 
     void stop_locked() {
         if (running) {
@@ -723,10 +743,17 @@ private:
                 // Ad hoc sockets are told apart by vport; accept any port with the same vport
                 it = std::find_if(dgram_by_pair.begin(), dgram_by_pair.end(), [&](const auto &e) { return e.first.vport == to.vport; });
             }
-            if (it == dgram_by_pair.end())
+            if (it == dgram_by_pair.end()) {
+                dgrams_unclaimed++;
+                if (unclaimed_logged < 30) {
+                    unclaimed_logged++;
+                    RELAY_WARN("datagram from " + ip_text(from_ip) + " " + pair_text(from) + " to " + pair_text(to) + " (" + std::to_string(size) + " bytes): no game socket there, dropped");
+                }
                 return;
+            }
             local_port = it->second;
         }
+        dgrams_received++;
         std::string packet(DGRAM_HEADER_SIZE, '\0');
         const uint32_t ip_net = htonl(from_ip);
         std::memcpy(packet.data(), &ip_net, 4);
@@ -776,6 +803,7 @@ private:
             put16(body, dst.port);
             put16(body, dst.vport);
             body.append(payload, size);
+            dgrams_sent++;
             send_frame(DGRAM, body);
         }
     }
@@ -846,8 +874,11 @@ private:
             put32(body, sid | ACCEPTOR_BIT);
             send_frame(S_CLOSE, body);
         };
-        if (!listener_port)
+        if (!listener_port) {
+            streams_refused++;
+            RELAY_WARN("stream from " + ip_text(peer) + " to " + pair_text(to) + ": nothing listening there, refused");
             return refuse();
+        }
 
         int fd = socket(AF_INET, SOCK_STREAM, 0);
         auto addr = loopback(0);
@@ -882,6 +913,8 @@ private:
         s.header_done = true;
         s.accepted_port = bport;
         add_stream(std::move(s));
+        streams_opened++;
+        RELAY_INFO("stream from " + ip_text(peer) + " " + pair_text(from) + " accepted on " + pair_text(to));
     }
 
     void read_stream(int fd) {
@@ -920,6 +953,8 @@ private:
             put16(body, dst.vport);
             if (server_fd < 0)
                 return close_stream(fd, false);
+            streams_opened++;
+            RELAY_INFO("game opens a stream to " + ip_text(s.peer) + " " + pair_text(dst));
             send_frame(S_OPEN, body);
             return;
         }
@@ -985,6 +1020,15 @@ private:
                 }
                 if (server_fd >= 0 && now - last_recv > 30000)
                     drop_server("no answer from the relay server for 30 s");
+            }
+
+            const uint64_t total = dgrams_sent + dgrams_received + dgrams_unclaimed + streams_opened + streams_refused;
+            if (total != logged_total && now - last_traffic_log >= 10000) {
+                last_traffic_log = now;
+                logged_total = total;
+                RELAY_INFO("traffic: " + std::to_string(dgrams_sent) + " datagrams sent, " + std::to_string(dgrams_received) + " received, "
+                    + std::to_string(dgrams_unclaimed) + " unclaimed; " + std::to_string(streams_opened) + " streams, " + std::to_string(streams_refused) + " refused; "
+                    + std::to_string(streams.size()) + " open");
             }
 
             fds.clear();

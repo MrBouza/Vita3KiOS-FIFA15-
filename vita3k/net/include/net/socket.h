@@ -121,6 +121,7 @@ struct P2PSocket : public PosixSocket {
     uint32_t relay_peer_ip = 0; // network order
     uint16_t relay_peer_port = 0, relay_peer_vport = 0; // host order
     bool relay_has_peer = false;
+    bool relay_listening = false;
     uint16_t relay_port = 0, relay_vport = 0; // our own port pair, host order
 
     explicit P2PSocket(int domain, int type, int protocol);
@@ -129,6 +130,7 @@ struct P2PSocket : public PosixSocket {
 
     int close() override;
     int listen(int backlog) override;
+    int abort(int flags) override;
 
     int bind(const SceNetSockaddr *addr, unsigned int addrlen) override;
     int send_packet(const void *msg, unsigned int len, int flags, const SceNetSockaddr *to, unsigned int tolen) override;

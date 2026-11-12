@@ -20,6 +20,9 @@
 
 #include <bit>
 #include <cstring>
+#ifndef _WIN32
+#include <fcntl.h>
+#endif
 #include <vector>
 
 static SceNetSockaddr convertP2PToPosix(const SceNetSockaddr *addr) {
@@ -160,6 +163,39 @@ int P2PSocket::listen(int backlog) {
         return res;
     if (!net_relay::register_listener(relay_local_port, relay_port, relay_vport))
         return SCE_NET_ERROR_EADDRINUSE;
+    relay_listening = true;
+    return 0;
+}
+
+int P2PSocket::abort(int flags) {
+    const auto res = PosixSocket::abort(flags);
+    if (!relay || !relay_local_port)
+        return res;
+#ifndef _WIN32
+    // Abort wakes a thread blocked on this socket with shutdown(). On an unconnected datagram
+    // socket or a listening socket, shutdown() fails with ENOTCONN and wakes nothing, so a game
+    // that aborts its ad hoc socket to stop a receive thread would wait forever. Poke the socket
+    // through loopback instead: the blocked call returns and sees the abort.
+    sockaddr_in to{};
+    to.sin_family = AF_INET;
+    to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    to.sin_port = htons(relay_local_port);
+    if (sce_type == SCE_NET_SOCK_DGRAM_P2P) {
+        const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (fd >= 0) {
+            ::sendto(fd, "", 0, 0, reinterpret_cast<sockaddr *>(&to), sizeof(to));
+            ::close(fd);
+        }
+    } else if (relay_listening) {
+        const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (fd >= 0) {
+            const int flags_fd = fcntl(fd, F_GETFL, 0);
+            fcntl(fd, F_SETFL, flags_fd | O_NONBLOCK);
+            ::connect(fd, reinterpret_cast<sockaddr *>(&to), sizeof(to));
+            ::close(fd);
+        }
+    }
+#endif
     return 0;
 }
 
@@ -252,11 +288,17 @@ int P2PSocket::recv_packet(void *buf, unsigned int len, int flags, SceNetSockadd
         }
         thread_local std::vector<char> packet;
         packet.resize(static_cast<size_t>(len) + net_relay::DGRAM_HEADER_SIZE);
-        const auto res = PosixSocket::recv_packet(packet.data(), static_cast<unsigned int>(packet.size()), flags, nullptr, nullptr);
-        if (res < 0)
-            return res;
-        if (res < static_cast<int>(net_relay::DGRAM_HEADER_SIZE))
-            return SCE_NET_ERROR_EWOULDBLOCK;
+        int res;
+        while (true) {
+            res = PosixSocket::recv_packet(packet.data(), static_cast<unsigned int>(packet.size()), flags, nullptr, nullptr);
+            if (res < 0)
+                return res;
+            if (res >= static_cast<int>(net_relay::DGRAM_HEADER_SIZE))
+                break;
+            // A leftover wake-up from abort(): not a packet. Wait for a real one if the call blocks.
+            if (sockopt_so_nbio || (flags & SCE_NET_MSG_DONTWAIT))
+                return SCE_NET_ERROR_EWOULDBLOCK;
+        }
         uint32_t ip;
         uint16_t port, vport;
         std::memcpy(&ip, packet.data(), 4);
