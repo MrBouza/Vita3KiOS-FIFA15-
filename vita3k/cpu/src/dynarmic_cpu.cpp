@@ -854,6 +854,14 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     if (cpu_opt && ios_fast_cpu)
         config.optimizations |= Dynarmic::OptimizationFlag::Unsafe_InaccurateNaN | Dynarmic::OptimizationFlag::Unsafe_ReducedErrorFP
             | Dynarmic::OptimizationFlag::Unsafe_IgnoreStandardFPCRValue;
+    // No return stack buffer. Our caches are small (4 MiB to start), so they fill up in the middle of a
+    // run, and the ARM64 backend then wipes the cache and writes new blocks over the old ones while
+    // the return stack buffer (on the host stack of that run) still holds host addresses of the old
+    // blocks. The next return the buffer predicted then jumped into whatever block now sits there.
+    // Uncharted: Golden Abyss: a function return landed in the middle of another function (no
+    // prologue, r8 still 0xDEADBEEF), its epilogue popped above the top of the stack and the game
+    // ended up calling a float. Returns now go through the dispatcher, which looks the block up.
+    config.optimizations &= ~Dynarmic::OptimizationFlag::ReturnStackBuffer;
 #endif
     config.enable_cycle_counting = false;
 #if defined(VITA3K_PLATFORM_IOS)
