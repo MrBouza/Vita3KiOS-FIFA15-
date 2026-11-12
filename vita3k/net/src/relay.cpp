@@ -79,6 +79,37 @@ bool parse_server(const std::string &input, std::string &host, uint16_t &port) {
     return !host.empty();
 }
 
+namespace {
+constexpr int64_t TRACE_WINDOW_MS = 4000;
+std::atomic<int64_t> trace_deadline{ 0 };
+std::mutex trace_reason_mutex;
+std::string trace_reasons;
+} // namespace
+
+int64_t steady_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void open_trace_window(const std::string &reason) {
+    {
+        std::lock_guard<std::mutex> lock(trace_reason_mutex);
+        if (trace_reasons.size() < 600)
+            trace_reasons += (trace_reasons.empty() ? "" : "; ") + reason;
+    }
+    trace_deadline = steady_now_ms() + TRACE_WINDOW_MS;
+}
+
+int64_t trace_window_deadline() {
+    return trace_deadline.load(std::memory_order_relaxed);
+}
+
+std::string take_trace_reasons() {
+    std::lock_guard<std::mutex> lock(trace_reason_mutex);
+    std::string out;
+    out.swap(trace_reasons);
+    return out;
+}
+
 } // namespace net_relay
 
 #ifdef _WIN32
@@ -461,6 +492,11 @@ private:
         auto &last = last_payload[key];
         const bool changed = n > 0 && shape != last;
         last = std::move(shape);
+
+        // Gameplay traffic (not the matching library's own vports 1 and 2): a new kind of message or a
+        // changed one opens a call trace window, to see what the game does right after it
+        if ((n == 0 || changed) && from.vport > 2 && to.vport > 2)
+            open_trace_window(std::string(sent ? "sent " : "received ") + (n == 0 ? "first " : "changed ") + hex_head(data, size, 6));
 
         const char *note = nullptr;
         if (changed && n >= 30 && changes_logged[key]++ < 200)

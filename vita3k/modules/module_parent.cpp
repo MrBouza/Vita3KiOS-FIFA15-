@@ -31,6 +31,7 @@
 #include <mem/functions.h>
 #include <mem/ptr.h>
 #include <module/load_module.h>
+#include <net/relay.h>
 #include <nids/functions.h>
 #include <packages/license.h>
 #include <packages/sce_types.h>
@@ -41,7 +42,12 @@
 #include <util/string_utils.h>
 #include <util/thermal.h>
 
+#include <algorithm>
+#include <atomic>
+#include <map>
 #include <mutex>
+#include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -208,6 +214,129 @@ static void check_watch(EmuEnvState &emuenv, uint32_t nid, SceUID thread_id, con
     last = std::move(now);
 }
 
+// Call trace (ad hoc diagnostics). While a trace window is open (net/relay.h: a new or changed
+// gameplay message was just sent or received), every system call is counted, the first calls of
+// each function and every change in what it returns are logged, and a summary is written when the
+// window closes. Outside the windows, network and NP calls that return an error are logged (a few
+// per function and error code).
+namespace call_trace {
+struct Stats {
+    uint64_t count = 0;
+    uint64_t errors = 0;
+    uint32_t last_ret = 0;
+    std::map<SceUID, uint64_t> threads;
+};
+static std::mutex mutex;
+static std::atomic<bool> window_open{ false };
+static int64_t window_start = 0;
+static std::string window_reasons;
+static std::map<uint32_t, Stats> stats;
+static uint32_t lines = 0;
+static std::map<std::pair<uint32_t, uint32_t>, uint32_t> errors_logged;
+constexpr uint32_t MAX_LINES = 400;
+
+static bool is_error(uint32_t ret) {
+    return ret >= 0x80000000u;
+}
+
+static std::string thread_name(EmuEnvState &emuenv, SceUID thread_id) {
+    const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+    return thread ? thread->name : std::string("?");
+}
+
+static void close_window(EmuEnvState &emuenv, int64_t now) {
+    std::map<uint32_t, Stats> done;
+    std::string reasons;
+    int64_t start = 0;
+    {
+        const std::lock_guard lock(mutex);
+        if (!window_open)
+            return;
+        window_open = false;
+        done.swap(stats);
+        reasons.swap(window_reasons);
+        start = window_start;
+        lines = 0;
+    }
+    std::vector<std::pair<uint32_t, Stats>> sorted(done.begin(), done.end());
+    std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) { return a.second.count > b.second.count; });
+    std::string text;
+    for (const auto &[nid, st] : sorted) {
+        const char *name = import_name(nid);
+        std::string threads;
+        for (const auto &[tid, n] : st.threads)
+            threads += fmt::format("{}{} x{}", threads.empty() ? "" : ", ", thread_name(emuenv, tid), n);
+        text += fmt::format("\n  {:>6}  {} ({}): last returned 0x{:08X}{}, threads: {}", st.count, name ? name : "?", log_hex(nid), st.last_ret,
+            st.errors ? fmt::format(", {} errors", st.errors) : std::string(), threads);
+    }
+    LOG_INFO("Call trace: window closed after {} ms (opened by: {}). {} functions called, most frequent first:{}", now - start, reasons, sorted.size(), text);
+}
+
+static void record(EmuEnvState &emuenv, uint32_t nid, SceUID thread_id, Address lr, const uint32_t (&args)[4], uint32_t ret) {
+    const int64_t deadline = net_relay::trace_window_deadline();
+    const int64_t now = deadline ? net_relay::steady_now_ms() : 0;
+    if (deadline && now < deadline) {
+        bool log_it = false;
+        bool opened = false;
+        std::string reasons;
+        uint64_t nth = 0;
+        {
+            const std::lock_guard lock(mutex);
+            if (!window_open) {
+                window_open = true;
+                window_start = now;
+                opened = true;
+            }
+            const std::string more = net_relay::take_trace_reasons();
+            if (!more.empty()) {
+                window_reasons += (window_reasons.empty() ? "" : "; ") + more;
+                reasons = more;
+            }
+            Stats &st = stats[nid];
+            nth = ++st.count;
+            st.threads[thread_id]++;
+            if (is_error(ret))
+                st.errors++;
+            log_it = (nth <= 3 || ret != st.last_ret) && lines < MAX_LINES;
+            st.last_ret = ret;
+            if (log_it)
+                lines++;
+        }
+        if (opened)
+            LOG_INFO("Call trace: window opened ({})", reasons);
+        else if (!reasons.empty())
+            LOG_INFO("Call trace: window extended ({})", reasons);
+        if (log_it) {
+            const char *name = import_name(nid);
+            LOG_INFO("Call trace: +{} ms {} #{} on {} at {}: args {:08X} {:08X} {:08X} {:08X} -> 0x{:08X}", now - window_start, name ? std::string(name) : log_hex(nid), nth,
+                thread_name(emuenv, thread_id), log_hex(lr), args[0], args[1], args[2], args[3], ret);
+        }
+        return;
+    }
+    if (deadline && window_open)
+        close_window(emuenv, now);
+
+    if (!is_error(ret))
+        return;
+    static thread_local std::unordered_map<uint32_t, bool> is_network_call;
+    auto known = is_network_call.find(nid);
+    if (known == is_network_call.end()) {
+        const char *n = import_name(nid);
+        known = is_network_call.emplace(nid, n && (std::string_view(n).starts_with("sceNet") || std::string_view(n).starts_with("sceNp"))).first;
+    }
+    if (!known->second)
+        return;
+    const char *name = import_name(nid);
+    {
+        const std::lock_guard lock(mutex);
+        if (errors_logged[{ nid, ret }]++ >= 5)
+            return;
+    }
+    LOG_INFO("Call trace: {} on {} at {} returned 0x{:08X} (args {:08X} {:08X} {:08X} {:08X})", name, thread_name(emuenv, thread_id), log_hex(lr), ret,
+        args[0], args[1], args[2], args[3]);
+}
+} // namespace call_trace
+
 void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread_id) {
     // For crash reports: what each thread called last
     if (!recent_imports::namer)
@@ -239,9 +368,12 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
     if (write_watch::active())
         check_watch(emuenv, nid, thread_id, "before");
     if (fn) {
+        const uint32_t args[4] = { read_reg(cpu, 0), read_reg(cpu, 1), read_reg(cpu, 2), read_reg(cpu, 3) };
+        const Address lr = read_lr(cpu);
         (*fn)(emuenv, cpu, thread_id);
         if (write_watch::active())
             check_watch(emuenv, nid, thread_id, "inside");
+        call_trace::record(emuenv, nid, thread_id, lr, args, read_reg(cpu, 0));
     } else {
         const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
         // make the function return 0
