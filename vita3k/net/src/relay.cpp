@@ -308,6 +308,8 @@ public:
         running = true;
         have_vip = true;
         packets_logged.clear();
+        last_payload.clear();
+        changes_logged.clear();
         last_from_peer.clear();
         thread = std::thread([this] { loop(); });
         RELAY_INFO("connected to " + config.host + ":" + std::to_string(config.port) + ", room \"" + config.room + "\", virtual IP " + ip_text(vip));
@@ -427,6 +429,9 @@ private:
     // keepalives) can't hide rare messages (ready, start, settings); reset whenever the relay
     // (re)starts for a game
     std::map<std::tuple<bool, uint16_t, uint16_t, uint16_t>, uint64_t> packets_logged;
+    // Last payload of each message type (counter bytes masked) and how many changes were logged
+    std::map<std::tuple<bool, uint16_t, uint16_t, uint16_t>, std::string> last_payload;
+    std::map<std::tuple<bool, uint16_t, uint16_t, uint16_t>, uint64_t> changes_logged;
     // Last time anything arrived from each player, to spot network stalls
     std::map<uint32_t, int64_t> last_from_peer;
 
@@ -445,11 +450,27 @@ private:
         uint16_t type = size ? static_cast<uint8_t>(data[0]) : 0xFFFF;
         if (size >= 2 && data[0] == 0x01)
             type = static_cast<uint16_t>(0x0100 | static_cast<uint8_t>(data[1]));
-        const uint64_t n = packets_logged[{ sent, from.vport, to.vport, type }]++;
-        if (n >= 30 && n % 500 != 0)
+        const std::tuple<bool, uint16_t, uint16_t, uint16_t> key{ sent, from.vport, to.vport, type };
+        const uint64_t n = packets_logged[key]++;
+
+        // Payloads compared with the sequence byte of pings and pongs masked out, so a ready flag
+        // or state change hidden inside a frequent message type still shows up
+        std::string shape(data, size);
+        if (size >= 2 && (type == 0x13 || type == 0x16))
+            shape[1] = 0;
+        auto &last = last_payload[key];
+        const bool changed = n > 0 && shape != last;
+        last = std::move(shape);
+
+        const char *note = nullptr;
+        if (changed && n >= 30 && changes_logged[key]++ < 200)
+            note = " (payload changed)";
+        else if (n >= 30 && n % 500 == 0)
+            note = " (frequent type: logging 1 in 500 now)";
+        else if (n >= 30)
             return;
         RELAY_INFO(std::string(sent ? "packet out to " : "packet in from ") + ip_text(peer) + " " + pair_text(from) + " -> " + pair_text(to)
-            + ", " + std::to_string(size) + " bytes: " + hex_head(data, size, 48) + (n >= 30 ? " (frequent type: logging 1 in 500 now)" : ""));
+            + ", " + std::to_string(size) + " bytes: " + hex_head(data, size, 48) + (note ? note : ""));
     }
 
     void stop_locked() {
