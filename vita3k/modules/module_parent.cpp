@@ -62,6 +62,53 @@ static constexpr bool LOG_UNK_NIDS_ALWAYS = false;
 // invited", which would make both players the guest and the match would never start.
 // Only applied when the bytes are exactly the ones in firmware 3.74's adhoc_matching.suprx
 // (segment 0 offset 0x720: movw r4, #0x310F; movt r4, #0x8041).
+static bool patch_bytes(uint8_t *code, const uint8_t *expected, const uint8_t *replacement, size_t size) {
+    if (memcmp(code, expected, size) != 0)
+        return false;
+    memcpy(code, replacement, size);
+    return true;
+}
+
+// Ad hoc matching, second patch: the handshake retransmit interval. A game passes
+// sceNetAdhocMatchingCreate an interval (rexmtint) and a count (initcount) for re-sending a request
+// or an accept before giving up; Soul Sacrifice Delta passes 8 ms x 3, so it cancels after 24 ms,
+// which a Vita on the same Wi-Fi can answer but a player across the internet can't. Create stores
+// the interval with str.w r11, [r5, #0x2c] (offset 0x326); that store and the next one are rewritten
+// so the next one comes first and a call into a few instructions placed past the end of the code
+// (offset 0x3E48, still inside the module's last page) stores max(interval, 300 ms) instead.
+// Re-sending less often changes nothing on the same Wi-Fi, where the first send is answered.
+static void patch_adhoc_matching_rexmt(MemState &mem, const SceKernelModuleInfo &info) {
+    constexpr uint32_t SITE = 0x326;
+    constexpr uint32_t CAVE = 0x3E48;
+    static constexpr uint8_t site_expected[8] = { 0xC5, 0xF8, 0x2C, 0xB0, 0xC5, 0xF8, 0x30, 0xE0 }; // str.w r11, [r5, #0x2c]; str.w lr, [r5, #0x30]
+    static constexpr uint8_t site_replacement[8] = { 0xC5, 0xF8, 0x30, 0xE0, 0x03, 0xF0, 0x8D, 0xFD }; // str.w lr, [r5, #0x30]; bl CAVE
+    static constexpr uint8_t cave[20] = {
+        0x49, 0xF2, 0xE0, 0x3C, // movw r12, #0x93E0
+        0xC0, 0xF2, 0x04, 0x0C, // movt r12, #0x0004 (300000 us)
+        0xE3, 0x45, // cmp r11, r12
+        0x38, 0xBF, // it lo
+        0xE3, 0x46, // movlo r11, r12
+        0xC5, 0xF8, 0x2C, 0xB0, // str.w r11, [r5, #0x2c]
+        0x70, 0x47, // bx lr
+    };
+    static constexpr uint8_t zeros[sizeof(cave)] = {};
+    const auto &seg = info.segments[0];
+    const auto base = seg.vaddr.cast<uint8_t>();
+    const uint32_t allocated = (seg.memsz + 0xFFF) & ~0xFFFu;
+    if (!base || seg.memsz != CAVE || allocated < CAVE + sizeof(cave)) {
+        LOG_WARN("Ad hoc matching: module layout not as expected, retransmit patch not applied");
+        return;
+    }
+    uint8_t *code = base.get(mem);
+    if (memcmp(code + SITE, site_expected, sizeof(site_expected)) != 0 || memcmp(code + CAVE, zeros, sizeof(zeros)) != 0) {
+        LOG_WARN("Ad hoc matching: different module version, retransmit patch not applied");
+        return;
+    }
+    memcpy(code + CAVE, cave, sizeof(cave));
+    memcpy(code + SITE, site_replacement, sizeof(site_replacement));
+    LOG_INFO("Ad hoc matching: handshake retransmit interval raised to at least 300 ms for play over the internet");
+}
+
 static void patch_adhoc_matching(MemState &mem, const SceKernelModuleInfo &info) {
     if (std::string(info.module_name) != "SceNetAdhocMatching")
         return;
@@ -79,13 +126,11 @@ static void patch_adhoc_matching(MemState &mem, const SceKernelModuleInfo &info)
         LOG_WARN("Ad hoc matching: module layout not as expected, select-target patch not applied");
         return;
     }
-    uint8_t *code = base.get(mem) + OFFSET;
-    if (memcmp(code, expected, sizeof(expected)) != 0) {
+    if (patch_bytes(base.get(mem) + OFFSET, expected, replacement, sizeof(expected)))
+        LOG_INFO("Ad hoc matching: selecting a player we already invited now succeeds instead of failing with 0x8041310F");
+    else
         LOG_WARN("Ad hoc matching: different module version, select-target patch not applied");
-        return;
-    }
-    memcpy(code, replacement, sizeof(replacement));
-    LOG_INFO("Ad hoc matching: selecting a player we already invited now succeeds instead of failing with 0x8041310F");
+    patch_adhoc_matching_rexmt(mem, info);
 }
 
 #define LIBRARY(name) extern const LibraryInitFn import_library_init_##name;
