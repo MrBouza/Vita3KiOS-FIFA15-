@@ -677,9 +677,16 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     // widescreen hack: only for draws into frame-shaped targets (the game's screen), not shadow maps or other buffers
     vert_ublock.wide_x_scale = 1.0f;
     if (context.state.widescreen_x_scale != 1.0f && vert_ublock.screen_height > 0.0f) {
-        const float target_aspect = vert_ublock.screen_width / vert_ublock.screen_height;
+        // Screen-shaped: the Vita's 960x544 or a scaled-down copy (720x408, 640x368, 480x272: games that
+        // render 3D below native resolution), judged by the viewport the draw uses when it has one, so
+        // games that draw their scene into a bigger or power-of-two target (1024x512, 1024x1024) get it too
         constexpr float vita_aspect = 960.0f / 544.0f;
-        if (std::abs(target_aspect - vita_aspect) < 0.03f)
+        const auto screen_shaped = [&](float w, float h) {
+            return h > 0.0f && w >= 256.0f && std::abs(w / h - vita_aspect) < 0.06f;
+        };
+        const bool target_shaped = screen_shaped(vert_ublock.screen_width, vert_ublock.screen_height);
+        const bool viewport_shaped = !context.record.viewport_flat && screen_shaped(std::abs(context.viewport.width), std::abs(context.viewport.height));
+        if (target_shaped || viewport_shaped)
             vert_ublock.wide_x_scale = context.state.widescreen_x_scale;
     }
     vert_ublock.wide_attr_shift = 0.0f;

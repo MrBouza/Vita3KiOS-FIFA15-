@@ -108,15 +108,16 @@ static CPUStatePtr take_pooled_cpu(bool cpu_opt, SceUID thread_id, std::size_t p
         cpu_pool.erase(it);
     }
     CPUStatePtr state(entry.state, delete_cpu_state);
-    const uint64_t generation = guest_code_generation.load(std::memory_order_relaxed);
-    if (entry.generation != generation)
-        state->cpu->invalidate_jit_cache(0, 0xFFFFFFFF);
-    state->code_generation = generation;
     state->thread_id = thread_id;
     state->return_pc = 0;
     state->abort_pending = false;
     state->abort_fault_addr = 0;
+    // Reset first: the reset clears halt requests, and the invalidation below is one
     state->cpu->reset_for_reuse();
+    const uint64_t generation = guest_code_generation.load(std::memory_order_relaxed);
+    if (entry.generation != generation)
+        state->cpu->invalidate_jit_cache(0, 0xFFFFFFFF);
+    state->code_generation = generation;
     state->cpu->load_context(state->initial_context);
     state->cpu->clear_exclusive();
     static std::atomic<uint64_t> reused{ 0 };

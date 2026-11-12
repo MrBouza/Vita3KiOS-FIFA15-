@@ -36,6 +36,7 @@
 #if defined(VITA3K_PLATFORM_IOS)
 #include <pthread.h>
 #include <sys/qos.h>
+#include <util/app_activity.h>
 #include <util/thermal.h>
 #endif
 
@@ -46,8 +47,10 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <optional>
+#include <thread>
 
 namespace renderer::vulkan {
 
@@ -1121,6 +1124,11 @@ void PipelineCache::compiler_thread(MemState &mem) {
 
 #if defined(VITA3K_PLATFORM_IOS)
         thermal::follow_worker_qos(thermal_qos);
+        // Off screen, iOS refuses GPU work, and Metal building pipelines for a backgrounded app crashed
+        // inside Apple's GPU driver on its own queue (Uncharted, after leaving the app). Hold the
+        // request until the app is back (or the game closes).
+        while (!app_activity::gpu_allowed().load(std::memory_order_acquire) && !abandon_compiles.load(std::memory_order_acquire))
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
 #endif
 
         vk::Pipeline pipeline = compile_pipeline(request->type, request->render_pass, *request->vertex_program_gxm, *request->fragment_program_gxm, *request->get_record(), request->hints, mem);

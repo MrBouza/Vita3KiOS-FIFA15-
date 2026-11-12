@@ -15,12 +15,14 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#include <atomic>
 #include <chrono>
 #include <future>
 #include <renderer/commands.h>
 #include <renderer/driver_functions.h>
 #include <renderer/state.h>
 #include <renderer/types.h>
+#include <system_error>
 
 #include <display/state.h>
 #include <renderer/gl/functions.h>
@@ -30,6 +32,7 @@
 #include <renderer/vulkan/types.h>
 
 #include <renderer/functions.h>
+#include <util/log.h>
 #include <util/tracy.h>
 
 namespace renderer {
@@ -152,7 +155,21 @@ int wait_for_status(State &state, int *status, int signal, bool wake_on_equal) {
 }
 
 SyncWaitResult wishlist(SceGxmSyncObject *sync_object, const uint32_t timestamp, const int32_t timeout_micros) {
-    std::unique_lock<std::mutex> lock(sync_object->lock);
+    if (!sync_object)
+        return SyncWaitResult::Ready;
+    std::unique_lock<std::mutex> lock(sync_object->lock, std::defer_lock);
+    // The sync object lives in game memory. A game whose memory got overwritten (it crashed a thread
+    // first) can hand over one whose lock is garbage, and locking that threw out of the render thread
+    // and ended the app (Danganronpa 2). Skip the wait instead: the game is already broken, the app
+    // stays up and can return to the library.
+    try {
+        lock.lock();
+    } catch (const std::system_error &e) {
+        static std::atomic_flag logged = ATOMIC_FLAG_INIT;
+        if (!logged.test_and_set())
+            LOG_ERROR("A GPU sync object in game memory is damaged ({}): not waiting on it", e.what());
+        return SyncWaitResult::Ready;
+    }
     if (sync_object->timestamp_current < timestamp) {
         const auto &pred = [&]() {
             return sync_object->being_deleted || sync_object->timestamp_current >= timestamp;

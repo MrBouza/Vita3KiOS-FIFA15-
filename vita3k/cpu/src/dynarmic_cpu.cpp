@@ -59,13 +59,23 @@ namespace {
 
 std::atomic<std::size_t> ios_jit_regions_prepared{ 0 };
 
+// Games that start and end threads all the time (Hotline Miami: about 2,200 in a minute and a half)
+// filled the log with three lines per thread. The first ones and then every 256th are enough.
+static bool log_jit_churn() {
+    static std::atomic<uint32_t> count{ 0 };
+    const uint32_t n = count.fetch_add(1, std::memory_order_relaxed);
+    return n < 48 || n % 256 == 0;
+}
+
 void log_ios_jit_region_pool_event(oaknut::JitRegionPoolEvent event, std::size_t size, std::size_t available) {
     switch (event) {
     case oaknut::JitRegionPoolEvent::Take:
-        LOG_INFO("iOS JIT region pool take: size={} bytes available={}", size, available);
+        if (log_jit_churn())
+            LOG_INFO("iOS JIT region pool take: size={} bytes available={}", size, available);
         break;
     case oaknut::JitRegionPoolEvent::Return:
-        LOG_INFO("iOS JIT region pool return: size={} bytes available={}", size, available);
+        if (log_jit_churn())
+            LOG_INFO("iOS JIT region pool return: size={} bytes available={}", size, available);
         break;
     case oaknut::JitRegionPoolEvent::Miss:
         LOG_INFO("iOS JIT region pool miss: size={} bytes available={}", size, available);
@@ -888,9 +898,12 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
     static uint64_t jit_creation_count = 0;
     const std::lock_guard lock(jit_creation_mutex);
     const uint64_t allocation_id = ++jit_creation_count;
-    LOG_INFO("iOS Dynarmic JIT cache #{} allocating: core={} size={} MiB", allocation_id, core_id, config.code_cache_size / (1024 * 1024));
+    const bool log_it = allocation_id <= 16 || allocation_id % 256 == 0 || config.code_cache_size > IOS_TINY_CODE_CACHE_SIZE;
+    if (log_it)
+        LOG_INFO("iOS Dynarmic JIT cache #{} allocating: core={} size={} MiB", allocation_id, core_id, config.code_cache_size / (1024 * 1024));
     auto jit = std::make_unique<Dynarmic::A32::Jit>(config);
-    LOG_INFO("iOS Dynarmic JIT cache #{} ready", allocation_id);
+    if (log_it)
+        LOG_INFO("iOS Dynarmic JIT cache #{} ready", allocation_id);
     return jit;
 #else
     return std::make_unique<Dynarmic::A32::Jit>(config);
@@ -1137,7 +1150,11 @@ void DynarmicCPU::reset_for_reuse() {
     const std::lock_guard lock(jit_swap_mutex);
     halt_pending = false;
 #endif
-    jit->ClearHalt(static_cast<Dynarmic::HaltReason>(0xFFFFFFFF));
+    // Every halt reason but a pending cache invalidation: take_pooled_cpu asks for one when guest code
+    // changed since this JIT last ran, and clearing it too threw the request away, so a reused JIT ran
+    // blocks compiled for code that was no longer there (Danganronpa 2: a thread of the second video
+    // player ran the first player's unloaded code, then the app crashed)
+    jit->ClearHalt(static_cast<Dynarmic::HaltReason>(0xFFFFFFFFu & ~static_cast<uint32_t>(Dynarmic::HaltReason::CacheInvalidation)));
     halted = false;
     break_ = false;
     svc_called = false;
