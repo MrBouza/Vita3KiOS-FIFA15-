@@ -36,10 +36,10 @@ PCSF00021 memory-mapping=on native-buffer=on surface-sync=on async-shaders=on | 
 PCSA00107 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing
 
 
-# Mobile Suit Gundam: Extreme VS-Force (US, EU, Asia, JP): with surface sync on, the paused screen keeps
-# every earlier frame (menus and names smear and repeat): the pause background is read back from the frame
-# the game just drew. Upstream rates it Playable with the defaults
-PCSE00915 surface-sync=off high-accuracy=off fps-hack=off | Surface sync off: fixes menus and names smearing and repeating on the pause screen
-PCSB00983 surface-sync=off high-accuracy=off fps-hack=off | Surface sync off: fixes menus and names smearing and repeating on the pause screen
-PCSH00196 surface-sync=off high-accuracy=off fps-hack=off | Surface sync off: fixes menus and names smearing and repeating on the pause screen
-PCSG00738 surface-sync=off high-accuracy=off fps-hack=off | Surface sync off: fixes menus and names smearing and repeating on the pause screen
+# Mobile Suit Gundam: Extreme VS-Force (US, EU, Asia, JP): names, menus and the battle-start banner leave
+# trails that never fade (pause screen, lock-on names). Started with v1.4.0, which turned Fast CPU on by
+# default: the game's fades are float maths that the shortcuts break. Exact floating point for this game
+PCSE00915 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact floating point: fixes names and menus leaving trails (broke with Fast CPU on by default in v1.4.0)
+PCSB00983 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact floating point: fixes names and menus leaving trails (broke with Fast CPU on by default in v1.4.0)
+PCSH00196 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact floating point: fixes names and menus leaving trails (broke with Fast CPU on by default in v1.4.0)
+PCSG00738 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact floating point: fixes names and menus leaving trails (broke with Fast CPU on by default in v1.4.0)
