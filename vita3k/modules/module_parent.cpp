@@ -47,6 +47,35 @@
 
 static constexpr bool LOG_UNK_NIDS_ALWAYS = false;
 
+// Ad hoc matching: sceNetAdhocMatchingSelectTarget (invite, or accept an invite) returns
+// 0x8041310F when the player is already mid-handshake (we already sent the request or the
+// accept). Some games call it again right after accepting, which is harmless on a Vita because
+// the other side confirms within a frame or two; over the network the confirmation takes longer,
+// the repeat call fails and the game drops ad hoc with that error. Make the repeat a no-op that
+// succeeds, so the handshake already under way finishes. Only applied when the bytes are exactly
+// the ones in firmware 3.74's adhoc_matching.suprx (segment 0 offset 0x720:
+// movw r4, #0x310F; movt r4, #0x8041 -> movs r4, #0; nop; nop; nop).
+static void patch_adhoc_matching(MemState &mem, const SceKernelModuleInfo &info) {
+    if (std::string(info.module_name) != "SceNetAdhocMatching")
+        return;
+    constexpr uint32_t OFFSET = 0x720;
+    static constexpr uint8_t expected[8] = { 0x43, 0xF2, 0x0F, 0x14, 0xC8, 0xF2, 0x41, 0x04 };
+    static constexpr uint8_t replacement[8] = { 0x00, 0x24, 0x00, 0xBF, 0x00, 0xBF, 0x00, 0xBF };
+    const auto &seg = info.segments[0];
+    const auto base = seg.vaddr.cast<uint8_t>();
+    if (!base || seg.memsz < OFFSET + sizeof(expected)) {
+        LOG_WARN("Ad hoc matching: module layout not as expected, select-target patch not applied");
+        return;
+    }
+    uint8_t *code = base.get(mem) + OFFSET;
+    if (memcmp(code, expected, sizeof(expected)) != 0) {
+        LOG_WARN("Ad hoc matching: different module version, select-target patch not applied");
+        return;
+    }
+    memcpy(code, replacement, sizeof(replacement));
+    LOG_INFO("Ad hoc matching: a repeated select-target during a handshake now succeeds instead of failing with 0x8041310F");
+}
+
 #define LIBRARY(name) extern const LibraryInitFn import_library_init_##name;
 #include <modules/library_init_list.inc>
 #undef LIBRARY
@@ -291,6 +320,7 @@ SceUID load_module(EmuEnvState &emuenv, const std::string &module_path) {
         if (module_id >= 0) {
             const auto module = lock_and_find(module_id, emuenv.kernel.loaded_modules, emuenv.kernel.mutex);
             LOG_INFO("Module {} (at \"{}\") loaded", module->info.module_name, module_path);
+            patch_adhoc_matching(emuenv.mem, module->info);
         } else {
             LOG_ERROR("Failed to load module {}", module_path);
         }
