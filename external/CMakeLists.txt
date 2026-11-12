@@ -153,8 +153,9 @@ set(DYNARMIC_FRONTENDS "A32" CACHE STRING "")
 if(IOS)
 	# iOS JIT (from Tsubomi by 125hz): dynarmic code caches are StikDebug-prepared RX mappings with
 	# a writable alias on iOS 26+ (0001), and a count of full-cache wipes so a thread that keeps
-	# filling its cache can move to a bigger one (0002). Applied to the submodule checkout in order, once.
-	foreach(DYNARMIC_IOS_PATCH_NAME 0001-oaknut-ios-rwx-jit.patch 0002-dynarmic-code-cache-full-count.patch)
+	# filling its cache can move to a bigger one (0002); hint instructions other than WFI (PLD, YIELD,
+	# WFE, SEV) compile to nothing instead of ending the block in a host call (0004). Applied in order, once.
+	foreach(DYNARMIC_IOS_PATCH_NAME 0001-oaknut-ios-rwx-jit.patch 0002-dynarmic-code-cache-full-count.patch 0004-dynarmic-hints-are-nops.patch)
 		set(DYNARMIC_IOS_PATCH "${CMAKE_SOURCE_DIR}/vita3k/ios/patches/${DYNARMIC_IOS_PATCH_NAME}")
 		execute_process(COMMAND git apply --reverse --check "${DYNARMIC_IOS_PATCH}"
 			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dynarmic"

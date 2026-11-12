@@ -47,6 +47,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <optional>
@@ -902,8 +903,18 @@ static uint32_t metal_attribute_read_size(const SceGxmVertexAttribute &attribute
 }
 
 bool metal_realign_aligned_streams() {
-    const char *env = getenv("V3K_VERTEX_REALIGN");
-    return !(env && env[0] == '0');
+    // Asked for every vertex stream of every draw: getenv each time (it takes the environment lock)
+    // was a real cost at thousands of draws a frame. The value is set before a game starts, so
+    // re-reading it twice a second is plenty.
+    static std::atomic<bool> realign{ true };
+    static std::atomic<int64_t> next_read_ms{ 0 };
+    const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (now_ms >= next_read_ms.load(std::memory_order_relaxed)) {
+        const char *env = getenv("V3K_VERTEX_REALIGN");
+        realign.store(!(env && env[0] == '0'), std::memory_order_relaxed);
+        next_read_ms.store(now_ms + 500, std::memory_order_relaxed);
+    }
+    return realign.load(std::memory_order_relaxed);
 }
 
 MetalStreamLayout metal_stream_layout(const SceGxmVertexProgram &program, uint32_t stream_index) {
@@ -1358,7 +1369,16 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
     context.shader_hints.vertex_store_pass = vertex_store_pass;
 
     // note: the flag can_use_deferred_compilation is not considered here because it causes way too many false positives
+#ifdef __APPLE__
+    // A pipeline known from the saved cache is not instant on Metal: MoltenVK keeps shader source, not
+    // binaries, so Metal compiles it again each session, tens to hundreds of milliseconds each, on the
+    // render thread, the first time every scene and effect appears. Those go to the workers as well
+    // (ReVita measured the same on Xbox), so the first frames of a new scene can miss an object for a
+    // moment instead of freezing.
+    const bool compile_pipeline_async = !maskupdate && !context.shader_hints.masked_framebuffer_fetch && consider_for_async && use_async_compilation;
+#else
     const bool compile_pipeline_async = !maskupdate && !context.shader_hints.masked_framebuffer_fetch && !already_in_cache && consider_for_async && use_async_compilation;
+#endif
 
     if (compile_pipeline_async) {
         // create the pipeline compile request

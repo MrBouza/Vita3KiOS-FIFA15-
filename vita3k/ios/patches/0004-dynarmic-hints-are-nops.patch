@@ -1,0 +1,120 @@
+diff --git a/src/dynarmic/frontend/A32/translate/impl/hint.cpp b/src/dynarmic/frontend/A32/translate/impl/hint.cpp
+index 0ec6aeff..ed8ac7c4 100644
+--- a/src/dynarmic/frontend/A32/translate/impl/hint.cpp
++++ b/src/dynarmic/frontend/A32/translate/impl/hint.cpp
+@@ -9,7 +9,7 @@
+ namespace Dynarmic::A32 {
+ 
+ bool TranslatorVisitor::arm_PLD_imm(bool /*add*/, bool R, Reg /*n*/, Imm<12> /*imm12*/) {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+ 
+@@ -18,7 +18,7 @@ bool TranslatorVisitor::arm_PLD_imm(bool /*add*/, bool R, Reg /*n*/, Imm<12> /*i
+ }
+ 
+ bool TranslatorVisitor::arm_PLD_reg(bool /*add*/, bool R, Reg /*n*/, Imm<5> /*imm5*/, ShiftType /*shift*/, Reg /*m*/) {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+ 
+@@ -27,7 +27,7 @@ bool TranslatorVisitor::arm_PLD_reg(bool /*add*/, bool R, Reg /*n*/, Imm<5> /*im
+ }
+ 
+ bool TranslatorVisitor::arm_SEV() {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+ 
+@@ -35,7 +35,7 @@ bool TranslatorVisitor::arm_SEV() {
+ }
+ 
+ bool TranslatorVisitor::arm_SEVL() {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+ 
+@@ -43,7 +43,7 @@ bool TranslatorVisitor::arm_SEVL() {
+ }
+ 
+ bool TranslatorVisitor::arm_WFE() {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+ 
+@@ -59,7 +59,7 @@ bool TranslatorVisitor::arm_WFI() {
+ }
+ 
+ bool TranslatorVisitor::arm_YIELD() {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+ 
+diff --git a/src/dynarmic/frontend/A32/translate/impl/thumb16.cpp b/src/dynarmic/frontend/A32/translate/impl/thumb16.cpp
+index 67a94a0e..78cd5762 100644
+--- a/src/dynarmic/frontend/A32/translate/impl/thumb16.cpp
++++ b/src/dynarmic/frontend/A32/translate/impl/thumb16.cpp
+@@ -639,7 +639,7 @@ bool TranslatorVisitor::thumb16_SUB_sp(Imm<7> imm7) {
+ 
+ // SEV<c>
+ bool TranslatorVisitor::thumb16_SEV() {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+     return RaiseException(Exception::SendEvent);
+@@ -647,7 +647,7 @@ bool TranslatorVisitor::thumb16_SEV() {
+ 
+ // SEVL<c>
+ bool TranslatorVisitor::thumb16_SEVL() {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+     return RaiseException(Exception::SendEventLocal);
+@@ -655,7 +655,7 @@ bool TranslatorVisitor::thumb16_SEVL() {
+ 
+ // WFE<c>
+ bool TranslatorVisitor::thumb16_WFE() {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+     return RaiseException(Exception::WaitForEvent);
+@@ -671,7 +671,7 @@ bool TranslatorVisitor::thumb16_WFI() {
+ 
+ // YIELD<c>
+ bool TranslatorVisitor::thumb16_YIELD() {
+-    if (!options.hook_hint_instructions) {
++    if (!options.hook_hint_instructions || true) {
+         return true;
+     }
+     return RaiseException(Exception::Yield);
+diff --git a/src/dynarmic/frontend/A32/translate/impl/thumb32_load_byte.cpp b/src/dynarmic/frontend/A32/translate/impl/thumb32_load_byte.cpp
+index 42b2ebf4..251d784d 100644
+--- a/src/dynarmic/frontend/A32/translate/impl/thumb32_load_byte.cpp
++++ b/src/dynarmic/frontend/A32/translate/impl/thumb32_load_byte.cpp
+@@ -8,7 +8,7 @@
+ 
+ namespace Dynarmic::A32 {
+ static bool PLDHandler(TranslatorVisitor& v, bool W) {
+-    if (!v.options.hook_hint_instructions) {
++    if (!v.options.hook_hint_instructions || true) {
+         return true;
+     }
+ 
+@@ -18,7 +18,7 @@ static bool PLDHandler(TranslatorVisitor& v, bool W) {
+ }
+ 
+ static bool PLIHandler(TranslatorVisitor& v) {
+-    if (!v.options.hook_hint_instructions) {
++    if (!v.options.hook_hint_instructions || true) {
+         return true;
+     }
+ 

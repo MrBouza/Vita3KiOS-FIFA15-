@@ -546,8 +546,7 @@ public:
             if (v >= mem.host_page_size && is_valid_addr(mem, v))
                 dump(fmt::format("Memory at r{}", r).c_str(), v, 8, 24);
         }
-        out += fmt::format("Last system calls of thread {} (oldest first):\n{}", parent->thread_id, recent_imports::describe(parent->thread_id));
-        out += fmt::format("Last system calls of any thread:\n{}", recent_imports::describe(-1, 12));
+        out += fmt::format("Last system calls of thread {} (oldest first):\n{}", parent->thread_id, recent_imports::describe());
         LOG_CRITICAL("{}", out);
     }
 
@@ -628,7 +627,7 @@ public:
         }
         if (lo <= hi && hi - lo < 0x2000)
             out += fmt::format("Code 0x{:08X}..0x{:08X}:\n{}", lo - 0x40, hi + 0x40, dump_bytes(lo - 0x40, hi - lo + 0x80));
-        out += fmt::format("Last system calls of thread {} (oldest first):\n{}", parent->thread_id, recent_imports::describe(parent->thread_id, 40));
+        out += fmt::format("Last system calls of thread {} (oldest first):\n{}", parent->thread_id, recent_imports::describe(40));
         LOG_CRITICAL("{}", out);
     }
 
