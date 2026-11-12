@@ -142,6 +142,14 @@ P2PSocket::P2PSocket(int domain, int type, int protocol)
     : PosixSocket(domain, p2pSocketTypeToPosixSocketType(type), protocol) {
     sce_type = type;
     relay = net_relay::active();
+    relay_pending = !relay && net_relay::wanted();
+}
+
+void P2PSocket::resolve_relay() {
+    if (!relay_pending)
+        return;
+    relay_pending = false;
+    relay = net_relay::wait_active(8000);
 }
 
 int P2PSocket::close() {
@@ -151,8 +159,12 @@ int P2PSocket::close() {
 }
 
 int P2PSocket::listen(int backlog) {
-    if (!relay)
-        return PosixSocket::listen(backlog);
+    resolve_relay();
+    if (!relay) {
+        const auto res = PosixSocket::listen(backlog);
+        listening = res >= 0;
+        return res;
+    }
     if (!relay_bound) {
         const auto res = relay_bind(*this, 0, 0);
         if (res < 0)
@@ -163,30 +175,34 @@ int P2PSocket::listen(int backlog) {
         return res;
     if (!net_relay::register_listener(relay_local_port, relay_port, relay_vport))
         return SCE_NET_ERROR_EADDRINUSE;
-    relay_listening = true;
+    listening = true;
     return 0;
 }
 
 int P2PSocket::abort(int flags) {
     const auto res = PosixSocket::abort(flags);
-    if (!relay || !relay_local_port)
-        return res;
 #ifndef _WIN32
+    const uint16_t local_port = relay ? relay_local_port : host_local_port(sock);
+    if (!local_port || (sce_type != SCE_NET_SOCK_DGRAM_P2P && !listening))
+        return res;
     // Abort wakes a thread blocked on this socket with shutdown(). On an unconnected datagram
     // socket or a listening socket, shutdown() fails with ENOTCONN and wakes nothing, so a game
     // that aborts its ad hoc socket to stop a receive thread would wait forever. Poke the socket
     // through loopback instead: the blocked call returns and sees the abort.
     sockaddr_in to{};
+    socklen_t to_len = sizeof(to);
+    // The socket's own address; loopback reaches it when it is bound to "any" (or in relay mode)
+    if (relay || getsockname(sock, reinterpret_cast<sockaddr *>(&to), &to_len) != 0 || to.sin_addr.s_addr == htonl(INADDR_ANY))
+        to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     to.sin_family = AF_INET;
-    to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    to.sin_port = htons(relay_local_port);
+    to.sin_port = htons(local_port);
     if (sce_type == SCE_NET_SOCK_DGRAM_P2P) {
         const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
         if (fd >= 0) {
             ::sendto(fd, "", 0, 0, reinterpret_cast<sockaddr *>(&to), sizeof(to));
             ::close(fd);
         }
-    } else if (relay_listening) {
+    } else {
         const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (fd >= 0) {
             const int flags_fd = fcntl(fd, F_GETFL, 0);
@@ -195,11 +211,14 @@ int P2PSocket::abort(int flags) {
             ::close(fd);
         }
     }
-#endif
     return 0;
+#else
+    return res;
+#endif
 }
 
 SocketPtr P2PSocket::accept(SceNetSockaddr *addr, unsigned int *addrlen, int &err) {
+    resolve_relay();
     if (relay) {
         SceNetSockaddr host_addr{};
         unsigned int host_len = sizeof(host_addr);
@@ -232,6 +251,7 @@ SocketPtr P2PSocket::accept(SceNetSockaddr *addr, unsigned int *addrlen, int &er
 }
 
 int P2PSocket::connect(const SceNetSockaddr *addr, unsigned int addrlen) {
+    resolve_relay();
     if (!relay) {
         const auto p2p_addr = convertP2PToPosix(addr);
         return PosixSocket::connect(&p2p_addr, addrlen);
@@ -280,6 +300,7 @@ int P2PSocket::connect(const SceNetSockaddr *addr, unsigned int addrlen) {
 }
 
 int P2PSocket::recv_packet(void *buf, unsigned int len, int flags, SceNetSockaddr *from, unsigned int *fromlen) {
+    resolve_relay();
     if (relay && sce_type == SCE_NET_SOCK_DGRAM_P2P) {
         if (!relay_bound) {
             const auto r = relay_bind(*this, 0, 0);
@@ -318,6 +339,8 @@ int P2PSocket::recv_packet(void *buf, unsigned int len, int flags, SceNetSockadd
     }
 
     const auto res = PosixSocket::recv_packet(buf, len, flags, from, fromlen);
+    if (res == 0 && sce_type == SCE_NET_SOCK_DGRAM_P2P && !(flags & SCE_NET_MSG_DONTWAIT) && !sockopt_so_nbio)
+        return recv_packet(buf, len, flags, from, fromlen); // an abort() wake-up that came late: not a packet
     if ((res > 0) && from)
         *from = convertPosixToP2P(from);
 
@@ -325,6 +348,7 @@ int P2PSocket::recv_packet(void *buf, unsigned int len, int flags, SceNetSockadd
 }
 
 int P2PSocket::send_packet(const void *msg, unsigned int len, int flags, const SceNetSockaddr *to, unsigned int tolen) {
+    resolve_relay();
     if (relay && sce_type == SCE_NET_SOCK_DGRAM_P2P) {
         if (!relay_bound) {
             const auto r = relay_bind(*this, 0, 0);
@@ -362,6 +386,7 @@ int P2PSocket::send_packet(const void *msg, unsigned int len, int flags, const S
 }
 
 int P2PSocket::bind(const SceNetSockaddr *addr, unsigned int addrlen) {
+    resolve_relay();
     if (relay) {
         const auto *in = reinterpret_cast<const SceNetSockaddrIn *>(addr);
         return relay_bind(*this, in ? ntohs(in->sin_port) : 0, in ? ntohs(in->sin_vport) : 0);
@@ -371,6 +396,7 @@ int P2PSocket::bind(const SceNetSockaddr *addr, unsigned int addrlen) {
 }
 
 int P2PSocket::get_peer_address(SceNetSockaddr *addr, unsigned int *addrlen) {
+    resolve_relay();
     if (relay) {
         if (!addr || !addrlen)
             return SCE_NET_EINVAL;
@@ -387,6 +413,7 @@ int P2PSocket::get_peer_address(SceNetSockaddr *addr, unsigned int *addrlen) {
 }
 
 int P2PSocket::get_socket_address(SceNetSockaddr *addr, unsigned int *addrlen) {
+    resolve_relay();
     if (relay) {
         if (!addr || !addrlen)
             return SCE_NET_EINVAL;

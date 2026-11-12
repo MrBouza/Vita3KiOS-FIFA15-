@@ -25,6 +25,7 @@
 #include "archive.h"
 
 #include <app/functions.h>
+#include <app/state.h>
 #include <codec/at9_file.h>
 #include <compat/functions.h>
 #include <compat/state.h>
@@ -717,14 +718,14 @@ char *v3k_settings_json(void) {
         R"("vSync":{},"cpuOpt":{},"ngsEnable":{},"highAccuracy":{},"stretchDisplay":{},)"
         R"("performanceOverlay":{},"textureCache":{},"turboMode":{},"pstvMode":{},"memoryMapping":{},"fpsHack":{},"asyncShaders":{},)"
         R"("motion":{},"surfaceSync":{},"showCompileShaders":{},"shaderCache":{},"importTextures":{},"sysButton":{},"sysLang":{},"nativeBuffer":{},"mappingMode":{},)"
-        R"("adhocRelay":{},"adhocRelayServer":{},"adhocRelayRoom":{},"adhocRelayKey":{}}})",
+        R"("adhocRelay":{},"adhocRelayServer":{},"adhocRelayRoom":{},"adhocRelayKey":{},"userName":{}}})",
         cfg.resolution_multiplier, cfg.anisotropic_filtering, cfg.audio_volume, json_quote(cfg.screen_filter),
         b(cfg.v_sync), b(cfg.cpu_opt), b(cfg.ngs_enable), b(cfg.high_accuracy), b(cfg.stretch_the_display_area),
         b(cfg.performance_overlay), b(cfg.texture_cache), b(cfg.turbo_mode), b(cfg.pstv_mode),
         b(cfg.memory_mapping != "disabled"), b(cfg.fps_hack), b(cfg.async_pipeline_compilation),
         b(!cfg.disable_motion), b(!cfg.disable_surface_sync), b(cfg.show_compile_shaders), b(cfg.shader_cache),
         b(cfg.import_textures), cfg.sys_button, cfg.sys_lang, b(cfg.memory_mapping == "page-table"), json_quote(mapping_mode(cfg.memory_mapping)),
-        b(cfg.adhoc_relay), json_quote(cfg.adhoc_relay_server), json_quote(cfg.adhoc_relay_room), json_quote(cfg.adhoc_relay_key));
+        b(cfg.adhoc_relay), json_quote(cfg.adhoc_relay_server), json_quote(cfg.adhoc_relay_room), json_quote(cfg.adhoc_relay_key), json_quote(emuenv->io.user_name));
     return dup_string(json);
 }
 
@@ -830,6 +831,28 @@ bool v3k_set_setting_string(const char *key, const char *value) {
     if (std::string(key) == "memory-mapping-mode") {
         cfg.memory_mapping = cfg.current_config.memory_mapping = mapping_mode(value);
         return save_settings(*emuenv);
+    }
+    if (std::string(key) == "user-name") {
+        // The PS Vita user name, which games also use as the player's PSN online ID: 3-16 of
+        // A-Z a-z 0-9 - _ (anything else is dropped)
+        std::string name;
+        for (const char c : std::string(value))
+            if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_')
+                name += c;
+        if (name.size() > 16)
+            name.resize(16);
+        if (name.size() < 3)
+            return false;
+        if (!app::ensure_current_user(*emuenv))
+            return false;
+        auto &users = emuenv->app.user_list.users;
+        const auto it = users.find(emuenv->io.user_id);
+        if (it == users.end())
+            return false;
+        it->second.name = name;
+        app::save_user(*emuenv, emuenv->io.user_id);
+        emuenv->io.user_name = name;
+        return true;
     }
     if (std::string(key) == "adhoc-relay-server" || std::string(key) == "adhoc-relay-room" || std::string(key) == "adhoc-relay-key") {
         std::string text = value;

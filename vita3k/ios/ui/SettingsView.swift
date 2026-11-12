@@ -511,12 +511,20 @@ struct AdhocSection: View {
     @State private var server = ""
     @State private var room = ""
     @State private var key = ""
+    @State private var name = ""
     @State private var status = "Off"
     @State private var loaded = false
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Section {
+            LabeledContent("Player name") {
+                TextField("3-16 letters or digits", text: $name)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onSubmit(saveAll)
+            }
             Toggle(isOn: Binding(get: { model.settings.adhocRelay }, set: { value in
                 model.settings.adhocRelay = value
                 model.setBool("adhoc-relay", value)
@@ -557,13 +565,14 @@ struct AdhocSection: View {
         } header: {
             Text("Ad hoc multiplayer")
         } footer: {
-            Text("The server runs from tools/adhoc-relay in the Hinoki repo (Docker). Add :port if it isn't 27360. The key is only needed if the server sets one. Hinoki connects when a game starts ad hoc play.")
+            Text("Player name is your PS Vita user name, which games show to other players. Give each device its own name (letters, digits, - and _). The server runs from tools/adhoc-relay in the Hinoki repo (Docker). Add :port if it isn't 27360. The key is only needed if the server sets one. Hinoki connects when a game starts its network.")
         }
         .onAppear {
             if !loaded {
                 server = model.settings.adhocRelayServer
                 room = model.settings.adhocRelayRoom
                 key = model.settings.adhocRelayKey
+                name = model.settings.userName
                 loaded = true
             }
             refresh()
@@ -582,6 +591,12 @@ struct AdhocSection: View {
             model.settings.adhocRelayRoom = room
             model.setString("adhoc-relay-room", room)
         }
+        let cleanName = String(name.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }.prefix(16))
+        if cleanName != model.settings.userName && cleanName.count >= 3 {
+            model.settings.userName = cleanName
+            model.setString("user-name", cleanName)
+        }
+        if cleanName != name { name = cleanName.count >= 3 ? cleanName : model.settings.userName }
         if key != model.settings.adhocRelayKey {
             model.settings.adhocRelayKey = key
             model.setString("adhoc-relay-key", key)
