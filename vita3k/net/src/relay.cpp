@@ -242,6 +242,23 @@ std::string pair_text(const PortPair &p) {
     return buf;
 }
 
+// The emulator's own ad hoc beacons (SceNetCtl's peer discovery), left out of the packet log
+bool is_beacon(const PortPair &p) { return p.vport == 0x8235 || p.vport == 0x8236; }
+
+std::string hex_head(const char *data, size_t size, size_t max = 24) {
+    static const char digits[] = "0123456789abcdef";
+    std::string out;
+    for (size_t i = 0; i < std::min(size, max); i++) {
+        if (i)
+            out += ' ';
+        out += digits[static_cast<uint8_t>(data[i]) >> 4];
+        out += digits[static_cast<uint8_t>(data[i]) & 15];
+    }
+    if (size > max)
+        out += " ...";
+    return out;
+}
+
 struct Accepted {
     uint32_t ip; // host order
     PortPair pair;
@@ -404,6 +421,19 @@ private:
     uint64_t logged_total = 0;
     int64_t last_traffic_log = 0;
     int unclaimed_logged = 0;
+    uint64_t game_packets_logged = 0;
+
+    // Logs the game's own ad hoc packets (lobby/matching and gameplay): every one of the first 400,
+    // then one in 200, so a failed handshake can be read step by step
+    void log_game_packet(bool sent, uint32_t peer, PortPair from, PortPair to, const char *data, size_t size) {
+        if (is_beacon(from) || is_beacon(to))
+            return;
+        const uint64_t n = game_packets_logged++;
+        if (n >= 400 && n % 200 != 0)
+            return;
+        RELAY_INFO(std::string(sent ? "packet out to " : "packet in from ") + ip_text(peer) + " " + pair_text(from) + " -> " + pair_text(to)
+            + ", " + std::to_string(size) + " bytes: " + hex_head(data, size) + (n >= 400 ? " (logging 1 in 200 now)" : ""));
+    }
 
     void stop_locked() {
         if (running) {
@@ -758,6 +788,7 @@ private:
             local_port = it->second;
         }
         dgrams_received++;
+        log_game_packet(false, from_ip, from, to, data, size);
         std::string packet(DGRAM_HEADER_SIZE, '\0');
         const uint32_t ip_net = htonl(from_ip);
         std::memcpy(packet.data(), &ip_net, 4);
@@ -795,6 +826,7 @@ private:
             const uint32_t dst_ip = ntohl(dst_net);
             const char *payload = buf.data() + DGRAM_HEADER_SIZE;
             const size_t size = n - DGRAM_HEADER_SIZE;
+            log_game_packet(true, dst_ip, src, dst, payload, size);
             if (dst_ip == vip) {
                 deliver_dgram(vip, src, dst, payload, size);
                 continue;
