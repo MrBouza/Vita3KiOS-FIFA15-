@@ -423,14 +423,15 @@ private:
     uint64_t logged_total = 0;
     int64_t last_traffic_log = 0;
     int unclaimed_logged = 0;
-    // Packets logged per direction and port pair, so busy gameplay traffic can't use up the log
-    // before a lobby handshake on other ports; reset whenever the relay (re)starts for a game
-    std::map<std::tuple<bool, uint16_t, uint16_t>, uint64_t> packets_logged;
+    // Packets logged per direction, port pair and message type, so frequent traffic (pings,
+    // keepalives) can't hide rare messages (ready, start, settings); reset whenever the relay
+    // (re)starts for a game
+    std::map<std::tuple<bool, uint16_t, uint16_t, uint16_t>, uint64_t> packets_logged;
     // Last time anything arrived from each player, to spot network stalls
     std::map<uint32_t, int64_t> last_from_peer;
 
-    // Logs the game's own ad hoc packets (lobby/matching and gameplay): the first 150 for each
-    // port pair and direction, then one in 100
+    // Logs the game's own ad hoc packets: the first 30 of each message type (the first byte, or
+    // the first two for ad hoc matching packets, which start with version 1), then one in 500
     void log_game_packet(bool sent, uint32_t peer, PortPair from, PortPair to, const char *data, size_t size) {
         if (!sent) {
             const int64_t now = now_ms();
@@ -441,11 +442,14 @@ private:
         }
         if (is_beacon(from) || is_beacon(to))
             return;
-        const uint64_t n = packets_logged[{ sent, from.vport, to.vport }]++;
-        if (n >= 150 && n % 100 != 0)
+        uint16_t type = size ? static_cast<uint8_t>(data[0]) : 0xFFFF;
+        if (size >= 2 && data[0] == 0x01)
+            type = static_cast<uint16_t>(0x0100 | static_cast<uint8_t>(data[1]));
+        const uint64_t n = packets_logged[{ sent, from.vport, to.vport, type }]++;
+        if (n >= 30 && n % 500 != 0)
             return;
         RELAY_INFO(std::string(sent ? "packet out to " : "packet in from ") + ip_text(peer) + " " + pair_text(from) + " -> " + pair_text(to)
-            + ", " + std::to_string(size) + " bytes: " + hex_head(data, size) + (n >= 150 ? " (this port pair: logging 1 in 100 now)" : ""));
+            + ", " + std::to_string(size) + " bytes: " + hex_head(data, size, 48) + (n >= 30 ? " (frequent type: logging 1 in 500 now)" : ""));
     }
 
     void stop_locked() {
