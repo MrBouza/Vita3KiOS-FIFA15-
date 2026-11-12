@@ -687,13 +687,15 @@ int stat_file(IOState &io, const char *file, SceIoStat *statp, const fs::path &v
                     if (!file_path.empty() && path_found) {
                         LOG_TRACE("Found file on case-sensitive filesystem at {}", file_path);
                     } else {
-                        LOG_ERROR("Missing file at {} (target path: {})", original_file_path, file);
-                        return IO_ERROR(SCE_ERROR_ERRNO_ENOENT);
+                        // Games check for optional files all the time (one checked 2,556 of them while
+                        // booting): asking is normal, so this is no error worth two log lines each
+                        LOG_DEBUG("Missing file at {} (target path: {})", original_file_path, file);
+                        return SCE_ERROR_ERRNO_ENOENT;
                     }
                 }
             } else {
-                LOG_ERROR("Missing file at {} (target path: {})", file_path, file);
-                return IO_ERROR(SCE_ERROR_ERRNO_ENOENT);
+                LOG_DEBUG("Missing file at {} (target path: {})", file_path, file);
+                return SCE_ERROR_ERRNO_ENOENT;
             }
         }
         LOG_TRACE_IF(log_file_op && log_file_stat, "{}: Statting file: {} ({})", export_name, file, device::construct_normalized_path(device, translated_path));
