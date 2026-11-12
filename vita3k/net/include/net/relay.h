@@ -66,6 +66,15 @@ void start_async(const Config &config);
 // wait for it (wait_active) on first use instead of quietly using the local network.
 void set_wanted(bool wanted);
 bool wanted();
+
+// Call trace window (diagnostics): when a game sends or receives a gameplay message of a new kind,
+// or a known kind whose bytes changed, every system call the game makes for the next few seconds
+// is logged and summarised (modules/module_parent.cpp). trace_window_deadline() is 0 or a
+// steady-clock time in milliseconds; take_trace_reasons() returns and clears what opened the window.
+void open_trace_window(const std::string &reason);
+int64_t trace_window_deadline();
+std::string take_trace_reasons();
+int64_t steady_now_ms();
 bool wait_active(int timeout_ms);
 
 // True once the relay has given us a virtual IP. Sockets created while this is true use the relay.
