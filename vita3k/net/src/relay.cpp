@@ -307,6 +307,8 @@ public:
         }
         running = true;
         have_vip = true;
+        packets_logged.clear();
+        last_from_peer.clear();
         thread = std::thread([this] { loop(); });
         RELAY_INFO("connected to " + config.host + ":" + std::to_string(config.port) + ", room \"" + config.room + "\", virtual IP " + ip_text(vip));
         return true;
@@ -421,18 +423,29 @@ private:
     uint64_t logged_total = 0;
     int64_t last_traffic_log = 0;
     int unclaimed_logged = 0;
-    uint64_t game_packets_logged = 0;
+    // Packets logged per direction and port pair, so busy gameplay traffic can't use up the log
+    // before a lobby handshake on other ports; reset whenever the relay (re)starts for a game
+    std::map<std::tuple<bool, uint16_t, uint16_t>, uint64_t> packets_logged;
+    // Last time anything arrived from each player, to spot network stalls
+    std::map<uint32_t, int64_t> last_from_peer;
 
-    // Logs the game's own ad hoc packets (lobby/matching and gameplay): every one of the first 400,
-    // then one in 200, so a failed handshake can be read step by step
+    // Logs the game's own ad hoc packets (lobby/matching and gameplay): the first 150 for each
+    // port pair and direction, then one in 100
     void log_game_packet(bool sent, uint32_t peer, PortPair from, PortPair to, const char *data, size_t size) {
+        if (!sent) {
+            const int64_t now = now_ms();
+            auto &last = last_from_peer[peer];
+            if (last && now - last > 1500) // the ad hoc beacons alone arrive every second
+                RELAY_WARN("nothing arrived from " + ip_text(peer) + " for " + std::to_string(now - last) + " ms (network stall)");
+            last = now;
+        }
         if (is_beacon(from) || is_beacon(to))
             return;
-        const uint64_t n = game_packets_logged++;
-        if (n >= 400 && n % 200 != 0)
+        const uint64_t n = packets_logged[{ sent, from.vport, to.vport }]++;
+        if (n >= 150 && n % 100 != 0)
             return;
         RELAY_INFO(std::string(sent ? "packet out to " : "packet in from ") + ip_text(peer) + " " + pair_text(from) + " -> " + pair_text(to)
-            + ", " + std::to_string(size) + " bytes: " + hex_head(data, size) + (n >= 400 ? " (logging 1 in 200 now)" : ""));
+            + ", " + std::to_string(size) + " bytes: " + hex_head(data, size) + (n >= 150 ? " (this port pair: logging 1 in 100 now)" : ""));
     }
 
     void stop_locked() {
