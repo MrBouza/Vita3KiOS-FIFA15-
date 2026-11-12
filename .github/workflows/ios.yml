@@ -29,6 +29,10 @@ on:
         description: 'Release notes (optional, otherwise generated from commits)'
         required: false
         default: ''
+      version:
+        description: 'Version for a test build that is not published (e.g. 1.4.1). Ignored with release.'
+        required: false
+        default: ''
 
 concurrency:
   group: ios-${{ github.ref }}-${{ inputs.release }}
@@ -71,6 +75,10 @@ jobs:
           if [[ -n "$release" ]]; then
             echo "VITA3KIOS_VERSION=$release" >> "$GITHUB_ENV"
             echo "VITA3KIOS_RELEASE=1" >> "$GITHUB_ENV"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            # a candidate build carrying its version number, not published
+            version="${{ inputs.version }}"
+            echo "VITA3KIOS_VERSION=${version#v}" >> "$GITHUB_ENV"
           fi
           echo "release=$release" >> "$GITHUB_OUTPUT"
 
