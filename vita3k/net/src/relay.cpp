@@ -493,11 +493,6 @@ private:
         const bool changed = n > 0 && shape != last;
         last = std::move(shape);
 
-        // Gameplay traffic (not the matching library's own vports 1 and 2): a new kind of message or a
-        // changed one opens a call trace window, to see what the game does right after it
-        if ((n == 0 || changed) && from.vport > 2 && to.vport > 2)
-            open_trace_window(std::string(sent ? "sent " : "received ") + (n == 0 ? "first " : "changed ") + hex_head(data, size, 6));
-
         const char *note = nullptr;
         if (changed && n >= 30 && changes_logged[key]++ < 200)
             note = " (payload changed)";
