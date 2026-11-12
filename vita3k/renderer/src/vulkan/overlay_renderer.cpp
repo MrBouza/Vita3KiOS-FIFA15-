@@ -234,6 +234,7 @@ void OverlayRenderer::ensure_frame_resources(uint32_t frame_count) {
     m_desc_pools.resize(frame_count);
     m_vertex_buffers.resize(frame_count);
     m_staging_garbage.resize(frame_count);
+    m_image_garbage.resize(frame_count);
 
     for (size_t index = previous_size; index < frame_count; ++index) {
         m_desc_pools[index] = device.createDescriptorPool(pool_info);
@@ -431,6 +432,7 @@ void OverlayRenderer::destroy() {
         garbage.clear();
     }
     m_staging_garbage.clear();
+    m_image_garbage.clear();
 
     for (auto &img : m_icon_images)
         img.destroy();
@@ -446,6 +448,20 @@ void OverlayRenderer::destroy() {
     m_resources_loaded = false;
 
     m_state = nullptr;
+}
+
+// An overlay image being replaced (the font atlas grew, an image changed) can still be sampled by
+// frames in flight. Freeing it at once released the Metal texture under the GPU, which faulted
+// and lost the device whenever a dialog with new text appeared while frames were queued (it
+// depended on timing: screen recording, which slows presentation, hid it). Keep it until this
+// frame slot comes round again.
+void OverlayRenderer::retire_image(vkutil::Image &img) {
+    if (!img.image)
+        return;
+    if (m_active_frame_slot < m_image_garbage.size())
+        m_image_garbage[m_active_frame_slot].push_back(std::move(img));
+    else
+        img.destroy();
 }
 
 vk::ImageView OverlayRenderer::upload_font(vk::CommandBuffer cmd, const overlay::font *f) {
@@ -467,7 +483,9 @@ vk::ImageView OverlayRenderer::upload_font(vk::CommandBuffer cmd, const overlay:
 
     vk::Device device = m_state->device;
 
-    entry.image.destroy();
+    if (entry.image.image)
+        LOG_INFO("Overlay: font atlas grew to {} pages; the old one is freed once the frames using it finish", dims.depth);
+    retire_image(entry.image);
 
     vk::ImageCreateInfo image_info{
         .imageType = vk::ImageType::e2D,
@@ -570,9 +588,9 @@ void OverlayRenderer::upload_image(vk::CommandBuffer cmd, const overlay::image_i
         ? static_cast<uint32_t>(std::floor(std::log2(std::max(w, h)))) + 1
         : 1;
 
-    if (dst.image && (dst.width != w || dst.height != h || dst.format != fmt)) {
-        dst.destroy();
-    }
+    // A new image every time: the old one may still be read by frames the GPU has not finished
+    // (rewriting or freeing it under them faults the GPU on iOS, see retire_image)
+    retire_image(dst);
 
     if (!dst.image) {
         vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eSampled
@@ -964,6 +982,9 @@ void OverlayRenderer::prepare(vk::CommandBuffer cmd_buffer,
     for (auto &buf : garbage)
         buf.destroy();
     garbage.clear();
+    // this slot's fence has signalled, so every frame submitted before it, which may have
+    // sampled these images, is done with them
+    m_image_garbage[m_active_frame_slot].clear();
 
     m_state->device.resetDescriptorPool(m_desc_pools[m_active_frame_slot]);
 

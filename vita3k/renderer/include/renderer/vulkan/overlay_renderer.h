@@ -92,6 +92,7 @@ private:
     vk::DeviceSize m_vertex_buffer_offset = 0;
 
     std::vector<std::vector<vkutil::Buffer>> m_staging_garbage;
+    std::vector<std::vector<vkutil::Image>> m_image_garbage;
 
     vkutil::Image m_dummy_texture;
     vkutil::Image m_dummy_texture_array;
@@ -115,6 +116,7 @@ private:
     void create_pipeline(vk::RenderPass render_pass);
     void destroy_pipeline();
 
+    void retire_image(vkutil::Image &img);
     vk::ImageView upload_font(vk::CommandBuffer cmd, const overlay::font *f);
     static int pipeline_index(overlay::primitive_type t);
     void upload_image(vk::CommandBuffer cmd, const overlay::image_info_base *img, vkutil::Image &dst);
