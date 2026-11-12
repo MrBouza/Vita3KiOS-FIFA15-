@@ -85,6 +85,10 @@ bool parse_server(const std::string &input, std::string &host, uint16_t &port) {
 
 // Relay mode is only built for Unix-like hosts (iOS, macOS, Linux, Android)
 namespace net_relay {
+void start_async(const Config &) {}
+void set_wanted(bool) {}
+bool wanted() { return false; }
+bool wait_active(int) { return false; }
 bool start(const Config &, int, std::string &error) {
     error = "Ad hoc over the internet is not supported on this platform.";
     return false;
@@ -1090,6 +1094,26 @@ Link &link() {
 } // namespace
 
 bool start(const Config &config, int timeout_ms, std::string &error) { return link().start(config, timeout_ms, error); }
+
+namespace {
+std::atomic<bool> relay_wanted{ false };
+} // namespace
+
+void start_async(const Config &config) {
+    std::thread([config] {
+        std::string error;
+        if (!link().start(config, 8000, error))
+            RELAY_WARN(error);
+    }).detach();
+}
+void set_wanted(bool wanted) { relay_wanted = wanted; }
+bool wanted() { return relay_wanted; }
+bool wait_active(int timeout_ms) {
+    const auto deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (!link().is_active() && relay_wanted && Clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    return link().is_active();
+}
 void stop() { link().stop(); }
 bool active() { return link().is_active(); }
 uint32_t virtual_ip() { return link().virtual_ip(); }

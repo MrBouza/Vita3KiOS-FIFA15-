@@ -59,6 +59,15 @@ bool parse_server(const std::string &text, std::string &host, uint16_t &port);
 bool start(const Config &config, int timeout_ms, std::string &error);
 void stop();
 
+// Connects in the background (returns at once); errors go to the log
+void start_async(const Config &config);
+
+// The relay is switched on for this game. Ad hoc sockets created before the connection is up
+// wait for it (wait_active) on first use instead of quietly using the local network.
+void set_wanted(bool wanted);
+bool wanted();
+bool wait_active(int timeout_ms);
+
 // True once the relay has given us a virtual IP. Sockets created while this is true use the relay.
 bool active();
 uint32_t virtual_ip(); // network order

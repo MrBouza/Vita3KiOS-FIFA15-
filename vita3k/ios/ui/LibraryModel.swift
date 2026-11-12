@@ -98,6 +98,7 @@ struct EmulatorSettings: Codable {
     var adhocRelayServer: String = ""
     var adhocRelayRoom: String = ""
     var adhocRelayKey: String = ""
+    var userName: String = ""
 }
 
 struct StorageInfo: Codable {
