@@ -90,6 +90,22 @@ if(IOS)
 	set(SDL_STATIC ON CACHE BOOL "" FORCE)
 	set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 endif()
+if(IOS)
+	# iOS: SDL's audio session never ducks other apps (0003)
+	set(SDL_IOS_PATCH "${CMAKE_SOURCE_DIR}/vita3k/ios/patches/0003-sdl-no-duck-others.patch")
+	execute_process(COMMAND git apply --reverse --check "${SDL_IOS_PATCH}"
+		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/sdl"
+		RESULT_VARIABLE SDL_IOS_PATCH_PRESENT OUTPUT_QUIET ERROR_QUIET)
+	if(NOT SDL_IOS_PATCH_PRESENT EQUAL 0)
+		execute_process(COMMAND git apply "${SDL_IOS_PATCH}"
+			WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/sdl"
+			RESULT_VARIABLE SDL_IOS_PATCH_RESULT)
+		if(NOT SDL_IOS_PATCH_RESULT EQUAL 0)
+			message(FATAL_ERROR "Could not apply ${SDL_IOS_PATCH} to external/sdl")
+		endif()
+		message(STATUS "Applied 0003-sdl-no-duck-others.patch to SDL")
+	endif()
+endif()
 add_subdirectory(sdl)
 
 # Cubeb setup, from https://github.com/RPCS3/rpcs3/blob/master/3rdparty/cubeb/CMakeLists.txt

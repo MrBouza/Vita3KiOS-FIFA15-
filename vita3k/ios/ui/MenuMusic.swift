@@ -548,7 +548,12 @@ final class MenuMusic: ObservableObject {
     }
 
     private func resume() {
-        guard enabled else { return }
+        // Only on screen. The configuration-change and interruption-ended notifications also arrive in
+        // the background (handing the audio session back to iOS is itself a configuration change), and
+        // restarting from them took the session back and kept the music engine running off screen,
+        // inside hosts that keep apps alive (LiveContainer, debugger-attached JIT). Other apps' videos
+        // then would not play until the phone was restarted.
+        guard enabled, UIApplication.shared.applicationState == .active else { return }
         let session = AVAudioSession.sharedInstance()
         // No "other audio is playing" check: tools such as StikDebug keep a silent audio session alive in
         // the background, which made iOS report other audio all the time and the music never played.
@@ -588,14 +593,15 @@ final class MenuMusic: ObservableObject {
         stopWork?.cancel()
         synth?.fadeOut()
         VitaBGM.shared.pause()
-        engine.pause()
+        // stop, not pause: stop releases the audio hardware, so the session can be handed back
+        engine.stop()
     }
 
     private func fadeOutAndStop() {
         synth?.fadeOut()
         VitaBGM.shared.pause()
         titleTimer?.invalidate()
-        let work = DispatchWorkItem { [weak self] in self?.engine.pause() }
+        let work = DispatchWorkItem { [weak self] in self?.engine.stop() }
         stopWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }

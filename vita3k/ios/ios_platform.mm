@@ -186,18 +186,34 @@ void set_activity_callback(void (*callback)(bool active)) {
 // background (the game's audio device and the menu music have stopped by then).
 static std::atomic<bool> audio_session_released{ false };
 
+// Off screen, keep the session released: anything that takes it back while the app is away (a
+// notification handler, a late audio callback) is undone within two seconds, for as long as the
+// app keeps running in the background.
+static void keep_audio_session_released(unsigned round = 0) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (app_activity::gpu_allowed().load() || !audio_session_released)
+            return;
+        NSError *error = nil;
+        if (![AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error])
+            NSLog(@"Hinoki: audio session still in use off screen: %@", error);
+        if (round < 600)
+            keep_audio_session_released(round + 1);
+    });
+}
+
 static void release_audio_session(unsigned attempt = 0) {
     if (audio_session_released)
         return;
     NSError *error = nil;
     if ([AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error]) {
         audio_session_released = true;
+        keep_audio_session_released();
         return;
     }
     // Deactivation is refused while anything is still playing. Keep trying while Vita3K is off
     // screen, so the session is not left active (which stops other apps' videos) after one failure.
     NSLog(@"Vita3K: audio session release failed (attempt %u): %@", attempt + 1, error);
-    if (attempt >= 40)
+    if (attempt >= 240)
         return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (!app_activity::gpu_allowed().load() && !audio_session_released)

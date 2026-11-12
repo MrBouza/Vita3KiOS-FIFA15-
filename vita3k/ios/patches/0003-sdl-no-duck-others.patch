@@ -1,0 +1,17 @@
+diff --git a/src/audio/coreaudio/SDL_coreaudio.m b/src/audio/coreaudio/SDL_coreaudio.m
+index dda5f573c..c980a188e 100644
+--- a/src/audio/coreaudio/SDL_coreaudio.m
++++ b/src/audio/coreaudio/SDL_coreaudio.m
+@@ -463,10 +463,8 @@ static bool UpdateAudioSession(SDL_AudioDevice *device, bool open, bool allow_pl
+             options |= AVAudioSessionCategoryOptionAllowBluetoothA2DP |
+                        AVAudioSessionCategoryOptionAllowAirPlay;
+         }
+-        if (category == AVAudioSessionCategoryPlayback ||
+-            category == AVAudioSessionCategoryPlayAndRecord) {
+-            options |= AVAudioSessionCategoryOptionDuckOthers;
+-        }
++        // Hinoki: no DuckOthers. An emulator's audio session must never turn other apps down (or keep
++        // them turned down when it is left running in the background); it only mixes with them.
+ 
+         if (![session.category isEqualToString:category] || session.categoryOptions != options) {
+             // Stop the current session so we don't interrupt other application audio
