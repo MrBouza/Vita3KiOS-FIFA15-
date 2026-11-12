@@ -94,6 +94,10 @@ struct EmulatorSettings: Codable {
     var sysLang: Int = 1
     var nativeBuffer: Bool = false
     var mappingMode: String = "double-buffer"
+    var adhocRelay: Bool = false
+    var adhocRelayServer: String = ""
+    var adhocRelayRoom: String = ""
+    var adhocRelayKey: String = ""
 }
 
 struct StorageInfo: Codable {
