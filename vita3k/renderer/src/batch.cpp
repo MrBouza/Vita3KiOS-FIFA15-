@@ -35,6 +35,7 @@
 #include <memory>
 #include <thread>
 
+#include <atomic>
 #include <chrono>
 
 #ifdef TRACY_ENABLE
@@ -141,6 +142,31 @@ static void process_batch(renderer::State &state, const FeatureState &features, 
     } while (true);
 }
 
+// When an overlay (a system dialog: save data, invitations, messages) asks for a frame of its own.
+// It asks about 100 times a second while it is open, and honouring that cut the game's frame short:
+// the frame was presented in the middle of the game's scene, with its commands half recorded. Metal
+// hung the GPU on such frames (the whole device froze for seconds, then the GPU was lost and the
+// game closed: a save dialog in Soul Sacrifice Delta, iPhone 17 Pro, iPad mini A17). While the game
+// is still drawing, the overlay is drawn on the game's own frames; it gets frames of its own only
+// once the game has stopped drawing (it waits for the dialog) and nothing of the game is queued.
+static std::atomic<int64_t> last_game_frame_ms{ 0 };
+
+static int64_t steady_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static bool overlay_frame_allowed(renderer::State &state) {
+    if (!state.async_flip_requested.load(std::memory_order_relaxed))
+        return false;
+#if defined(VITA3K_PLATFORM_IOS)
+    if (steady_ms() - last_game_frame_ms.load(std::memory_order_relaxed) < 250)
+        return false;
+    if (state.command_buffer_queue.size() != 0)
+        return false;
+#endif
+    return true;
+}
+
 void process_batches(renderer::State &state, const FeatureState &features, MemState &mem, Config &config, int64_t max_wait_ms) {
     auto max_time = duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() + max_wait_ms;
 
@@ -149,7 +175,7 @@ void process_batches(renderer::State &state, const FeatureState &features, MemSt
             return;
 
         // overlay requested an async present
-        if (state.async_flip_requested.load(std::memory_order_relaxed))
+        if (overlay_frame_allowed(state))
             return;
 
         // Try to wait for a batch (about 2 or 3ms, game should be fast for this)
@@ -171,7 +197,7 @@ void process_batches(renderer::State &state, const FeatureState &features, MemSt
                 if (wait_result == renderer::SyncWaitResult::Shutdown)
                     return;
 
-                if (state.async_flip_requested.load(std::memory_order_relaxed))
+                if (overlay_frame_allowed(state))
                     return;
 
                 auto curr_time = duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -312,6 +338,8 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
             }
         }
 
+        if (state.should_display)
+            last_game_frame_ms.store(steady_ms(), std::memory_order_relaxed);
         state.render_frame(display, gxm, mem);
         state.swap_window();
         state.async_flip_requested.store(false, std::memory_order_relaxed);
