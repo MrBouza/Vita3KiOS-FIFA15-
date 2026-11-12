@@ -38,8 +38,7 @@ struct System;
 struct State;
 
 enum class PendingType {
-    ReleaseRack,
-    VoiceFinished
+    ReleaseRack
     // TODO add voice operations during system lock
 };
 
@@ -54,11 +53,6 @@ struct OperationPending {
             // can't use a ptr, otherwise the default constructor is deleted
             Address callback;
         } release_data;
-        // VoiceFinished: a keyed-off voice whose finished callback is due at the next update
-        struct {
-            Voice *voice;
-            uint32_t play_count;
-        } finished_data;
     };
 };
 
@@ -85,9 +79,8 @@ public:
     bool resume(const MemState &mem, Voice *voice);
     bool stop(const MemState &mem, Voice *voice);
     bool off(const MemState &mem, Voice *voice);
-    void cancel_finished_callback(Voice *voice);
 
-    void update(KernelState &kern, MemState &mem, const SceUID thread_id);
+    void update(KernelState &kern, const MemState &mem, const SceUID thread_id);
 
     Ptr<Patch> patch(const MemState &mem, SceNgsPatchSetupInfo *info);
 };
