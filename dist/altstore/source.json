@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.4.0.1",
+          "buildVersion": "188",
+          "date": "2026-11-12T05:11:19Z",
+          "localizedDescription": "**Hinoki v1.4.0.1**\n\n- **Sound:** fixed games with no sound where dialogue and subtitles raced ahead. Game audio is back on Vita3K's own sound engine.\n- **Other apps' videos:** Hinoki no longer takes the phone's audio back while it is in the background and never turns other apps down, which kept videos in other apps from playing.\n- **Leaving the app:** leaving again right after coming back no longer gets Hinoki closed by iOS.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.4.0.1.ipa` below.\n\nBuild 188, commit be68253.",
+          "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.4.0.1/Hinoki-1.4.0.1.ipa",
+          "size": 15414753,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.4.0",
           "buildVersion": "184",
           "date": "2026-11-12T01:32:17Z",
@@ -109,11 +118,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.4.0",
-      "versionDate": "2026-11-12T01:32:17Z",
-      "versionDescription": "**Hinoki v1.4.0**\n\n- **New name and look:** Vita3KiOS is now Hinoki, with a new icon and in-app mark.\n- **Faster and cooler:** Fast CPU on by default. The phone steps down earlier when warm (background game threads and shader compiles ease off, upscaling falls back to bilinear while hot, no 120 Hz). Unused JIT memory is given back to iOS (about 900 MB).\n- **Crash fixes:** fixed a JIT bug that sent games into the wrong code once a thread's code cache filled up (a splash-screen hang and likely other random crashes); reused threads no longer run code from unloaded modules (crash when a second video plays); shader compiles pause while the app is in the background (crash after leaving the app); damaged GPU data in a game's memory no longer takes the app down.\n- **Graphics:** fixed vertex data that caused spikes and broken models in 3D scenes.\n- **New:** experimental per-game widescreen hack, now working in more games; show or hide the performance overlay mid-game (thanks MrBouza).\n- **New:** Vitamin dumps and games that start through a small launcher.\n- **RAM helper:** stays alive while a game runs, clearer errors when it can't start, memory breakdown in the log and overlay.\n- **Extras:** five new home backgrounds, better crash reports and logs.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.4.0.ipa` below.\n\nBuild 184, commit b3dd8b7.",
-      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.4.0/Hinoki-1.4.0.ipa",
-      "size": 15433281
+      "version": "1.4.0.1",
+      "versionDate": "2026-11-12T05:11:19Z",
+      "versionDescription": "**Hinoki v1.4.0.1**\n\n- **Sound:** fixed games with no sound where dialogue and subtitles raced ahead. Game audio is back on Vita3K's own sound engine.\n- **Other apps' videos:** Hinoki no longer takes the phone's audio back while it is in the background and never turns other apps down, which kept videos in other apps from playing.\n- **Leaving the app:** leaving again right after coming back no longer gets Hinoki closed by iOS.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.4.0.1.ipa` below.\n\nBuild 188, commit be68253.",
+      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.4.0.1/Hinoki-1.4.0.1.ipa",
+      "size": 15414753
     }
   ]
 }
