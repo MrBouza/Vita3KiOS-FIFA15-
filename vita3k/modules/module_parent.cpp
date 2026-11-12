@@ -53,20 +53,26 @@
 
 static constexpr bool LOG_UNK_NIDS_ALWAYS = false;
 
-// Ad hoc matching: sceNetAdhocMatchingSelectTarget (invite, or accept an invite) returns
-// 0x8041310F when the player is already mid-handshake (we already sent the request or the
-// accept). Some games call it again right after accepting, which is harmless on a Vita because
-// the other side confirms within a frame or two; over the network the confirmation takes longer,
-// the repeat call fails and the game drops ad hoc with that error. Make the repeat a no-op that
-// succeeds, so the handshake already under way finishes. Only applied when the bytes are exactly
-// the ones in firmware 3.74's adhoc_matching.suprx (segment 0 offset 0x720:
-// movw r4, #0x310F; movt r4, #0x8041 -> movs r4, #0; nop; nop; nop).
+// Ad hoc matching: sceNetAdhocMatchingSelectTarget (invite a player, or accept their invite)
+// returns 0x8041310F when that player is already mid-handshake: state 4, we already sent them a
+// request, or state 3, we already accepted theirs. Over the network a handshake takes long enough
+// for a second tap on the same player to land inside it, and the error makes some games (Nidhogg)
+// drop ad hoc. A second invite is made to succeed, since it changes nothing. A tap after accepting
+// still fails (with 0x80413110): games such as Nidhogg treat a successful select-target as "I
+// invited", which would make both players the guest and the match would never start.
+// Only applied when the bytes are exactly the ones in firmware 3.74's adhoc_matching.suprx
+// (segment 0 offset 0x720: movw r4, #0x310F; movt r4, #0x8041).
 static void patch_adhoc_matching(MemState &mem, const SceKernelModuleInfo &info) {
     if (std::string(info.module_name) != "SceNetAdhocMatching")
         return;
     constexpr uint32_t OFFSET = 0x720;
     static constexpr uint8_t expected[8] = { 0x43, 0xF2, 0x0F, 0x14, 0xC8, 0xF2, 0x41, 0x04 };
-    static constexpr uint8_t replacement[8] = { 0x00, 0x24, 0x00, 0xBF, 0x00, 0xBF, 0x00, 0xBF };
+    // At this point r3 holds the target's state minus 1. State 4 (we already sent this target a request):
+    // succeed, as a second tap on the same player changes nothing. State 3 (we already accepted this
+    // target's request): fall through to the state-5 error (0x80413110), so the game stays the host
+    // instead of treating the tap as its own invite.
+    //   cmp r3, #3 / bne +4 (state-5 error) / movs r4, #0 / b +8 (return)
+    static constexpr uint8_t replacement[8] = { 0x03, 0x2B, 0x02, 0xD1, 0x00, 0x24, 0x04, 0xE0 };
     const auto &seg = info.segments[0];
     const auto base = seg.vaddr.cast<uint8_t>();
     if (!base || seg.memsz < OFFSET + sizeof(expected)) {
@@ -79,7 +85,7 @@ static void patch_adhoc_matching(MemState &mem, const SceKernelModuleInfo &info)
         return;
     }
     memcpy(code, replacement, sizeof(replacement));
-    LOG_INFO("Ad hoc matching: a repeated select-target during a handshake now succeeds instead of failing with 0x8041310F");
+    LOG_INFO("Ad hoc matching: selecting a player we already invited now succeeds instead of failing with 0x8041310F");
 }
 
 #define LIBRARY(name) extern const LibraryInitFn import_library_init_##name;
