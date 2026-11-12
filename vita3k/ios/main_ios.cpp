@@ -50,6 +50,7 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <dispatch/dispatch.h>
 #include <mach/mach.h>
 #include <os/proc.h>
 
@@ -89,18 +90,40 @@ extern "C" void v3k_set_game_paused(int reason, bool paused) {
 
 // The app left the screen or came back (ios_platform.mm, main thread): the game pauses at once,
 // before iOS starts refusing GPU work. SDL's background event does the same a little later.
+// The game's audio device is closed while off screen (so the audio session can be handed back to
+// other apps) and reopened on return. Opening and closing it waits on iOS's audio system, which can
+// take seconds while the app is changing state: done on the main thread, leaving again right after
+// coming back (iPhone16,1, iOS 27) blocked the main thread inside the switch, iOS ended the app for
+// not finishing its move to the background, and the player found it closed. It now runs on its own
+// queue, and each run applies the latest wanted state, so quick back-and-forth settles on the last one.
+static std::atomic<bool> g_audio_output_wanted{ true };
+static std::atomic<bool> g_audio_output_allowed{ false }; // a game's audio exists (between launch and stop)
+static std::mutex g_audio_output_mutex;
+
+static dispatch_queue_t audio_output_queue() {
+    static dispatch_queue_t queue = dispatch_queue_create("hinoki.audio-output", DISPATCH_QUEUE_SERIAL);
+    return queue;
+}
+
+static void apply_audio_output(void *) {
+    const std::lock_guard<std::mutex> lock(g_audio_output_mutex);
+    EmuEnvState *emuenv = ios::get_emuenv();
+    if (!g_audio_output_allowed.load() || !emuenv)
+        return;
+    if (g_audio_output_wanted.load())
+        emuenv->audio.resume_output();
+    else
+        emuenv->audio.suspend_output();
+}
+
 static void on_app_activity(bool active) {
     LOG_INFO("Vita3K {} the screen{}", active ? "is back on" : "is leaving", active ? "" : ": the game and the GPU pause");
     app::AppSessionController *session = g_session.load();
-    EmuEnvState *emuenv = ios::get_emuenv();
-    // The game's audio device is closed while off screen, so the audio session can be handed back to
-    // other apps right away, and reopened (with a fresh audio queue) before the game resumes
-    if (active && session && emuenv)
-        emuenv->audio.resume_output();
     if (session)
         session->set_pause_reason(app::AppSessionPauseReason::Background, !active);
-    if (!active && session && emuenv)
-        emuenv->audio.suspend_output();
+    g_audio_output_wanted = active;
+    if (session)
+        dispatch_async_f(audio_output_queue(), nullptr, apply_audio_output);
 }
 
 // Paused for any reason (pause button, game menu, off screen)
@@ -234,6 +257,8 @@ int main(int argc, char *argv[]) {
         app::AppSessionController session_controller(*emuenv);
         g_user_paused = false;
         g_session = &session_controller;
+        g_audio_output_wanted = true;
+        g_audio_output_allowed = true;
 
         // Watchdog: logs memory headroom and stalls, and makes sure Quit always gets you out even if the
         // game is stuck (iOS has no other way to leave a hung game except the app switcher)
@@ -372,6 +397,11 @@ int main(int argc, char *argv[]) {
             // Controller guide / PS button: the in-game menu
             .on_guide_button = [] { v3k_controls_show_menu(); },
             .on_stop = [emuenv] {
+                // No audio device switches once the game's audio is being torn down
+                {
+                    const std::lock_guard<std::mutex> lock(g_audio_output_mutex);
+                    g_audio_output_allowed = false;
+                }
                 ios::cheats::session_ended(*emuenv);
                 ios::extras::session_ended(*emuenv); },
             .on_frame = [emuenv, cheats_started = false, first_frame_at = uint64_t(0), portrait_open = false]() mutable {
@@ -414,6 +444,10 @@ int main(int argc, char *argv[]) {
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
         session_over = true;
         watchdog.join();
+        {
+            const std::lock_guard<std::mutex> lock(g_audio_output_mutex);
+            g_audio_output_allowed = false;
+        }
         g_session = nullptr;
         g_user_paused = false;
         renderer::vulkan::on_persistent_device_lost() = nullptr;

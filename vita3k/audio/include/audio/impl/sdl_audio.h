@@ -19,6 +19,7 @@
 
 #include "../state.h"
 #include <SDL3/SDL_audio.h>
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 
@@ -30,7 +31,7 @@ private:
     // device_id, paused and suspended: the device can be closed and reopened (suspend_output) while
     // game threads use it
     std::mutex device_mutex;
-    bool paused = false;
+    std::atomic<bool> paused{ false };
     bool suspended = false;
 
     static void SDLCALL thread_wakeup_callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount);

@@ -66,8 +66,12 @@ bool SDLAudioAdapter::init() {
 }
 
 void SDLAudioAdapter::switch_state(const bool pause) {
-    std::lock_guard<std::mutex> lock(device_mutex);
     paused = pause;
+    // Called on the main thread when the app leaves or returns. If the device is being opened or
+    // closed right now (that waits on iOS), don't wait: the open applies paused when it finishes.
+    std::unique_lock<std::mutex> lock(device_mutex, std::try_to_lock);
+    if (!lock.owns_lock())
+        return;
     if (device_id == 0)
         return; // suspended: applied when the device is reopened
     if (pause)
@@ -110,7 +114,7 @@ void SDLAudioAdapter::resume_output() {
         if (!SDL_BindAudioStream(device_id, port.stream.get()))
             LOG_ERROR("Audio stream could not be bound again: {}", SDL_GetError());
     }
-    if (paused)
+    if (paused.load())
         SDL_PauseAudioDevice(device_id);
     LOG_INFO("Audio output reopened ({} streams)", state.out_ports.size());
 }
