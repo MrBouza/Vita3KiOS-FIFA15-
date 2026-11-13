@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.5.0",
+          "buildVersion": "219",
+          "date": "2026-11-13T13:22:59Z",
+          "localizedDescription": "**Built-in JIT**\n- No JIT app needed: import your pairing file once (Settings › Built-in JIT) and Hinoki enables JIT by itself every time it opens. Powered by StikJIT from the StikDebug team.\n- LocalDevVPN has to be connected. Not available inside LiveContainer (use StikDebug there).\n\n**TV mode**\n- AirPlay screen mirroring or an HDMI adapter puts the game full screen on the TV, and the phone becomes the controller (tap empty space for the touchscreen).\n\n**Local multiplayer (experimental)**\n- Ad hoc play between phones on the same Wi-Fi or hotspot: Settings › Multiplayer.\n\n**Performance and heat**\n- The renderer no longer keeps a CPU core busy while waiting: cooler, and more room for the game.\n- New shaders compile faster and objects pop in less.\n- Short waits in games no longer spin the CPU.\n\n**Graphics**\n- Images games draw for themselves (skies, crowds, players, stadium screens) show up with surface sync, which no longer overwrites game data.\n- Widescreen works in more games.\n- Texture memory is capped by your phone's RAM: fewer games closed by iOS.\n\n**Fixes**\n- Videos in other apps play normally while Hinoki is in the background.\n- No crackly audio in heavy scenes with Keep cool on.\n- A button to hide the top row of on-screen buttons.\n- Game fix updates.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.5.0.ipa` below.\n\nBuild 219, commit 034e92c.",
+          "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.5.0/Hinoki-1.5.0.ipa",
+          "size": 17632289,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.4.0.1",
           "buildVersion": "188",
           "date": "2026-11-12T05:11:19Z",
@@ -118,11 +127,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.4.0.1",
-      "versionDate": "2026-11-12T05:11:19Z",
-      "versionDescription": "**Hinoki v1.4.0.1**\n\n- **Sound:** fixed games with no sound where dialogue and subtitles raced ahead. Game audio is back on Vita3K's own sound engine.\n- **Other apps' videos:** Hinoki no longer takes the phone's audio back while it is in the background and never turns other apps down, which kept videos in other apps from playing.\n- **Leaving the app:** leaving again right after coming back no longer gets Hinoki closed by iOS.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.4.0.1.ipa` below.\n\nBuild 188, commit be68253.",
-      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.4.0.1/Hinoki-1.4.0.1.ipa",
-      "size": 15414753
+      "version": "1.5.0",
+      "versionDate": "2026-11-13T13:22:59Z",
+      "versionDescription": "**Built-in JIT**\n- No JIT app needed: import your pairing file once (Settings › Built-in JIT) and Hinoki enables JIT by itself every time it opens. Powered by StikJIT from the StikDebug team.\n- LocalDevVPN has to be connected. Not available inside LiveContainer (use StikDebug there).\n\n**TV mode**\n- AirPlay screen mirroring or an HDMI adapter puts the game full screen on the TV, and the phone becomes the controller (tap empty space for the touchscreen).\n\n**Local multiplayer (experimental)**\n- Ad hoc play between phones on the same Wi-Fi or hotspot: Settings › Multiplayer.\n\n**Performance and heat**\n- The renderer no longer keeps a CPU core busy while waiting: cooler, and more room for the game.\n- New shaders compile faster and objects pop in less.\n- Short waits in games no longer spin the CPU.\n\n**Graphics**\n- Images games draw for themselves (skies, crowds, players, stadium screens) show up with surface sync, which no longer overwrites game data.\n- Widescreen works in more games.\n- Texture memory is capped by your phone's RAM: fewer games closed by iOS.\n\n**Fixes**\n- Videos in other apps play normally while Hinoki is in the background.\n- No crackly audio in heavy scenes with Keep cool on.\n- A button to hide the top row of on-screen buttons.\n- Game fix updates.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.5.0.ipa` below.\n\nBuild 219, commit 034e92c.",
+      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.5.0/Hinoki-1.5.0.ipa",
+      "size": 17632289
     }
   ]
 }
