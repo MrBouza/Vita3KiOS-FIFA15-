@@ -16,6 +16,8 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <net/socket.h>
+#include <util/adhoc_peers.h>
+#include <util/log.h>
 
 #include <bit>
 
@@ -86,15 +88,35 @@ int P2PSocket::connect(const SceNetSockaddr *addr, unsigned int addrlen) {
 
 int P2PSocket::recv_packet(void *buf, unsigned int len, int flags, SceNetSockaddr *from, unsigned int *fromlen) {
     const auto res = PosixSocket::recv_packet(buf, len, flags, from, fromlen);
-    if ((res > 0) && from)
+    if ((res > 0) && from) {
         *from = convertPosixToP2P(from);
+        // Whoever sends us ad hoc packets is a player: their broadcasts must reach them too
+        const uint32_t sender = reinterpret_cast<const SceNetSockaddrIn *>(from)->sin_addr.s_addr;
+        if (adhoc_peers::add(sender))
+            LOG_INFO("Ad hoc: found a player at {}.{}.{}.{}", sender & 0xFF, (sender >> 8) & 0xFF, (sender >> 16) & 0xFF, sender >> 24);
+    }
 
     return res;
 }
 
 int P2PSocket::send_packet(const void *msg, unsigned int len, int flags, const SceNetSockaddr *to, unsigned int tolen) {
     const auto p2p_to = convertP2PToPosix(to);
-    return PosixSocket::send_packet(msg, len, flags, &p2p_to, tolen);
+    const uint32_t dest = to ? reinterpret_cast<const SceNetSockaddrIn *>(to)->sin_addr.s_addr : 0;
+    if (!to || !adhoc_peers::is_broadcast(dest))
+        return PosixSocket::send_packet(msg, len, flags, &p2p_to, tolen);
+
+    // A broadcast: sent as one (where the network allows it) and to every known player directly
+    // (iOS drops apps' broadcasts). Succeeds when any copy went out.
+    int result = PosixSocket::send_packet(msg, len, flags, &p2p_to, tolen);
+    for (const uint32_t peer : adhoc_peers::snapshot()) {
+        SceNetSockaddrIn direct = *reinterpret_cast<const SceNetSockaddrIn *>(&p2p_to);
+        direct.sin_addr.s_addr = peer;
+        const SceNetSockaddr direct_addr = std::bit_cast<SceNetSockaddr>(direct);
+        const int sent = PosixSocket::send_packet(msg, len, flags, &direct_addr, tolen);
+        if (sent >= 0 && result < 0)
+            result = sent;
+    }
+    return result;
 }
 
 int P2PSocket::bind(const SceNetSockaddr *addr, unsigned int addrlen) {

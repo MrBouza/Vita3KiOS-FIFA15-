@@ -21,6 +21,7 @@
 
 extern "C" void v3k_log_ui(const char *message);
 
+#include <util/adhoc_peers.h>
 #include <util/app_activity.h>
 #include <util/thermal.h>
 
@@ -38,6 +39,7 @@ extern "C" void v3k_log_ui(const char *message);
 #include <vector>
 #include <sys/sysctl.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 // Implemented in Swift (ui/LibraryHost.swift)
 extern "C" void v3k_ui_show(void);
@@ -246,7 +248,25 @@ unsigned memory_warning_count() {
     return memory_warnings.load();
 }
 
+// Settings › Multiplayer: the other players' IP addresses (commas or spaces between them)
+static std::vector<uint32_t> adhoc_partner_addrs() {
+    std::vector<uint32_t> out;
+    NSString *text = [NSUserDefaults.standardUserDefaults stringForKey:@"v3k.adhocPeers"];
+    if (!text)
+        return out;
+    NSCharacterSet *separators = [NSCharacterSet characterSetWithCharactersInString:@", ;\n\t"];
+    for (NSString *part in [text componentsSeparatedByCharactersInSet:separators]) {
+        if (part.length == 0)
+            continue;
+        in_addr addr{};
+        if (inet_pton(AF_INET, part.UTF8String, &addr) == 1)
+            out.push_back(addr.s_addr);
+    }
+    return out;
+}
+
 void observe_app_state() {
+    adhoc_peers::configured() = adhoc_partner_addrs;
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     thermal::keep_cool() = keep_cool_enabled();
     update_thermal_state();

@@ -27,6 +27,7 @@
 #include <net/types.h>
 #include <packages/sfo.h>
 #include <rtc/rtc.h>
+#include <util/adhoc_peers.h>
 #include <util/lock_and_find.h>
 #include <util/net_utils.h>
 
@@ -266,6 +267,13 @@ static void adhoc_thread(EmuEnvState &emuenv, int thread_id) {
             .sin_addr{ .s_addr = emuenv.net.broadcastAddr },
             .sin_vport = htons(AUTH_RECV_VPORT),
         };
+
+        adhoc_peers::start(emuenv.net.netAddr, emuenv.net.broadcastAddr);
+        {
+            const uint32_t own = emuenv.net.netAddr;
+            const auto typed = adhoc_peers::snapshot();
+            LOG_INFO("Ad hoc: this device is {}.{}.{}.{}, {} player address(es) from settings", own & 0xFF, (own >> 8) & 0xFF, (own >> 16) & 0xFF, own >> 24, typed.size());
+        }
 
         // Retrieve the app version from the SFO file
         std::string app_ver_string;

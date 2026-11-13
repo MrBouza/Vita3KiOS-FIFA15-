@@ -693,7 +693,7 @@ void VKContext::stop_recording(const SceGxmNotification &notif1, const SceGxmNot
 
             // we must sync the two buffers
             if (surface_info && surface_info->need_buffer_sync)
-                state.request_queue.push(BufferSyncRequest{ surface_info->data.address(), static_cast<uint32_t>(surface_info->total_bytes) });
+                state.request_queue.push(BufferSyncRequest{ surface_info->data.address(), sync_byte_size(*surface_info) });
         }
 
         if (surface_info && surface_info->need_post_surface_sync) {

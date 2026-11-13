@@ -15,6 +15,7 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#include <algorithm>
 #include <util/log.h>
 #include <util/net_utils.h>
 
@@ -455,6 +456,23 @@ std::vector<AssignedAddr> get_all_assigned_addrs() {
     }
     if (ifAddrStruct != nullptr)
         freeifaddrs(ifAddrStruct);
+#ifdef __APPLE__
+    // The default address (index 0) is the one ad hoc play uses. On an iPhone the cellular interface
+    // (pdp_ip) and VPN tunnels (utun, ipsec) can come first; local play needs Wi-Fi (en0) or the
+    // Personal Hotspot this phone is sharing (bridge), so those go first.
+    const auto rank = [](const std::string &name) {
+        if (name.rfind("en0", 0) == 0)
+            return 0;
+        if (name.rfind("bridge", 0) == 0)
+            return 1;
+        if (name.rfind("en", 0) == 0)
+            return 2;
+        return 3;
+    };
+    std::stable_sort(out_addrs.begin(), out_addrs.end(), [&](const AssignedAddr &a, const AssignedAddr &b) {
+        return rank(a.name) < rank(b.name);
+    });
+#endif
 #endif
     return ret_addrs();
 }

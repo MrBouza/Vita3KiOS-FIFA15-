@@ -354,6 +354,8 @@ SurfaceRetrieveResult VKSurfaceCache::retrieve_color_surface_for_framebuffer(Mem
             color_surface_queue.set_as_lru(&info);
         } else {
             color_surface_queue.set_as_mru(&info);
+            info.bound_width = static_cast<uint16_t>(std::min<uint32_t>(original_width, info.original_width));
+            info.bound_height = static_cast<uint16_t>(std::min<uint32_t>(original_height, info.original_height));
 
             if (info.data && *info.dirty)
                 protect_surface(mem, info);
@@ -405,6 +407,8 @@ SurfaceRetrieveResult VKSurfaceCache::retrieve_color_surface_for_framebuffer(Mem
     info_added.height = height;
     info_added.original_width = original_width;
     info_added.original_height = original_height;
+    info_added.bound_width = original_width;
+    info_added.bound_height = original_height;
     info_added.stride_bytes = bytes_per_stride;
     info_added.data = color->data;
     info_added.total_bytes = total_surface_size;
@@ -1398,6 +1402,19 @@ bool VKSurfaceCache::check_for_surface(MemState &mem, Address source_address, Ca
     return true;
 }
 
+// What surface sync writes back: the size the game last bound, never more than the cached surface
+static uint32_t sync_width(const ColorSurfaceCacheInfo &surface) {
+    return surface.bound_width ? std::min(surface.bound_width, surface.original_width) : surface.original_width;
+}
+
+static uint32_t sync_height(const ColorSurfaceCacheInfo &surface) {
+    return surface.bound_height ? std::min(surface.bound_height, surface.original_height) : surface.original_height;
+}
+
+uint32_t sync_byte_size(const ColorSurfaceCacheInfo &surface) {
+    return std::min<uint32_t>(surface.total_bytes, surface.stride_bytes * sync_height(surface));
+}
+
 ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
     // surface sync is supported only if memory mapping is enabled
     if (!state.features.enable_memory_mapping)
@@ -1405,6 +1422,15 @@ ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
 
     if (last_written_surface == nullptr || !*last_written_surface->need_surface_sync)
         return nullptr;
+
+    // The game wrote to this surface's memory itself since it was bound: it holds the game's own data
+    // now (memory handed to something else), and copying the picture back would overwrite it
+    if (last_written_surface->dirty && *last_written_surface->dirty) {
+        LOG_INFO_ONCE("Surface sync skipped for a surface the game wrote to itself (its memory holds other data now)");
+        *last_written_surface->need_surface_sync = false;
+        last_written_surface = nullptr;
+        return nullptr;
+    }
 
     VKContext *context = reinterpret_cast<VKContext *>(state.context);
     vk::CommandBuffer cmd_buffer = context->render_cmd;
@@ -1497,7 +1523,7 @@ ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
         .bufferImageHeight = last_written_surface->original_height,
         .imageSubresource = vkutil::color_subresource_layer,
         .imageOffset = { 0, 0, 0 },
-        .imageExtent = { last_written_surface->original_width, last_written_surface->original_height, 1 }
+        .imageExtent = { sync_width(*last_written_surface), sync_height(*last_written_surface), 1 }
     };
     cmd_buffer.copyImageToBuffer(image_to_copy, image_layout, buffer, copy);
 
@@ -1571,11 +1597,12 @@ void VKSurfaceCache::perform_post_surface_sync(const MemState &mem, ColorSurface
         return;
 
     const uint32_t pixel_stride = (surface->stride_bytes * 8) / gxm::bits_per_pixel(surface->format);
-    const uint32_t nb_pixels = pixel_stride * surface->original_height;
+    const uint32_t rows = sync_height(*surface);
+    const uint32_t nb_pixels = pixel_stride * rows;
     uint8_t *pixels = surface->data.cast<uint8_t>().get(mem);
 
     if (surface_sync_needs_u4u4u4u4_repack(*surface)) {
-        const vk::Rect2D region{ { 0, 0 }, { surface->original_width, surface->original_height } };
+        const vk::Rect2D region{ { 0, 0 }, { sync_width(*surface), rows } };
         pack_rgba8_to_u4u4u4u4(pixels, static_cast<const uint8_t *>(surface->copy_buffer->mapped_data), pixel_stride, region, surface->swizzle);
         return;
     }
@@ -1591,7 +1618,7 @@ void VKSurfaceCache::perform_post_surface_sync(const MemState &mem, ColorSurface
 
         int src_stride = pixel_stride * 4;
         int dst_stride = pixel_stride * 3;
-        sws_scale(surface->sws_context, reinterpret_cast<const uint8_t *const *>(&surface->copy_buffer->mapped_data), &src_stride, 0, surface->original_height, &pixels, &dst_stride);
+        sws_scale(surface->sws_context, reinterpret_cast<const uint8_t *const *>(&surface->copy_buffer->mapped_data), &src_stride, 0, rows, &pixels, &dst_stride);
         return;
     }
 

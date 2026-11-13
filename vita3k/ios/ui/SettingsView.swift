@@ -20,6 +20,7 @@ struct SettingsView: View {
                 StorageSection()
                 TouchControlsSection()
                 EmulationSections()
+                MultiplayerSection()
                 Section {
                     NavigationLink {
                         AllPatchesView()
@@ -301,6 +302,49 @@ struct TouchControlsSection: View {
         } footer: {
             Text("Touch control changes apply the next time a game starts. In game, the ✕ at the top opens the game menu: screenshot, rear touchpad, edit control layout (drag and pinch to move and resize buttons) and quit. The eye button hides or shows the controls. With a controller, hold Select + Start, or press Home/PS, to open the menu.")
         }
+    }
+}
+
+// MARK: - Multiplayer
+
+/// Local (ad hoc) play between phones. Games find each other by broadcasting on the network, which
+/// iOS blocks for sideloaded apps, so each phone also sends straight to the addresses typed here.
+struct MultiplayerSection: View {
+    @AppStorage("v3k.adhocPeers") private var peers = ""
+    @State private var ownAddress = MultiplayerSection.wifiAddress()
+
+    var body: some View {
+        Section {
+            LabeledContent("This phone", value: ownAddress ?? "Not on Wi-Fi")
+            TextField("Other player's IP, e.g. 192.168.1.23", text: $peers)
+                .keyboardType(.numbersAndPunctuation)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+        } header: {
+            Text("Multiplayer (experimental)")
+        } footer: {
+            Text("Local ad hoc play with other Hinoki players: both phones on the same Wi-Fi, or one joined to the other's Personal Hotspot. Type the other phone's address (shown above on that phone) on at least one of them; several addresses can be separated by commas. Then start the game's ad hoc / local mode on both, and allow Local Network access when iOS asks. Games that use Sony's ad hoc matching library don't connect yet.")
+        }
+        .onAppear { ownAddress = MultiplayerSection.wifiAddress() }
+    }
+
+    /// The phone's Wi-Fi address (or its Personal Hotspot address when it shares one)
+    static func wifiAddress() -> String? {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return nil }
+        defer { freeifaddrs(list) }
+        var found: [String: String] = [:]
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let entry = cursor {
+            defer { cursor = entry.pointee.ifa_next }
+            guard let sa = entry.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET) else { continue }
+            let name = String(cString: entry.pointee.ifa_name)
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                found[name] = String(cString: host)
+            }
+        }
+        return found["en0"] ?? found.first(where: { $0.key.hasPrefix("bridge") })?.value
     }
 }
 

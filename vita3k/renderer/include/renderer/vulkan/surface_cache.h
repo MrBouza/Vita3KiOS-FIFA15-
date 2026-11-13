@@ -79,6 +79,12 @@ struct ColorSurfaceCacheInfo : public SurfaceCacheInfo {
     uint16_t height;
     uint16_t original_width;
     uint16_t original_height;
+    // The size the game last bound this surface with. A smaller surface bound at the same address
+    // keeps the bigger cache entry, but surface sync must only write back what the game bound:
+    // the rest of the old size is memory the game now uses for something else (Madden NFL 13 got
+    // pixels in its pointers, 0xFF000D0C, and froze loading into a game).
+    uint16_t bound_width = 0;
+    uint16_t bound_height = 0;
     uint32_t stride_bytes;
     uint64_t last_frame_rendered;
 
@@ -250,4 +256,7 @@ public:
         cpu_surfaces_changed.clear();
     }
 };
+// Bytes of game memory surface sync writes back for this surface (the size the game last bound)
+uint32_t sync_byte_size(const ColorSurfaceCacheInfo &surface);
+
 } // namespace renderer::vulkan

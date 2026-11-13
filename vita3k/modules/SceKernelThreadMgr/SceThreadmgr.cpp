@@ -1370,6 +1370,9 @@ static int delay_thread(KernelState &kernel, SceUID thread_id, SceUInt delay_us)
     if (delay_us == 0)
         return SCE_KERNEL_ERROR_INVALID_ARGUMENT;
 
+    // Shorter delays last 200 microseconds, as on a PS Vita (upstream f0e72e3c). Games that poll with
+    // tiny delays otherwise spin a core on the phone.
+    delay_us = std::max(delay_us, 200u);
     const ThreadStatePtr thread = kernel.get_thread(thread_id);
     const Deadline deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(delay_us);
     return guest_result(thread->delay_until(deadline, false));
@@ -1380,6 +1383,7 @@ static int delay_thread_cb(KernelState &kernel, SceUID thread_id, SceUInt delay_
     if (delay_us == 0)
         return SCE_KERNEL_ERROR_INVALID_ARGUMENT;
 
+    delay_us = std::max(delay_us, 200u);
     // Time spent in callbacks counts toward the delay
     const Deadline deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(delay_us);
     const ThreadStatePtr thread = kernel.get_thread(thread_id);
