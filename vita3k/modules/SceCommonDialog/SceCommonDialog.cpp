@@ -559,15 +559,34 @@ EXPORT(int, sceNetCheckDialogGetPS3ConnectInfo) {
     return UNIMPLEMENTED();
 }
 
+// Only the modes that need PSN or a PS3 are refused, and only when the player hasn't chosen to
+// appear signed in (Vita3K-Plus: Borderlands 2 no longer waits for PSN)
+static bool netcheck_mode_needs_psn(SceNetCheckDialogMode mode) {
+    switch (mode) {
+    case SCE_NETCHECK_DIALOG_MODE_PSN:
+    case SCE_NETCHECK_DIALOG_MODE_PSN_ONLINE:
+    case SCE_NETCHECK_DIALOG_MODE_PS3_CONNECT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 EXPORT(int, sceNetCheckDialogGetResult, SceNetCheckDialogResult *result) {
     TRACY_FUNC(sceNetCheckDialogGetResult, result);
     if (emuenv.common_dialog.type != NETCHECK_DIALOG)
         return RET_ERROR(SCE_COMMON_DIALOG_ERROR_NOT_IN_USE);
+    if (!result)
+        return RET_ERROR(SCE_COMMON_DIALOG_ERROR_NULL);
 
+    *result = {};
     result->result = emuenv.common_dialog.result;
 
-    if (emuenv.common_dialog.netcheck.mode != SCE_NETCHECK_DIALOG_MODE_ADHOC_CONN)
-        STUBBED("result->result = 0");
+    if (netcheck_mode_needs_psn(emuenv.common_dialog.netcheck.mode)) {
+        const bool pretend_signed_in = emuenv.cfg.current_config.psn_signed_in;
+        result->result = pretend_signed_in ? SCE_COMMON_DIALOG_RESULT_OK : SCE_COMMON_DIALOG_RESULT_USER_CANCELED;
+        result->psnModeSucceeded = pretend_signed_in;
+    }
 
     return 0;
 }

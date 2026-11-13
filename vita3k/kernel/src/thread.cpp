@@ -557,6 +557,14 @@ SceKernelThreadInfo ThreadState::info() {
     info.currentPriority = priority;
     info.initCpuAffinityMask = init_affinity_mask;
     info.currentCpuAffinityMask = affinity_mask;
+    // filled in like a Vita does (Vita3K-Plus: Dragon Quest Heroes II crashed reading them)
+    info.size = sizeof(info);
+    info.processId = 1;
+    const uint32_t user_cpus = (static_cast<uint32_t>(affinity_mask) >> 16) & 0x7;
+    info.currentCpuId = (user_cpus & 1) ? 0 : (user_cpus & 2) ? 1
+        : (user_cpus & 4)                                     ? 2
+                                                              : 0;
+    info.lastExecutedCpuId = info.currentCpuId;
     info.entry = SceKernelThreadEntry(entry_point);
     // A thread whose kernel wait is over is READY until it goes on, and waits on nothing, like on a
     // Vita, where the waker ends the wait. A host wait, like an audio output, has no target and

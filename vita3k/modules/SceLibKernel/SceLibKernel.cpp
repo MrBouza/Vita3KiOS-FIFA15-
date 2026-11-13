@@ -627,14 +627,57 @@ EXPORT(int, sceIoMkdirAsync) {
     return UNIMPLEMENTED();
 }
 
+// Games with loading bugs that only a Vita's slower file opens hide (from Vita3K-Plus): the delay they need
+// when the File Loading Delay setting is 0 (FIFA: doesn't start without it; Silent Hill: graphics)
+static int title_file_loading_delay(const std::string &title_id) {
+    struct TitleDelay {
+        const char *title_id;
+        int delay_ms;
+    };
+    static constexpr TitleDelay titles[] = {
+        // EA SPORTS FIFA Football (and demos), FIFA 13
+        { "PCSB00051", 20 },
+        { "PCSB00052", 20 },
+        { "PCSG00039", 20 },
+        { "PCSB00082", 20 },
+        { "PCSB00083", 20 },
+        { "PCSB00084", 20 },
+        { "PCSB00085", 20 },
+        { "PCSB00086", 20 },
+        { "PCSE00055", 20 },
+        { "PCSE00059", 20 },
+        { "PCSE00060", 20 },
+        { "PCSG90012", 20 },
+        { "PCSB00170", 20 },
+        { "PCSB00171", 20 },
+        { "PCSB00174", 20 },
+        { "PCSE00093", 20 },
+        { "PCSE00096", 20 },
+        { "PCSG00107", 20 },
+        // Silent Hill: Book of Memories (and demos)
+        { "PCSE00011", 5 },
+        { "PCSB00115", 5 },
+        { "PCSG00049", 5 },
+        { "PCSE00121", 5 },
+        { "PCSB00193", 5 },
+        { "PCSG90036", 5 },
+    };
+    for (const auto &title : titles) {
+        if (title_id == title.title_id)
+            return title.delay_ms;
+    }
+    return 0;
+}
+
 EXPORT(SceUID, sceIoOpen, const char *file, const int flags, const SceMode mode) {
     TRACY_FUNC(sceIoOpen, file, flags, mode);
     if (file == nullptr) {
         return RET_ERROR(SCE_ERROR_ERRNO_EINVAL);
     }
 
-    if (emuenv.cfg.current_config.file_loading_delay > 0)
-        std::this_thread::sleep_for(std::chrono::milliseconds(emuenv.cfg.current_config.file_loading_delay));
+    const int loading_delay = emuenv.cfg.current_config.file_loading_delay > 0 ? emuenv.cfg.current_config.file_loading_delay : title_file_loading_delay(emuenv.io.title_id);
+    if (loading_delay > 0)
+        std::this_thread::sleep_for(std::chrono::milliseconds(loading_delay));
 
     LOG_INFO("Opening file: {}", file);
     return open_file(emuenv.io, file, flags, emuenv.vita_fs_path, export_name);

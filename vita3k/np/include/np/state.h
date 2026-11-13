@@ -85,6 +85,23 @@ struct NpTusState {
     std::unordered_map<SceUID, NpTusRequest> requests;
 };
 
+// Matching2 contexts (Vita3K-Plus, Borderlands 2): a context start is answered at once with a
+// "no server" event through the game's context callback, so games stop waiting for PSN
+struct SceNpMatching2ContextEvent {
+    uint32_t ctx_id;
+    uint32_t event;
+    uint32_t cause;
+    uint32_t error_code;
+};
+
+struct NpMatching2State {
+    std::mutex mutex;
+    Address context_cb_pc = 0;
+    Address context_cb_arg = 0;
+    uint32_t next_ctx_id = 1;
+    std::vector<SceNpMatching2ContextEvent> pending;
+};
+
 struct NpState {
     bool inited = false;
     np_callbacks cbs;
@@ -92,5 +109,6 @@ struct NpState {
 
     NpTrophyState trophy_state;
     NpTusState tus_state;
+    NpMatching2State matching2;
     np::CommunicationID comm_id;
 };
