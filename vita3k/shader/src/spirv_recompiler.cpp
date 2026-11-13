@@ -1833,8 +1833,12 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
                 spv::Id z_ref = utils::create_access_chain(b, spv::StorageClassOutput, out_var, { b.makeIntConstant(2) });
                 spv::Id w_ref = utils::create_access_chain(b, spv::StorageClassOutput, out_var, { b.makeIntConstant(3) });
 
-                if (!translation_state.is_vulkan)
-                    b.createStore(b.createLoad(w_ref, spv::NoPrecision), z_ref);
+                // Depth range and user clip planes are ineffective in this mode (2D draws: menus, names,
+                // fades); that can't be translated directly, so z is set to w. Vita3K-Plus dropped this on
+                // Vulkan because its renderer clamps depth instead (depthClampEnable); this one doesn't, and
+                // without it 2D draws with z outside [0, w] were clipped away: menus and names left trails
+                // that never faded (Gundam Extreme VS-Force, since v1.2.0)
+                b.createStore(b.createLoad(w_ref, spv::NoPrecision), z_ref);
 
                 cond_builder.makeBeginElse();
 
@@ -1878,12 +1882,10 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
                     z = b.createBinOp(spv::OpFMul, f32, z, z_scale);
                     z = b.createBinOp(spv::OpFAdd, f32, z, z_offset);
 
-                    // z values below 0 get clamped
-                    // z = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FMax, { z, zero });      // Nick causes bad clamping - should be removed
-
-                    // Per-fragment depth clamping is handled by depthClampEnable (Vulkan)
-                    // or GL_ARB_depth_clamp (OpenGL), matching PowerVR hardware behavior.
-                    // Per-vertex clamping here would warp the triangle's depth plane equation.
+                    // z values below 0 get clamped (the Vita clamps depth; this renderer has no depthClampEnable,
+                    // so without this, geometry in front of the near plane was clipped instead. Vita3K-Plus
+                    // removed it because it clamps per fragment)
+                    z = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FMax, { z, zero });
 
                     if (!translation_state.is_vulkan) {
                         // convert [0,1] depth range (gxp, vulkan) to [-1,1] depth range (opengl)
