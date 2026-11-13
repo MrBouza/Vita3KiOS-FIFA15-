@@ -403,6 +403,17 @@ static void apply_required_game_settings(EmuEnvState &emuenv, const std::string 
         cc.cpu_opt = true;
         LOG_WARN("{}: CPU optimisations stay on for this game (off, it runs at about 21 FPS)", app_path);
     }
+    // Madden NFL 13: the sky, the crowd and the sideline players are images the game draws itself and
+    // reads back; with surface sync off they come out plain blue, empty or black. Surface sync once
+    // wrote past 16-bit surfaces into game memory (corruption, freezes); this build skips those
+    // surfaces instead, and it needs Native buffer to boot. A per-game config that turned either off
+    // (from before the fix) left the owner's sideline players black, so both are kept on here.
+    if (app_path == "PCSE00084" && (cc.disable_surface_sync || cc.memory_mapping != "page-table")) {
+        LOG_WARN("{}: Native buffer and surface sync stay on for this game (were {}, surface sync {}): without them the sky, crowd and sideline players don't draw",
+            app_path, cc.memory_mapping, cc.disable_surface_sync ? "off" : "on");
+        cc.memory_mapping = "page-table";
+        cc.disable_surface_sync = false;
+    }
 }
 #endif
 

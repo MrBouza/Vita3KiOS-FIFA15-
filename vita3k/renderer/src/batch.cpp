@@ -178,8 +178,11 @@ void process_batches(renderer::State &state, const FeatureState &features, MemSt
         if (overlay_frame_allowed(state))
             return;
 
-        // Try to wait for a batch (about 2 or 3ms, game should be fast for this)
-        auto cmd_list = state.command_buffer_queue.top(3);
+        // Wait up to 3 ms for a batch. The queue's wait is in microseconds: this was top(3), 3 us, so
+        // while the game had nothing queued the render thread spun on a performance core (hundreds of
+        // thousands of wake-ups a second: heat, and a core taken from the game). New batches, a frame
+        // to show, an overlay frame and shutdown all wake the queue, so the longer wait costs nothing.
+        auto cmd_list = state.command_buffer_queue.top(3000);
 
         if (!cmd_list || !is_cmd_ready(mem, *cmd_list)) {
             // beginning of the game or homebrew not using gxm

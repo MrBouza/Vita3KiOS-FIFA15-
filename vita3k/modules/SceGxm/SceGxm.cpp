@@ -1361,6 +1361,7 @@ void shutdown(EmuEnvState &emuenv) {
     emuenv.renderer->notification_ready.notify_all();
     emuenv.gxm.display_queue.abort();
     emuenv.renderer->render_abort = true;
+    emuenv.renderer->command_buffer_queue.wake();
     invalidate_sync_objects(emuenv.gxm);
     emuenv.renderer->command_finish_one.notify_all();
 

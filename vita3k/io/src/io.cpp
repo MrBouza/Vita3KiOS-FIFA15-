@@ -903,13 +903,14 @@ SceUID open_dir(IOState &io, const char *path, const fs::path &vita_fs_path, con
                 if (!dir_path.empty() && path_found) {
                     LOG_TRACE("Found directory on case-sensitive filesystem at {}", dir_path);
                 } else {
-                    LOG_ERROR("Directory does not exist at {} (target path: {})", original_dir_path, path);
-                    return IO_ERROR(SCE_ERROR_ERRNO_ENOENT);
+                    // Games list folders that may not be there (Madden: 160 a match); not an error
+                    LOG_DEBUG("Directory does not exist at {} (target path: {})", original_dir_path, path);
+                    return SCE_ERROR_ERRNO_ENOENT;
                 }
             }
         } else {
-            LOG_ERROR("Directory does not exist at: {} (target path: {})", dir_path, path);
-            return IO_ERROR(SCE_ERROR_ERRNO_ENOENT);
+            LOG_DEBUG("Directory does not exist at: {} (target path: {})", dir_path, path);
+            return SCE_ERROR_ERRNO_ENOENT;
         }
     }
 

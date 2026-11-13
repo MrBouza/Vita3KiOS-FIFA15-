@@ -1413,6 +1413,17 @@ void VKState::swap_window() {
     // look once a frame if we need to save the pipeline cache
     const auto time_s = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     if (time_s >= pipeline_cache.next_pipeline_cache_save) {
+#ifdef VITA3K_PLATFORM_IOS
+        // At most one save a minute while playing: each one asks the driver for the whole cache and
+        // rewrites the file (Madden saved 25 times in 36 minutes, each new pipeline restarting it).
+        // Leaving the game still saves right away.
+        static uint64_t last_save_s = 0;
+        if (last_save_s != 0 && static_cast<uint64_t>(time_s) < last_save_s + 60) {
+            pipeline_cache.next_pipeline_cache_save = last_save_s + 60;
+            return;
+        }
+        last_save_s = time_s;
+#endif
         // cleared first: a save that cannot start yet schedules its own retry
         pipeline_cache.next_pipeline_cache_save = std::numeric_limits<uint64_t>::max();
         pipeline_cache.save_pipeline_cache(true);
