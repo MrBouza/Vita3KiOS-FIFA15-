@@ -762,7 +762,11 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         bool support_external_memory = false;
         bool support_shader_interlock = false;
         bool support_image_view_usage = false;
+        bool support_present_id = false;
         const std::map<std::string_view, bool *> optional_extensions = {
+            // knowing when a frame reached the screen (V-Sync off and TV mode never wait for it)
+            { VK_KHR_PRESENT_ID_EXTENSION_NAME, &support_present_id },
+            { VK_KHR_PRESENT_WAIT_EXTENSION_NAME, &support_present_wait },
             { vk::KHRGetMemoryRequirements2ExtensionName, &temp_bool },
             // can be used by vma to improve performance
             { vk::KHRDedicatedAllocationExtensionName, &support_dedicated_allocations },
@@ -808,6 +812,14 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
                 *it->second = true;
                 device_extensions.push_back(it->first.data());
             }
+        }
+
+        if (support_present_id && support_present_wait) {
+            auto present_features = physical_device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDevicePresentIdFeaturesKHR, vk::PhysicalDevicePresentWaitFeaturesKHR>();
+            support_present_wait = present_features.get<vk::PhysicalDevicePresentIdFeaturesKHR>().presentId
+                && present_features.get<vk::PhysicalDevicePresentWaitFeaturesKHR>().presentWait;
+        } else {
+            support_present_wait = false;
         }
 
         bool support_memory_mapping = true;
@@ -914,7 +926,9 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
             vk::PhysicalDeviceUniformBufferStandardLayoutFeatures,
             vk::PhysicalDeviceShaderFloat16Int8Features,
             vk::PhysicalDeviceFragmentShaderInterlockFeaturesEXT,
-            vk::PhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT>
+            vk::PhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT,
+            vk::PhysicalDevicePresentIdFeaturesKHR,
+            vk::PhysicalDevicePresentWaitFeaturesKHR>
             device_info{
                 vk::DeviceCreateInfo{
                     .pEnabledFeatures = &enabled_features },
@@ -928,7 +942,11 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
                 vk::PhysicalDeviceFragmentShaderInterlockFeaturesEXT{
                     .fragmentShaderSampleInterlock = VK_TRUE },
                 vk::PhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT{
-                    .rasterizationOrderColorAttachmentAccess = VK_TRUE }
+                    .rasterizationOrderColorAttachmentAccess = VK_TRUE },
+                vk::PhysicalDevicePresentIdFeaturesKHR{
+                    .presentId = VK_TRUE },
+                vk::PhysicalDevicePresentWaitFeaturesKHR{
+                    .presentWait = VK_TRUE }
             };
         device_info.get().setQueueCreateInfos(queue_infos);
         device_info.get().setPEnabledExtensionNames(device_extensions);
@@ -947,6 +965,12 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
 
         if (!support_shader_interlock)
             device_info.unlink<vk::PhysicalDeviceFragmentShaderInterlockFeaturesEXT>();
+
+        if (!support_present_wait) {
+            device_info.unlink<vk::PhysicalDevicePresentIdFeaturesKHR>();
+            device_info.unlink<vk::PhysicalDevicePresentWaitFeaturesKHR>();
+        }
+        LOG_INFO("Knowing when frames reach the screen (present wait): {}", support_present_wait ? "yes" : "no, a 60 Hz screen is assumed");
 
         try {
             device = physical_device.createDevice(device_info.get());

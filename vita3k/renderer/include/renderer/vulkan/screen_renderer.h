@@ -56,6 +56,16 @@ public:
     // V-Sync off: when the frames already handed to the screen will keep it busy until (MoltenVK takes
     // no timeout and would block in nextDrawable once every drawable is queued)
     std::chrono::steady_clock::time_point screen_busy_until{};
+    // With present wait (VKState::support_present_wait): the id of the last frame handed to the screen,
+    // counted from 1 for each swapchain
+    uint64_t last_present_id = 0;
+    uint64_t next_present_id = 1;
+    VkSwapchainKHR present_id_swapchain = VK_NULL_HANDLE;
+    // frames skipped in a row since then: never longer than a quarter second (a screen that stopped
+    // reporting must not leave the game without a picture)
+    std::chrono::steady_clock::time_point skipping_since{};
+    // How many frames already handed to the screen are still waiting to be shown (at least `frames`)
+    bool screen_has_queued(uint32_t frames);
     vk::Extent2D extent;
     uint32_t swapchain_size{};
     std::vector<vk::Image> swapchain_images;

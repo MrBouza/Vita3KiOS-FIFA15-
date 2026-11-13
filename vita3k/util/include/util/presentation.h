@@ -18,6 +18,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 
 // How frames reach the screen, set by the platform layer and read by the screen renderer
 namespace presentation {
@@ -27,6 +28,19 @@ namespace presentation {
 // replaces rather than queues behind it
 inline std::atomic<bool> &low_latency() {
     static std::atomic<bool> value{ false };
+    return value;
+}
+
+// For the watchdog's log line: what the screen took, what it skipped, and how long the render thread
+// waited on it (acquiring an image and presenting)
+struct Counters {
+    std::atomic<uint64_t> shown{ 0 };
+    std::atomic<uint64_t> skipped{ 0 };
+    std::atomic<uint64_t> wait_ns{ 0 };
+};
+
+inline Counters &counters() {
+    static Counters value;
     return value;
 }
 

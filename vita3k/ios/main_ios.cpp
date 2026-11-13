@@ -46,6 +46,7 @@
 #include <sdl-frontend/session.h>
 #include <util/gpu_memory.h>
 #include <util/log.h>
+#include <util/presentation.h>
 #include <util/recent_imports.h>
 #include <util/thermal.h>
 
@@ -280,6 +281,9 @@ int main(int argc, char *argv[]) {
             const auto session_start = last_progress;
             double fps_total = 0.0, fps_min = 0.0, fps_max = 0.0;
             int fps_samples = 0, hot_samples = 0, stalls = 0, memory_samples = 0;
+            uint64_t screen_shown_at_log = presentation::counters().shown.load();
+            uint64_t screen_skipped_at_log = presentation::counters().skipped.load();
+            uint64_t screen_wait_at_log = presentation::counters().wait_ns.load();
             uint64_t least_memory = os_proc_available_memory();
             const auto record_status = [&](double fps) {
                 ios::crash::session_status(fmt::format("{} MiB of memory left{}{}{}{}",
@@ -322,8 +326,17 @@ int main(int argc, char *argv[]) {
                     const double seconds = std::chrono::duration<double>(now - last_memory_log).count();
                     // frames_set starts again from 0 when a game ends: no frames, not a wrapped-around count
                     const double fps = last_frames >= frames_at_memory_log ? static_cast<double>(last_frames - frames_at_memory_log) / seconds : 0.0;
-                    LOG_INFO("Watchdog: {} MiB of memory left, {:.1f} FPS{}{}{}", os_proc_available_memory() / (1024 * 1024), fps,
-                        session_paused() ? " (paused)" : "", thermal::phone_is_hot() ? ", phone hot" : "",
+                    // What the screen took: frames shown and skipped, and how long the render thread waited
+                    // on the screen per second (V-Sync on waits; long waits hold up the game's GPU work)
+                    auto &screen = presentation::counters();
+                    const uint64_t shown = screen.shown.load(), skipped = screen.skipped.load(), wait_ns = screen.wait_ns.load();
+                    const std::string screen_text = fmt::format(", screen: {} shown, {} skipped, waited {:.0f} ms/s",
+                        shown - screen_shown_at_log, skipped - screen_skipped_at_log, static_cast<double>(wait_ns - screen_wait_at_log) / 1e6 / std::max(seconds, 0.001));
+                    screen_shown_at_log = shown;
+                    screen_skipped_at_log = skipped;
+                    screen_wait_at_log = wait_ns;
+                    LOG_INFO("Watchdog: {} MiB of memory left, {:.1f} FPS{}{}{}{}", os_proc_available_memory() / (1024 * 1024), fps,
+                        screen_text, session_paused() ? " (paused)" : "", thermal::phone_is_hot() ? ", phone hot" : "",
                         thermal::low_power_mode() ? ", Low Power Mode" : "");
                     record_status(fps);
                     if (!session_paused() && !ios::app_in_background() && fps > 0.0) {

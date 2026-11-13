@@ -262,6 +262,14 @@ enum TouchLayout {
 /// Settings › Controls › Portrait mode: holding the phone upright puts the game on top and the
 /// controls below. Landscape is unaffected.
 enum PortraitMode {
+    private static var mirroringNoticeShown = false
+
+    /// Inside LiveContainer (or a similar app container), the container's own app settings decide
+    /// whether a TV gets a scene of its own
+    private static var inContainer: Bool {
+        ProcessInfo.processInfo.environment["LC_HOME_PATH"] != nil || Bundle.main.bundlePath.contains("/Documents/Applications/")
+    }
+
     static var enabled: Bool { UserDefaults.standard.object(forKey: "v3k.portraitMode") as? Bool ?? true }
     /// Games boot in landscape and portrait opens up once the game is on screen: starting upright
     /// stalled the GPU at boot (device lost), while turning the phone during play works
@@ -1012,7 +1020,14 @@ enum TVMode {
         } else if active {
             leave()
         } else if UIScreen.screens.count > 1 {
-            v3k_log_ui("TV: a second screen is connected but iOS gave it no scene of its own, so it mirrors the phone")
+            v3k_log_ui("TV: a second screen is connected but iOS gave it no scene of its own, so it mirrors the phone\(inContainer ? " (Hinoki runs inside an app container, whose settings decide this)" : "")")
+            if !mirroringNoticeShown {
+                mirroringNoticeShown = true
+                let message = inContainer
+                    ? "The TV only mirrors the phone inside LiveContainer: install Hinoki on its own for TV mode"
+                    : "The TV only mirrors the phone: stop and restart Screen Mirroring for TV mode"
+                (ControlsHost.window?.rootViewController?.view as? ControlsOverlayView)?.showToast(message)
+            }
         }
     }
 

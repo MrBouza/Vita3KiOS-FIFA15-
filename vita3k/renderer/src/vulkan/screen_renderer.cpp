@@ -466,6 +466,21 @@ void ScreenRenderer::set_vsync(bool enabled) {
         enabled || vsync_off_mode != vsync_on_mode ? "" : ", frames the screen can't take at once are skipped");
 }
 
+bool ScreenRenderer::screen_has_queued(uint32_t frames) {
+    if (state.support_present_wait && present_id_swapchain == static_cast<VkSwapchainKHR>(swapchain)) {
+        // Frame number last_present_id - frames + 1 not yet on the screen: `frames` frames are still waiting
+        if (last_present_id < frames)
+            return false;
+        const uint64_t id = last_present_id - frames + 1;
+        const VkResult result = VULKAN_HPP_DEFAULT_DISPATCHER.vkWaitForPresentKHR(static_cast<VkDevice>(state.device), static_cast<VkSwapchainKHR>(swapchain), id, 0);
+        return result == VK_TIMEOUT; // errors (out of date, lost): not a reason to skip
+    }
+    // Without it: the screen takes one image per refresh (60 Hz assumed: a faster screen only empties
+    // the queue sooner)
+    constexpr auto refresh = std::chrono::nanoseconds(16'666'667);
+    return screen_busy_until - std::chrono::steady_clock::now() >= refresh * frames;
+}
+
 bool ScreenRenderer::acquire_swapchain_image() {
     if (!window_has_drawable_size(state)) {
         need_rebuild = true;
@@ -493,19 +508,29 @@ bool ScreenRenderer::acquire_swapchain_image() {
     // each queued frame was one more refresh of lag behind the phone's controls
     const bool low_latency = presentation::low_latency().load(std::memory_order_relaxed);
     if ((!vsync || low_latency) && swapchain && swapchain_size > 1) {
-        constexpr auto refresh = std::chrono::nanoseconds(16'666'667);
-        const uint32_t may_queue = low_latency ? 1 : swapchain_size - 1;
-        const auto queued = screen_busy_until - std::chrono::steady_clock::now();
-        if (queued >= refresh * may_queue) {
+        // TV: one frame waiting for the display (counted from real presentation when the driver tells us,
+        // where a frame the TV is still being sent counts too, so allow one more)
+        const uint32_t may_queue = low_latency ? (state.support_present_wait ? 2 : 1) : swapchain_size - 1;
+        const auto now = std::chrono::steady_clock::now();
+        if (!screen_has_queued(may_queue))
+            skipping_since = {};
+        else if (skipping_since == std::chrono::steady_clock::time_point{})
+            skipping_since = now;
+        if (skipping_since != std::chrono::steady_clock::time_point{} && now - skipping_since < std::chrono::milliseconds(250)) {
+            presentation::counters().skipped++;
             current_cmd_buffer = nullptr;
             swapchain_image_idx = 0xDEADBEAF;
             return false;
         }
+        // shown: a new skip window starts with the next full queue
+        skipping_since = {};
     }
 
+    const auto acquire_start = std::chrono::steady_clock::now();
     if (swapchain)
         acquire_result = state.device.acquireNextImageKHR(swapchain,
             vsync ? next_image_timeout : 0, image_acquired_semaphores[current_frame], vk::Fence(), &swapchain_image_idx);
+    presentation::counters().wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - acquire_start).count();
 
     const bool has_acquired_image = acquire_result == vk::Result::eSuccess || acquire_result == vk::Result::eSuboptimalKHR;
     if (!has_acquired_image) {
@@ -648,12 +673,29 @@ void ScreenRenderer::swap_window() {
         .pSwapchains = &swapchain,
         .pImageIndices = &swapchain_image_idx,
     };
+    // Numbered frames, so screen_has_queued can ask which ones reached the screen (ids restart with
+    // each swapchain)
+    if (present_id_swapchain != static_cast<VkSwapchainKHR>(swapchain)) {
+        present_id_swapchain = static_cast<VkSwapchainKHR>(swapchain);
+        last_present_id = 0;
+        next_present_id = 1;
+    }
+    const uint64_t present_id = next_present_id++;
+    vk::PresentIdKHR present_id_info{
+        .swapchainCount = 1,
+        .pPresentIds = &present_id,
+    };
+    if (state.support_present_wait)
+        present_info.pNext = &present_id_info;
 
     vk::Result result;
     {
+        // (with MoltenVK, a frame waits for a free drawable from the screen here, not at acquire)
+        const auto present_start = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(state.queue_mutex);
         tolerate_device_lost("the screen submit", [&] { state.general_queue.submit(submit_info, fences[swapchain_image_idx]); });
         result = state.general_queue.presentKHR(&present_info);
+        presentation::counters().wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - present_start).count();
     }
     if (result == vk::Result::eSuboptimalKHR) {
         need_rebuild = !surface_matches_window_size();
@@ -669,6 +711,9 @@ void ScreenRenderer::swap_window() {
         return;
     }
 
+    presentation::counters().shown++;
+    if (state.support_present_wait && (result == vk::Result::eSuccess || result == vk::Result::eSuboptimalKHR))
+        last_present_id = present_id;
     if (!vsync || presentation::low_latency().load(std::memory_order_relaxed)) {
         constexpr auto refresh = std::chrono::nanoseconds(16'666'667);
         screen_busy_until = std::max(screen_busy_until, std::chrono::steady_clock::now()) + refresh;
