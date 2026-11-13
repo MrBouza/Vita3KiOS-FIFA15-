@@ -13,7 +13,9 @@ out = ['#include <stdbool.h>', '#include <stdint.h>', '#include <stdlib.h>', '#i
        'typedef void (*v3k_progress_fn)(void *context, float percent);', '']
 seen = set()
 for header in sys.argv[1:]:
-    for line in open(header):
+    # prototypes split over several lines (after a comma) are joined first
+    text = re.sub(r',[ \t]*\n[ \t]*', ', ', open(header).read())
+    for line in text.split('\n'):
         m = proto.match(line)
         if not m:
             continue
