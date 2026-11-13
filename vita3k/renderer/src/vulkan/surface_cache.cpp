@@ -1460,6 +1460,18 @@ ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
     const uint32_t transfer_pixel_size = static_cast<uint32_t>(vk::blockSize(last_written_surface->texture.format));
     const bool needs_copy_buffer = format_need_additional_memory(last_written_surface->format)
         || surface_sync_needs_u4u4u4u4_repack(*last_written_surface);
+    // Copied straight into game memory, the host image's pixels must be the size of the game's: a 16-bit
+    // surface the GPU keeps as RGBA8 (formats Metal can't render to) wrote twice its size, so everything
+    // after the surface in game memory got pixels (alpha 0xFF words: Madden NFL 13's 0xFF000A0C and
+    // 0xFF84000C "pointers", then a freeze loading into a game). Such a surface is not synced instead.
+    if (!needs_copy_buffer && transfer_pixel_size * 8 != gxm::bits_per_pixel(last_written_surface->format)) {
+        LOG_WARN_ONCE("Surface sync skipped for a {}-bit surface kept as {} ({} bits a pixel): it would write past the surface into game memory",
+            gxm::bits_per_pixel(last_written_surface->format), vk::to_string(last_written_surface->texture.format), transfer_pixel_size * 8);
+        last_written_surface->need_buffer_sync = false;
+        last_written_surface->need_post_surface_sync = false;
+        last_written_surface = nullptr;
+        return nullptr;
+    }
     if (needs_copy_buffer) {
         if (!last_written_surface->copy_buffer)
             last_written_surface->copy_buffer = std::make_unique<vkutil::Buffer>();

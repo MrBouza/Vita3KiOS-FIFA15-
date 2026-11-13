@@ -186,13 +186,23 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
     recent_imports::record(thread_id, nid, read_lr(cpu));
 #if defined(VITA3K_PLATFORM_IOS)
     // Heat: every 256 system calls, a game thread checks whether it should step down (util/thermal.h)
+    // Threads that feed audio (output, decoding, NGS mixing) are never stepped down: games often run
+    // them at a low priority, and on the efficiency cores they fell behind the audio output, which
+    // played gaps (crackle in Danganronpa 2's videos, whose player decodes and outputs at low priority)
     {
         static thread_local uint32_t calls = 0;
         static thread_local int thermal_qos = 0;
+        static thread_local bool feeds_audio = false;
+        if (!feeds_audio && (nid == 0x02DB3F5F /* sceAudioOutOutput */ || nid == 0xCCDABA04 /* sceAudiodecDecode */
+                || nid == 0x8018AA9B /* sceAudiodecDecodeNFrames */ || nid == 0x29C74EE3 /* sceAtracDecode */
+                || nid == 0x684F080C /* sceNgsSystemUpdate */)) {
+            feeds_audio = true;
+            thermal::follow_game_qos(thermal_qos, false);
+        }
         if ((++calls & 255) == 0) {
             const ThreadStatePtr self = emuenv.kernel.get_thread(thread_id);
             if (self)
-                thermal::follow_game_qos(thermal_qos, self->get_priority() > SCE_KERNEL_GAME_DEFAULT_PRIORITY_ACTUAL);
+                thermal::follow_game_qos(thermal_qos, !feeds_audio && self->get_priority() > SCE_KERNEL_GAME_DEFAULT_PRIORITY_ACTUAL);
         }
     }
 #endif

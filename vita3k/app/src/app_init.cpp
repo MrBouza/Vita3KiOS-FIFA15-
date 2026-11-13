@@ -248,7 +248,7 @@ static constexpr const char *DEFAULT_GAME_FIXES = R"(PCSA00011 surface-sync=on |
 PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
 PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
 PCSB00245 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
-PCSE00084 memory-mapping=on native-buffer=on surface-sync=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer with surface sync: the stadium screens and other images the game draws for itself show up (surface sync crashed with double buffer); background shaders; high accuracy off
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=off surface-sync-safe=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer and surface sync: sky, crowd and sideline players drawn into textures show up; background shaders; high accuracy off
 )";
 
 bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix) {
@@ -298,6 +298,10 @@ static bool apply_fix_setting(Config::CurrentConfig &cc, const std::string &key,
     else if (key == "native-buffer")
         cc.memory_mapping = on ? "page-table" : (cc.memory_mapping == "disabled" ? "disabled" : "double-buffer");
     else if (key == "surface-sync")
+        cc.disable_surface_sync = !on;
+    else if (key == "surface-sync-safe")
+        // surface sync that relies on this build's guard against writing past a surface into game memory;
+        // older builds don't know the key and keep the plain surface-sync value before it
         cc.disable_surface_sync = !on;
     else if (key == "high-accuracy")
         cc.high_accuracy = on;

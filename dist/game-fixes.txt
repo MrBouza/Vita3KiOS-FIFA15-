@@ -21,10 +21,12 @@ PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom (Vita3K
 PCSE00120 memory-mapping=off precise-math=on | GPU memory mapping off: removes the spikes in 3D scenes. Precise shader math: for the white ground in the rainy morning scene (fast maths can turn lighting into NaN, drawn white)
 PCSB00245 memory-mapping=off precise-math=on | GPU memory mapping off: removes the spikes in 3D scenes. Precise shader math: for the white ground in the rainy morning scene (fast maths can turn lighting into NaN, drawn white)
 
-# Madden NFL 13: players are skinned on the GPU (needs memory mapping). Surface sync off again: with it the
-# game twice wrote through pointers that look like pixels (0xFF000A0C, 0xFF84000C: alpha 0xFF), i.e. a synced
-# surface landed on game data, and loading into a game froze. The stadium screens may stay black without it
-PCSE00084 memory-mapping=on native-buffer=on surface-sync=off high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer, surface sync off: surface sync wrote picture data over game data and froze loading into a game (stadium screens may stay black); background shaders; high accuracy off
+# Madden NFL 13: players are skinned on the GPU (needs memory mapping). Surface sync on: what the GPU draws
+# into textures (sky, crowd, sideline lighting, stadium screens) only reaches the game with it; without it some
+# stadiums show a plain blue sky, empty stands and black sideline players. It used to write a 16-bit surface
+# kept as RGBA8 at twice its size over game data (0xFF000A0C pointers, a freeze loading into a game); such
+# surfaces are no longer synced. surface-sync-safe: builds without that guard ignore it and keep surface sync off
+PCSE00084 memory-mapping=on native-buffer=on surface-sync=off surface-sync-safe=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer and surface sync: sky, crowd and sideline players drawn into textures show up; background shaders; high accuracy off
 
 # LittleBigPlanet: device lost at boot with memory mapping + double buffer; Sackboy invisible with mapping off.
 # Same recipe as Madden (GPU-skinned characters): mapping with native buffer and surface sync

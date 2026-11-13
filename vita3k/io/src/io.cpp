@@ -395,6 +395,13 @@ static const char *with_working_directory(const char *path, std::string &storage
     return storage.c_str();
 }
 
+// Calls that open a file only to see whether it is there: a miss is the normal answer, not an error
+// (Madden NFL 13 checks its save slots hundreds of times a session: 775 error lines plus as many
+// warnings in one 1.6-minute log)
+static bool is_existence_probe(const char *export_name) {
+    return export_name && std::strcmp(export_name, "sceAppUtilSaveDataSlotGetParam") == 0;
+}
+
 SceUID open_file(IOState &io, const char *path, const int flags, const fs::path &vita_fs_path, const char *export_name) {
     std::string relative_storage;
     path = with_working_directory(path, relative_storage);
@@ -461,11 +468,19 @@ SceUID open_file(IOState &io, const char *path, const int flags, const fs::path 
                     if (!system_path.empty() && path_found) {
                         LOG_TRACE("Found file on case-sensitive filesystem at {}", system_path);
                     } else {
+                        if (is_existence_probe(export_name)) {
+                            LOG_DEBUG("Missing file at {} (target path: {})", original_system_path, path);
+                            return SCE_ERROR_ERRNO_ENOENT;
+                        }
                         LOG_ERROR("Missing file at {} (target path: {})", original_system_path, path);
                         return IO_ERROR(SCE_ERROR_ERRNO_ENOENT);
                     }
                 }
             } else {
+                if (is_existence_probe(export_name)) {
+                    LOG_DEBUG("Missing file at {} (target path: {})", system_path, path);
+                    return SCE_ERROR_ERRNO_ENOENT;
+                }
                 LOG_ERROR("Missing file at {} (target path: {})", system_path, path);
                 return IO_ERROR(SCE_ERROR_ERRNO_ENOENT);
             }
