@@ -422,9 +422,10 @@ bool portrait_mode_enabled() {
 }
 
 int interface_rotation() {
+    // the phone's scene (a connected TV has one of its own)
     UIWindowScene *scene = nil;
     for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
-        if ([candidate isKindOfClass:UIWindowScene.class]) {
+        if ([candidate isKindOfClass:UIWindowScene.class] && [candidate.session.role isEqualToString:UIWindowSceneSessionRoleApplication]) {
             scene = (UIWindowScene *)candidate;
             break;
         }
@@ -580,16 +581,74 @@ void v3k_will_connect(id self, SEL cmd, UIScene *scene, UISceneSession *session,
 
 } // namespace
 
-// The scene of a TV or other display: nothing to set up, TV mode puts the game window on it
+// The scene of a TV or other display. TV mode (TouchControls.swift) moves the game window onto it; until
+// then it shows a still picture. With TV mode off (Settings) the scene is given back at once, so iOS
+// mirrors the phone as it would for an app without TV support.
 @interface V3KExternalDisplaySceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (nonatomic, strong) UIWindow *window;
 @end
 
+static __weak V3KExternalDisplaySceneDelegate *g_tv_scene_delegate;
+
+static bool tv_mode_enabled() {
+    NSNumber *value = [NSUserDefaults.standardUserDefaults objectForKey:@"v3k.tvMode"];
+    return value ? value.boolValue : true;
+}
+
 @implementation V3KExternalDisplaySceneDelegate
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
-    v3k_log_ui("TV: a display connected (its own scene)");
+    if (!tv_mode_enabled()) {
+        v3k_log_ui("TV: a display connected, TV mode is off: it mirrors the phone");
+        [UIApplication.sharedApplication requestSceneSessionDestruction:session
+                                                                 options:nil
+                                                            errorHandler:^(NSError *error) {
+                                                                v3k_log_ui([NSString stringWithFormat:@"TV: could not hand the display back for mirroring: %@", error.localizedDescription].UTF8String);
+                                                            }];
+        return;
+    }
+    if (![scene isKindOfClass:UIWindowScene.class])
+        return;
+    UIWindowScene *window_scene = (UIWindowScene *)scene;
+    UIViewController *controller = [UIViewController new];
+    controller.view.backgroundColor = UIColor.blackColor;
+    UILabel *title = [UILabel new];
+    title.text = @"Hinoki";
+    title.font = [UIFont systemFontOfSize:56 weight:UIFontWeightSemibold];
+    title.textColor = [UIColor colorWithRed:0.95 green:0.90 blue:0.82 alpha:1];
+    UILabel *hint = [UILabel new];
+    hint.text = @"Start a game on your phone to play it on this TV";
+    hint.font = [UIFont systemFontOfSize:24 weight:UIFontWeightRegular];
+    hint.textColor = [UIColor colorWithWhite:0.75 alpha:1];
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[ title, hint ]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.alignment = UIStackViewAlignmentCenter;
+    stack.spacing = 12;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [controller.view addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.centerXAnchor constraintEqualToAnchor:controller.view.centerXAnchor],
+        [stack.centerYAnchor constraintEqualToAnchor:controller.view.centerYAnchor],
+    ]];
+    self.window = [[UIWindow alloc] initWithWindowScene:window_scene];
+    self.window.windowLevel = UIWindowLevelNormal - 1;
+    self.window.rootViewController = controller;
+    self.window.hidden = NO;
+    g_tv_scene_delegate = self;
+    v3k_log_ui([NSString stringWithFormat:@"TV: a %dx%d display connected (its own scene)",
+        (int)window_scene.screen.nativeBounds.size.width, (int)window_scene.screen.nativeBounds.size.height].UTF8String);
+}
+
+- (void)sceneDidDisconnect:(UIScene *)scene {
+    self.window.hidden = YES;
+    self.window = nil;
+    v3k_log_ui("TV: the display disconnected");
 }
 @end
+
+extern "C" void v3k_tv_placeholder(bool show) {
+    if (V3KExternalDisplaySceneDelegate *delegate = g_tv_scene_delegate)
+        delegate.window.hidden = !show;
+}
 
 @interface V3KLaunchLinks : NSObject
 @end

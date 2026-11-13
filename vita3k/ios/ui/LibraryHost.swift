@@ -16,7 +16,7 @@ enum LibraryHost {
         BackgroundMotion.shared.setActive(true)
         if window == nil {
             let newWindow: UIWindow
-            if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+            if let scene = PhoneScene.current {
                 newWindow = UIWindow(windowScene: scene)
             } else {
                 newWindow = UIWindow(frame: UIScreen.main.bounds)

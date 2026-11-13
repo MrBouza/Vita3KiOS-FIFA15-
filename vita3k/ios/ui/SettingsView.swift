@@ -241,6 +241,7 @@ struct TouchControlsSection: View {
     @AppStorage("v3k.touchHaptics") private var touchHaptics = true
     @AppStorage("v3k.touchRearButton") private var rearButton = true
     @AppStorage("v3k.portraitMode") private var portraitMode = true
+    @AppStorage("v3k.tvMode") private var tvMode = true
     @AppStorage("v3k.controllerTheme") private var controllerTheme = ControllerTheme.classic.rawValue
     @EnvironmentObject var model: LibraryModel
     @State private var layoutCustomized = TouchLayout.isCustomized
@@ -262,6 +263,13 @@ struct TouchControlsSection: View {
             }
             Toggle("Hide when a controller is connected", isOn: $hideWithController)
             Toggle("Vibrate on press", isOn: $touchHaptics)
+            Toggle(isOn: $tvMode) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("TV mode")
+                    Text("With a TV connected (Screen Mirroring / AirPlay or a cable), a game you start plays on the TV only and the phone becomes the controller. Off: the TV mirrors the phone. Takes effect when a game starts; after turning it on, reconnect the TV if it is already mirroring.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Toggle(isOn: $portraitMode) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Portrait mode")

@@ -278,7 +278,8 @@ public func v3kSetPortraitUnlocked(_ unlocked: Bool) {
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         }
         for scene in UIApplication.shared.connectedScenes {
-            guard let windowScene = scene as? UIWindowScene else { continue }
+            // the TV's scene (TV mode) has no orientation to change
+            guard let windowScene = scene as? UIWindowScene, !PhoneScene.isExternal(windowScene) else { continue }
             for window in windowScene.windows {
                 window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             }
@@ -944,61 +945,74 @@ final class PassthroughWindow: UIWindow {
     }
 }
 
-/// AirPlay / HDMI: while a TV (or any second screen) is connected, the game's window moves onto it, full
-/// screen, and the phone keeps only the controls. Unplugging or stopping AirPlay brings the game back.
+/// The phone's own scene (role "application"). A connected TV has a scene of its own, so anything
+/// meant for the phone (library, controls, the game window when not on the TV) must be put here
+/// explicitly: "the first connected scene" can be the TV's.
+@MainActor
+enum PhoneScene {
+    static func isExternal(_ scene: UIWindowScene) -> Bool {
+        if #available(iOS 16.0, *) {
+            if scene.session.role == .windowExternalDisplayNonInteractive { return true }
+        }
+        return scene.session.role.rawValue == "UIWindowSceneSessionRoleExternalDisplay"
+    }
+
+    static var current: UIWindowScene? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.first { $0.session.role == .windowApplication }
+            ?? scenes.first { !isExternal($0) && $0.screen === UIScreen.main }
+            ?? scenes.first { !isExternal($0) }
+    }
+
+    static var external: UIWindowScene? {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { isExternal($0) }
+    }
+}
+
+/// TV mode (Settings, on by default): while a TV is connected (AirPlay / Screen Mirroring or a cable)
+/// the game's window moves onto the TV's own scene, full screen, and the phone keeps only the controls
+/// on black. Disconnecting brings the game back. The TV's scene comes from ios_platform.mm
+/// (V3KExternalDisplaySceneDelegate); with TV mode off it gives the scene back so iOS mirrors the phone.
 @MainActor
 enum TVMode {
     nonisolated(unsafe) private(set) static var active = false
     private static weak var gameWindow: UIWindow?
-    private static weak var phoneScene: UIWindowScene?
     private static var observers: [NSObjectProtocol] = []
+
+    static var enabled: Bool {
+        UserDefaults.standard.object(forKey: "v3k.tvMode") as? Bool ?? true
+    }
 
     static func start(gameWindow window: UIWindow) {
         stop()
         gameWindow = window
-        phoneScene = window.windowScene
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let roles = scenes.map { "\($0.session.role.rawValue.replacingOccurrences(of: "UIWindowSceneSessionRole", with: ""))\($0.screen === UIScreen.main ? "" : " (other screen)")" }
+        v3k_log_ui("TV: TV mode \(enabled ? "on" : "off"), \(UIScreen.screens.count) screen(s), scenes: \(roles.joined(separator: ", "))")
+        guard enabled else { return }
         let center = NotificationCenter.default
+        let check: (Notification) -> Void = { _ in MainActor.assumeIsolated { update() } }
         observers = [
-            // the display's own scene (ios_platform.mm gives it one, so iOS doesn't just mirror the phone)
-            // comes and goes with it; activation is when it can show a window
-            center.addObserver(forName: UIScene.willConnectNotification, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { enterIfConnected() }
-            },
-            center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { enterIfConnected() }
-            },
-            center.addObserver(forName: UIScene.didDisconnectNotification, object: nil, queue: .main) { note in
-                MainActor.assumeIsolated {
-                    if let scene = note.object as? UIWindowScene, isExternal(scene) { leave() }
-                }
-            },
-            center.addObserver(forName: UIScreen.didConnectNotification, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { enterIfConnected() }
-            },
-            center.addObserver(forName: UIScreen.didDisconnectNotification, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated {
-                    if externalScene() == nil { leave() }
-                }
-            },
+            center.addObserver(forName: UIScene.willConnectNotification, object: nil, queue: .main, using: check),
+            center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main, using: check),
+            center.addObserver(forName: UIScene.didDisconnectNotification, object: nil, queue: .main, using: check),
+            center.addObserver(forName: UIScreen.didConnectNotification, object: nil, queue: .main, using: check),
+            center.addObserver(forName: UIScreen.didDisconnectNotification, object: nil, queue: .main, using: check),
         ]
-        enterIfConnected()
+        update()
+        // a TV scene can finish connecting a moment after the notifications
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { update() }
     }
 
-    private static func isExternal(_ scene: UIWindowScene) -> Bool {
-        if #available(iOS 16.0, *) {
-            if scene.session.role == .windowExternalDisplayNonInteractive { return true }
-        }
-        return scene.session.role.rawValue == "UIWindowSceneSessionRoleExternalDisplay" || scene.screen !== UIScreen.main
-    }
-
-    private static func externalScene() -> UIWindowScene? {
-        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { isExternal($0) }
-    }
-
-    private static func enterIfConnected() {
-        guard !active else { return }
-        if let scene = externalScene() {
-            enter(scene)
+    /// On the TV when it has a scene, otherwise on the phone
+    private static func update() {
+        guard gameWindow != nil else { return }
+        if let scene = PhoneScene.external, scene.activationState != .unattached {
+            if !active || gameWindow?.windowScene !== scene { enter(scene) }
+        } else if active {
+            leave()
+        } else if UIScreen.screens.count > 1 {
+            v3k_log_ui("TV: a second screen is connected but iOS gave it no scene of its own, so it mirrors the phone")
         }
     }
 
@@ -1009,13 +1023,14 @@ enum TVMode {
         if active {
             setOverlay(tv: false)
             v3k_set_tv_mode(false)
+            v3k_tv_placeholder(true)
         }
         active = false
         gameWindow = nil
     }
 
     private static func enter(_ scene: UIWindowScene) {
-        guard !active, let window = gameWindow else { return }
+        guard let window = gameWindow else { return }
         let screen = scene.screen
         // Lower latency: the stream to the TV is encoded at the display's mode, so a 4K mode costs a
         // much bigger encode per frame than 1080p; prefer a mode no larger than 1080p when the TV offers one
@@ -1025,6 +1040,7 @@ enum TVMode {
             screen.currentMode = mode
         }
         screen.overscanCompensation = .none
+        v3k_tv_placeholder(false)
         window.windowScene = scene
         window.frame = scene.coordinateSpace.bounds
         // shown, not made key: the TV's scene takes no input, and keyboard events go to the key window
@@ -1040,12 +1056,10 @@ enum TVMode {
 
     private static func leave() {
         guard active, let window = gameWindow else { return }
-        if let phoneScene {
-            window.windowScene = phoneScene
-        } else {
-            window.screen = UIScreen.main
+        if let phone = PhoneScene.current {
+            window.windowScene = phone
+            window.frame = phone.coordinateSpace.bounds
         }
-        window.frame = UIScreen.main.bounds
         window.isHidden = false
         window.setNeedsLayout()
         window.layoutIfNeeded()
@@ -1053,6 +1067,7 @@ enum TVMode {
         v3k_set_tv_mode(false)
         v3k_pad_release_all()
         setOverlay(tv: false)
+        v3k_tv_placeholder(true)
         v3k_log_ui("TV: disconnected, the game is back on the phone")
     }
 
@@ -1073,8 +1088,14 @@ enum ControlsHost {
     static func attach(over gameWindow: UIWindow) {
         detach()
         TouchMapping.load()
+        // SDL creates its window on whichever scene is active: with a TV connected that can be the TV's.
+        // The game starts on the phone; TV mode moves it if it should be on the TV
+        if let window = gameWindow.windowScene, PhoneScene.isExternal(window), let phone = PhoneScene.current {
+            gameWindow.windowScene = phone
+            gameWindow.frame = phone.coordinateSpace.bounds
+        }
         let overlay: PassthroughWindow
-        if let scene = gameWindow.windowScene {
+        if let scene = PhoneScene.current ?? gameWindow.windowScene {
             overlay = PassthroughWindow(windowScene: scene)
         } else {
             overlay = PassthroughWindow(frame: gameWindow.bounds)

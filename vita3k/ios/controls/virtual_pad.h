@@ -55,6 +55,9 @@ void v3k_touch_inject(int phase, unsigned long long finger, float x, float y);
 // frame waiting for the display while it is on a TV (less lag behind the phone's controls)
 void v3k_set_tv_mode(bool on);
 
+// The TV's own picture while no game is on it ("start a game to play it on this TV"), shown or hidden
+void v3k_tv_placeholder(bool show);
+
 #ifdef __cplusplus
 }
 #endif
