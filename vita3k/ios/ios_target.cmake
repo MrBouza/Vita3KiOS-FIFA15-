@@ -36,6 +36,8 @@ add_executable(vita3k MACOSX_BUNDLE
 	ios/jit/ios_jit.cpp
 	ios/jit/ios_jit.h
 	ios/ramhelper/ram_helpers.mm
+	ios/ramhelper/builtin_jit.mm
+	ios/ramhelper/builtin_jit.h
 	ios/ramhelper/log.cpp
 	ios/ramhelper/ram_helpers.h
 	ios/ramhelper/protocol.h
@@ -60,10 +62,11 @@ target_link_libraries(vita3k PRIVATE
 	"-framework AVFoundation"
 	"-framework CoreMotion"
 	"-framework Photos"
+	"-framework Security"
 )
 
 # Objective-C++ sources use ARC
-set_source_files_properties(ios/ios_platform.mm ios/ramhelper/ram_helpers.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+set_source_files_properties(ios/ios_platform.mm ios/ramhelper/ram_helpers.mm ios/ramhelper/builtin_jit.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 
 set_target_properties(vita3k PROPERTIES
 	Swift_LANGUAGE_VERSION 5

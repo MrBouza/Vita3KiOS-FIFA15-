@@ -46,3 +46,12 @@
 #define V3K_RAM_OP_RELEASE "release" // drop every region (Vita3K has unmapped them)
 #define V3K_RAM_OP_AVAILABLE "available" // os_proc_available_memory() of the helper
 #define V3K_RAM_OP_FOOTPRINT "footprint" // phys_footprint of the helper
+
+// Built-in JIT (the helper attaches a debugger to Vita3K with StikJIT; see builtin_jit.mm)
+#define V3K_RAM_OP_ENABLE_JIT "enable-jit" // Vita3K -> helper: pid, pairing, script, force; reply: error (absent = done)
+#define V3K_RAM_OP_JIT_PROGRESS "jit-progress" // helper -> Vita3K: text
+#define V3K_RAM_KEY_PID "pid"
+#define V3K_RAM_KEY_PAIRING "pairing"
+#define V3K_RAM_KEY_SCRIPT "script"
+#define V3K_RAM_KEY_FORCE "force"
+#define V3K_RAM_KEY_TEXT "text"

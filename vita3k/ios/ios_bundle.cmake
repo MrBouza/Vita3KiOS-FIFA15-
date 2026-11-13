@@ -46,6 +46,45 @@ set_target_properties(V3KRamHelper PROPERTIES
 	XCODE_ATTRIBUTE_SKIP_INSTALL YES
 	XCODE_ATTRIBUTE_APPLICATION_EXTENSION_API_ONLY YES
 )
+
+# Built-in JIT: StikJIT (StikDebug's JIT engine as a library, by the StikDebug team, MPL-2.0; it bundles
+# jkcoxson's idevice, MIT) is compiled into the helper extension, which attaches a debugger to Hinoki
+# (an app can't debug itself). Fetched at a fixed commit; without it the helper answers that this build
+# has no built-in JIT. See ios/ramhelper/builtin_jit.mm.
+set(STIKJIT_COMMIT a9ccad90c7a8cb547f77ff338890e6633a65ac43)
+set(STIKJIT_DIR "${CMAKE_BINARY_DIR}/stikjit")
+if(NOT EXISTS "${STIKJIT_DIR}/Sources/StikJIT.swift")
+	file(REMOVE_RECURSE "${STIKJIT_DIR}")
+	file(MAKE_DIRECTORY "${STIKJIT_DIR}")
+	execute_process(COMMAND git init --quiet WORKING_DIRECTORY "${STIKJIT_DIR}")
+	execute_process(COMMAND git fetch --quiet --depth 1 https://github.com/StikDebug/StikJIT.git ${STIKJIT_COMMIT}
+		WORKING_DIRECTORY "${STIKJIT_DIR}" RESULT_VARIABLE STIKJIT_FETCH)
+	if(STIKJIT_FETCH EQUAL 0)
+		execute_process(COMMAND git checkout --quiet FETCH_HEAD WORKING_DIRECTORY "${STIKJIT_DIR}")
+	endif()
+endif()
+if(EXISTS "${STIKJIT_DIR}/Sources/StikJIT.swift")
+	message(STATUS "Built-in JIT: StikJIT ${STIKJIT_COMMIT}")
+	file(GLOB STIKJIT_SWIFT "${STIKJIT_DIR}/Sources/*.swift")
+	set(STIKJIT_SCRIPTS "${STIKJIT_DIR}/Scripts/universal.js" "${STIKJIT_DIR}/Scripts/legacy.js")
+	target_sources(V3KRamHelper PRIVATE ${STIKJIT_SWIFT} ios/ramhelper/builtin_jit_helper.swift ${STIKJIT_SCRIPTS})
+	target_compile_definitions(V3KRamHelper PRIVATE V3K_HELPER_HAS_STIKJIT=1)
+	target_link_libraries(V3KRamHelper PRIVATE
+		"-L${STIKJIT_DIR}/idevice" "-Wl,-hidden-lidevice_ffi"
+		"-framework JavaScriptCore" "-framework Network" "-framework Security" "-framework CFNetwork"
+		"-framework SystemConfiguration" "-framework IOKit")
+	set_target_properties(V3KRamHelper PROPERTIES
+		Swift_LANGUAGE_VERSION 5
+		XCODE_ATTRIBUTE_SWIFT_VERSION "5.0"
+		XCODE_ATTRIBUTE_SWIFT_INCLUDE_PATHS "${STIKJIT_DIR}/idevice ${STIKJIT_DIR}/iokit"
+		XCODE_ATTRIBUTE_HEADER_SEARCH_PATHS "${STIKJIT_DIR}/idevice ${STIKJIT_DIR}/iokit"
+		XCODE_ATTRIBUTE_LIBRARY_SEARCH_PATHS "${STIKJIT_DIR}/idevice"
+		XCODE_ATTRIBUTE_DEAD_CODE_STRIPPING YES
+		RESOURCE "${STIKJIT_SCRIPTS}")
+else()
+	message(WARNING "Built-in JIT: could not fetch StikJIT, the helper is built without it")
+endif()
+
 add_dependencies(vita3k V3KRamHelper)
 set_target_properties(vita3k PROPERTIES
 	XCODE_EMBED_APP_EXTENSIONS V3KRamHelper

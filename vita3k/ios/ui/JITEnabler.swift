@@ -18,6 +18,7 @@
 import Metal
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// One tap to enable JIT: opens the JIT app with Vita3K's bundle ID (or, inside LiveContainer, its
 /// process ID) and, where StikDebug needs one, Vita3K's own JIT script, so nobody has to assign a script
@@ -248,6 +249,183 @@ enum DeviceTXM {
             return access(root + txm, F_OK) == 0
         }
         return nil
+    }
+}
+
+/// Built-in JIT: no JIT app. The player imports their pairing file once; from then on a helper process
+/// (the RAM helper extension running StikJIT) attaches the debugger to Hinoki by itself whenever JIT is
+/// off, through LocalDevVPN, the same way StikDebug does. Not inside LiveContainer (StikJIT's rule).
+@MainActor
+final class BuiltinJIT: ObservableObject {
+    static let shared = BuiltinJIT()
+
+    @Published private(set) var status = ""
+    @Published private(set) var busy = false
+
+    /// Where StikJIT's guide keeps it (Files and Finder can reach Documents)
+    static var pairingURL: URL {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documents.appendingPathComponent("StikJIT/pairingFile.plist")
+    }
+
+    static var hasPairingFile: Bool { FileManager.default.isReadableFile(atPath: pairingURL.path) }
+
+    /// Why it can't run here, nil when it can
+    static var unavailableReason: String? {
+        guard let reason = v3k_builtin_jit_unavailable_reason() else { return nil }
+        return String(cString: reason)
+    }
+
+    static var usable: Bool { hasPairingFile && unavailableReason == nil }
+
+    /// Copies the picked file in (atomically) and enables JIT straight away
+    func importPairingFile(from url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            // A pairing file is a property list; anything else is the wrong file
+            guard (try? PropertyListSerialization.propertyList(from: data, format: nil)) != nil else {
+                status = "That file isn't a pairing file (it should be a .plist or .mobiledevicepairing file)"
+                return
+            }
+            let target = Self.pairingURL
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: target, options: .atomic)
+            v3k_log_ui("Built-in JIT: pairing file imported")
+            status = "Pairing file imported"
+            if !v3k_is_jit_enabled() { enable() }
+        } catch {
+            status = "Could not import the pairing file: \(error.localizedDescription)"
+        }
+    }
+
+    func removePairingFile() {
+        try? FileManager.default.removeItem(at: Self.pairingURL)
+        status = "Pairing file removed"
+    }
+
+    /// At launch (library shown) with JIT off: enable it without being asked
+    func enableAtLaunchIfPossible() {
+        guard Self.usable, !v3k_is_jit_enabled(), !busy else { return }
+        enable()
+    }
+
+    func enable() {
+        guard !busy else { return }
+        if let reason = Self.unavailableReason {
+            status = reason
+            return
+        }
+        guard let pairing = try? Data(contentsOf: Self.pairingURL), !pairing.isEmpty else {
+            status = "Import your pairing file first"
+            return
+        }
+        busy = true
+        status = "Starting"
+        v3k_log_jit_state("built-in JIT started")
+        // Hinoki prepares its JIT memory as soon as the debugger is there (as with StikDebug)
+        LibraryHost.watchForJITScript(until: .distantFuture)
+        // Same script choice as the StikDebug link: Hinoki's own script on iOS 26 without TXM, StikJIT's
+        // universal script where TXM needs one, none (attach and detach) before iOS 26
+        var script: String?
+        var force = false
+        if #available(iOS 26.0, *), !DeviceTXM.present {
+            script = Data(JITEnabler.jitScript.utf8).base64EncodedString()
+            force = true
+        }
+        pairing.withUnsafeBytes { raw in
+            let bytes = raw.bindMemory(to: UInt8.self).baseAddress
+            if let script {
+                script.withCString { v3k_builtin_jit_start(bytes, pairing.count, $0, force, builtinJITProgress, builtinJITDone) }
+            } else {
+                v3k_builtin_jit_start(bytes, pairing.count, nil, force, builtinJITProgress, builtinJITDone)
+            }
+        }
+    }
+
+    fileprivate func update(_ text: String) {
+        status = text
+    }
+
+    fileprivate func finished(ok: Bool, message: String?) {
+        busy = false
+        if ok {
+            status = "JIT enabled"
+        } else {
+            let reason = message ?? "unknown error"
+            // The usual cause: no route to the device's own developer services
+            let lowered = reason.lowercased()
+            if lowered.contains("unreachable") || lowered.contains("timed out") || lowered.contains("connect") {
+                status = "Couldn't reach the device: is LocalDevVPN connected? (\(reason))"
+            } else {
+                status = "Failed: \(reason)"
+            }
+        }
+        v3k_log_jit_state(ok ? "built-in JIT done" : "built-in JIT failed")
+    }
+}
+
+private func builtinJITProgress(_ text: UnsafePointer<CChar>?) {
+    guard let text else { return }
+    let line = String(cString: text)
+    DispatchQueue.main.async { MainActor.assumeIsolated { BuiltinJIT.shared.update(line) } }
+}
+
+private func builtinJITDone(_ ok: Bool, _ message: UnsafePointer<CChar>?) {
+    let text = message.map { String(cString: $0) }
+    DispatchQueue.main.async { MainActor.assumeIsolated { BuiltinJIT.shared.finished(ok: ok, message: text) } }
+}
+
+/// Built-in JIT settings: import the pairing file, status, enable now
+struct BuiltinJITSection: View {
+    @ObservedObject private var jit = BuiltinJIT.shared
+    @EnvironmentObject var model: LibraryModel
+    @State private var importing = false
+    @State private var hasPairing = BuiltinJIT.hasPairingFile
+
+    var body: some View {
+        Section {
+            if let reason = BuiltinJIT.unavailableReason {
+                Text(reason)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                LabeledContent("Pairing file", value: hasPairing ? "Imported" : "None")
+                Button(hasPairing ? "Replace pairing file" : "Import pairing file") { importing = true }
+                if hasPairing && !model.jitEnabled {
+                    Button {
+                        jit.enable()
+                    } label: {
+                        Label(jit.busy ? "Enabling JIT..." : "Enable JIT (built-in)", systemImage: "bolt.fill")
+                    }
+                    .disabled(jit.busy)
+                }
+                if !jit.status.isEmpty {
+                    Text(jit.status)
+                        .font(.footnote)
+                }
+                if hasPairing {
+                    Button("Remove pairing file", role: .destructive) {
+                        jit.removePairingFile()
+                        hasPairing = BuiltinJIT.hasPairingFile
+                    }
+                }
+            }
+        } header: {
+            Text("Built-in JIT")
+        } footer: {
+            Text("No JIT app needed: import your pairing file once (the same file StikDebug uses) and Hinoki enables JIT by itself every time it opens. LocalDevVPN has to be connected, as for StikDebug; the first time, the Developer Disk Image is downloaded and mounted, which takes a minute.")
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.propertyList, .xml, .data, .item]) { result in
+            if case .success(let url) = result {
+                jit.importPairingFile(from: url)
+                hasPairing = BuiltinJIT.hasPairingFile
+            }
+        }
+        .onChange(of: jit.busy) { _, busy in
+            if !busy { model.reload() }
+        }
     }
 }
 

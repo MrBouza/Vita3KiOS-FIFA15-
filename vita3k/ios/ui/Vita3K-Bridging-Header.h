@@ -2,3 +2,4 @@
 #include "../bridge/vita3k_bridge.h"
 #include "../controls/virtual_pad.h"
 #include "../ramhelper/ram_helpers.h"
+#include "../ramhelper/builtin_jit.h"

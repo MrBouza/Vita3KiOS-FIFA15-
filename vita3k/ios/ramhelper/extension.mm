@@ -86,6 +86,49 @@ xpc_object_t create_region(uint64_t size, NSString **error) {
     return shmem;
 }
 
+// Built-in JIT: builtin_jit_helper.swift (StikJIT), present when the build bundled StikJIT
+#if V3K_HELPER_HAS_STIKJIT
+extern "C" char *v3k_helper_enable_jit(int32_t pid, const uint8_t *pairing, long pairing_length, const char *script_base64, bool force_script, void (*progress)(const char *));
+#endif
+
+xpc_connection_t g_channel = nil;
+
+void send_jit_progress(const char *text) {
+    if (!g_channel || !text)
+        return;
+    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_dictionary_set_string(message, V3K_RAM_KEY_OP, V3K_RAM_OP_JIT_PROGRESS);
+    xpc_dictionary_set_string(message, V3K_RAM_KEY_TEXT, text);
+    xpc_connection_send_message(g_channel, message);
+}
+
+// The attach blocks (network, a Developer Disk Image download, the debugger session): one at a time, on
+// its own queue, never on the connection's
+void enable_jit(xpc_connection_t channel, xpc_object_t message, xpc_object_t reply) {
+#if V3K_HELPER_HAS_STIKJIT
+    static dispatch_queue_t queue = dispatch_queue_create("hinoki.builtin-jit", DISPATCH_QUEUE_SERIAL);
+    const int32_t pid = static_cast<int32_t>(xpc_dictionary_get_int64(message, V3K_RAM_KEY_PID));
+    size_t length = 0;
+    const void *bytes = xpc_dictionary_get_data(message, V3K_RAM_KEY_PAIRING, &length);
+    NSData *pairing = bytes ? [NSData dataWithBytes:bytes length:length] : nil;
+    const char *script = xpc_dictionary_get_string(message, V3K_RAM_KEY_SCRIPT);
+    NSString *script_copy = script ? @(script) : nil;
+    const bool force = xpc_dictionary_get_bool(message, V3K_RAM_KEY_FORCE);
+    dispatch_async(queue, ^{
+        char *error = v3k_helper_enable_jit(pid, static_cast<const uint8_t *>(pairing.bytes), static_cast<long>(pairing.length),
+            script_copy.UTF8String, force, send_jit_progress);
+        if (error) {
+            xpc_dictionary_set_string(reply, V3K_RAM_KEY_ERROR, error);
+            free(error);
+        }
+        xpc_connection_send_message(channel, reply);
+    });
+#else
+    xpc_dictionary_set_string(reply, V3K_RAM_KEY_ERROR, "This build of Hinoki has no built-in JIT");
+    xpc_connection_send_message(channel, reply);
+#endif
+}
+
 uint64_t footprint() {
     task_vm_info_data_t info;
     mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
@@ -117,6 +160,9 @@ void handle_message(xpc_connection_t channel, xpc_object_t message) {
         xpc_dictionary_set_uint64(reply, V3K_RAM_KEY_AVAILABLE, static_cast<uint64_t>(os_proc_available_memory()));
     } else if (strcmp(op, V3K_RAM_OP_FOOTPRINT) == 0) {
         xpc_dictionary_set_uint64(reply, V3K_RAM_KEY_FOOTPRINT, footprint());
+    } else if (strcmp(op, V3K_RAM_OP_ENABLE_JIT) == 0) {
+        enable_jit(channel, message, reply);
+        return; // answered when the attach is over
     } else {
         xpc_dictionary_set_string(reply, V3K_RAM_KEY_ERROR, "Unknown operation");
     }
@@ -158,6 +204,7 @@ __attribute__((constructor)) static void v3k_allow_endpoint_decoding() {
     }
     _channel = xpc_connection_create_from_endpoint(endpoint);
     xpc_connection_t channel = _channel;
+    g_channel = channel;
     xpc_connection_set_event_handler(channel, ^(xpc_object_t event) {
         if (xpc_get_type(event) == XPC_TYPE_ERROR) {
             // Vita3K closed or crashed: nothing left to lend memory to

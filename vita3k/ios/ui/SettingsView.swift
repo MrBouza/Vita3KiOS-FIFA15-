@@ -661,6 +661,7 @@ struct JITSection: View {
     @EnvironmentObject var model: LibraryModel
 
     var body: some View {
+        BuiltinJITSection()
         Section("JIT") {
             LabeledContent("Status", value: model.jitEnabled ? "Ready" : "Not ready")
             Text(model.jitStatus)
@@ -683,6 +684,7 @@ struct CreditsSection: View {
             CreditRow(name: "MrBouza", detail: "Fixed FSR on iOS, added the on-screen keyboard for game text input, and fixed the 16 MB JIT cache limit.", url: "https://github.com/MrBouza")
             CreditRow(name: "Vita3K-Plus by nckstwrt", detail: "Many game compatibility fixes (graphics, audio, saves, timing) ported from this Vita3K fork.", url: "https://github.com/nckstwrt/Vita3K-Plus")
             CreditRow(name: "MeloNX by Stossy11", detail: "The RAM donor technique behind RAM helpers (memory lent by helper extension processes).", url: "https://github.com/stossy11")
+            CreditRow(name: "StikJIT by the StikDebug team", detail: "Built-in JIT: StikDebug's JIT engine as a library (MPL-2.0), with jkcoxson's idevice.", url: "https://github.com/StikDebug/StikJIT")
             CreditRow(name: "dynarmic & oaknut", detail: "ARM recompiler and arm64 assembler, by merryhime and contributors.", url: "https://github.com/merryhime/dynarmic")
             CreditRow(name: "MoltenVK", detail: "Vulkan on Apple's Metal, by the Khronos Group.", url: "https://github.com/KhronosGroup/MoltenVK")
             CreditRow(name: "SDL", detail: "Windowing, input and audio.", url: "https://github.com/libsdl-org/SDL")

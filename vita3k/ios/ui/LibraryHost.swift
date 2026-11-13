@@ -72,7 +72,11 @@ enum LibraryHost {
             // the whole session. Keep looking for the debugger for as long as Vita3K is open: a debugger
             // can attach at any time (StikDebug, LiveContainer, a late "Connecting...")
             if firstShow { v3k_log_jit_state("library shown") }
-            if firstShow && !v3k_is_jit_enabled() { watchForJITScript(until: .distantFuture) }
+            if firstShow && !v3k_is_jit_enabled() {
+                watchForJITScript(until: .distantFuture)
+                // Built-in JIT with an imported pairing file: no JIT app, no tap
+                BuiltinJIT.shared.enableAtLaunchIfPossible()
+            }
         }
     }
 
