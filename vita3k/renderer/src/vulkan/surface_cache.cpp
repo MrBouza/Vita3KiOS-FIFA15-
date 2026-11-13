@@ -1423,14 +1423,6 @@ ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
     if (last_written_surface == nullptr || !*last_written_surface->need_surface_sync)
         return nullptr;
 
-    // The game wrote to this surface's memory itself since it was bound: it holds the game's own data
-    // now (memory handed to something else), and copying the picture back would overwrite it
-    if (last_written_surface->dirty && *last_written_surface->dirty) {
-        LOG_INFO_ONCE("Surface sync skipped for a surface the game wrote to itself (its memory holds other data now)");
-        *last_written_surface->need_surface_sync = false;
-        last_written_surface = nullptr;
-        return nullptr;
-    }
 
     VKContext *context = reinterpret_cast<VKContext *>(state.context);
     vk::CommandBuffer cmd_buffer = context->render_cmd;
