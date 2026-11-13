@@ -184,8 +184,14 @@ void run(NSData *pairing, NSString *script, bool force, void (*progress)(const c
         dispatch_semaphore_signal(answered);
     });
     // The first time, the Developer Disk Image is downloaded (a few hundred MB on slow networks)
-    if (dispatch_semaphore_wait(answered, dispatch_time(DISPATCH_TIME_NOW, 600 * NSEC_PER_SEC)) != 0)
-        result = "Timed out after 10 minutes";
+    if (dispatch_semaphore_wait(answered, dispatch_time(DISPATCH_TIME_NOW, 600 * NSEC_PER_SEC)) != 0) {
+        // Left running: if its debugger is still attached, ending it could take Hinoki down with it
+        g_busy = false;
+        log_line(true, "no answer after 10 minutes, leaving the helper running");
+        if (done)
+            done(false, "No answer after 10 minutes");
+        return;
+    }
 
     [extension _kill:SIGKILL];
     xpc_connection_cancel(listener);

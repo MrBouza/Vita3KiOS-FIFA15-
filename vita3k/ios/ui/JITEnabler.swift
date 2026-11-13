@@ -327,11 +327,17 @@ final class BuiltinJIT: ObservableObject {
         // Hinoki prepares its JIT memory as soon as the debugger is there (as with StikDebug)
         LibraryHost.watchForJITScript(until: .distantFuture)
         // Same script choice as the StikDebug link: Hinoki's own script on iOS 26 without TXM, StikJIT's
-        // universal script where TXM needs one, none (attach and detach) before iOS 26
+        // universal script where TXM needs one. Before iOS 26 the attach alone enables JIT and Hinoki never
+        // sends the script's "done" request, so a script would keep the helper attached: attach and let go
         var script: String?
         var force = false
-        if #available(iOS 26.0, *), !DeviceTXM.present {
-            script = Data(JITEnabler.jitScript.utf8).base64EncodedString()
+        if #available(iOS 26.0, *) {
+            if !DeviceTXM.present {
+                script = Data(JITEnabler.jitScript.utf8).base64EncodedString()
+                force = true
+            }
+        } else {
+            script = Data(Self.attachAndDetachScript.utf8).base64EncodedString()
             force = true
         }
         pairing.withUnsafeBytes { raw in
@@ -343,6 +349,15 @@ final class BuiltinJIT: ObservableObject {
             }
         }
     }
+
+    /// Before iOS 26: what StikJIT does where no script is needed (the attach sets CS_DEBUGGED)
+    private static let attachAndDetachScript = #"""
+    const pid = get_pid();
+    log(`Hinoki JIT: attaching to ${pid}`);
+    send_command(`vAttach;${pid.toString(16)}`);
+    send_command("D");
+    log("Hinoki JIT: attached and detached");
+    """#
 
     fileprivate func update(_ text: String) {
         status = text
