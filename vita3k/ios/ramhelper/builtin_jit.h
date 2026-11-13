@@ -35,9 +35,10 @@ const char *v3k_builtin_jit_unavailable_reason(void);
 // Starts a helper and has it enable JIT for this process. Returns at once; `progress` gets status lines
 // and `done` the result (message NULL on success), both on a background queue. `script_base64`: the
 // JIT script to run (NULL: StikJIT's own universal script); `force_script`: run it even where the
-// device's security wouldn't need one.
+// device's security wouldn't need one. `port`: the device's Remote Pairing (RSD) port found by the app
+// (0: the helper looks for it itself, falling back to 49152).
 void v3k_builtin_jit_start(const uint8_t *pairing, size_t pairing_length, const char *script_base64, bool force_script,
-    void (*progress)(const char *text), void (*done)(bool ok, const char *message));
+    uint16_t port, void (*progress)(const char *text), void (*done)(bool ok, const char *message));
 
 // An attach is running
 bool v3k_builtin_jit_busy(void);

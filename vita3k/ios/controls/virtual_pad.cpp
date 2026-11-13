@@ -23,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <util/presentation.h>
 
 namespace {
 
@@ -122,6 +123,10 @@ unsigned long long v3k_pad_quit_requested_ms(void) {
 
 void v3k_pad_clear_quit_request(void) {
     quit_requested_ms = 0;
+}
+
+void v3k_set_tv_mode(bool on) {
+    presentation::low_latency() = on;
 }
 
 void v3k_touch_inject(int phase, unsigned long long finger, float x, float y) {

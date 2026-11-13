@@ -84,12 +84,43 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>SDLSceneConfiguration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>SDLUIKitSceneDelegate</string>
+				</dict>
+			</array>
+			<key>UIWindowSceneSessionRoleExternalDisplayNonInteractive</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>V3KExternalDisplay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>V3KExternalDisplaySceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+
 	<key>NSCameraUsageDescription</key>
 	<string>Some PS Vita games use the camera.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Some PS Vita games use the microphone.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Used for PS Vita ad-hoc multiplayer.</string>
+	<string>Used to enable JIT on this iPhone (through LocalDevVPN) and for PS Vita ad-hoc multiplayer.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_remotepairing._tcp</string>
+	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Screenshots you take in a game are saved to Photos.</string>
 	<key>NSMotionUsageDescription</key>

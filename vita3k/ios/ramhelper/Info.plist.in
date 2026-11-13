@@ -24,6 +24,12 @@
 	<array>
 		<string>iPhoneOS</string>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Used to enable JIT on this iPhone (through LocalDevVPN).</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_remotepairing._tcp</string>
+	</array>
 	<key>MinimumOSVersion</key>
 	<string>17.4</string>
 	<key>NSExtension</key>

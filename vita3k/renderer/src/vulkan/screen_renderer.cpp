@@ -19,6 +19,7 @@
 
 #include "renderer/vulkan/state.h"
 #include "util/log.h"
+#include "util/presentation.h"
 #include "vkutil/vkutil.h"
 
 #include <algorithm>
@@ -487,11 +488,15 @@ bool ScreenRenderer::acquire_swapchain_image() {
 
     // V-Sync off: if the screen already has every image but one queued, this frame would wait for it
     // (on iOS inside Metal's nextDrawable, which ignores the acquire timeout): skip it instead. The
-    // screen takes one image per refresh (60 Hz assumed: a faster screen only empties the queue sooner)
-    if (!vsync && swapchain && swapchain_size > 1) {
+    // screen takes one image per refresh (60 Hz assumed: a faster screen only empties the queue sooner).
+    // On a TV (presentation::low_latency) at most one frame waits for the display, whatever V-Sync says:
+    // each queued frame was one more refresh of lag behind the phone's controls
+    const bool low_latency = presentation::low_latency().load(std::memory_order_relaxed);
+    if ((!vsync || low_latency) && swapchain && swapchain_size > 1) {
         constexpr auto refresh = std::chrono::nanoseconds(16'666'667);
+        const uint32_t may_queue = low_latency ? 1 : swapchain_size - 1;
         const auto queued = screen_busy_until - std::chrono::steady_clock::now();
-        if (queued >= refresh * (swapchain_size - 1)) {
+        if (queued >= refresh * may_queue) {
             current_cmd_buffer = nullptr;
             swapchain_image_idx = 0xDEADBEAF;
             return false;
@@ -664,7 +669,7 @@ void ScreenRenderer::swap_window() {
         return;
     }
 
-    if (!vsync) {
+    if (!vsync || presentation::low_latency().load(std::memory_order_relaxed)) {
         constexpr auto refresh = std::chrono::nanoseconds(16'666'667);
         screen_busy_until = std::max(screen_busy_until, std::chrono::steady_clock::now()) + refresh;
     }

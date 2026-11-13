@@ -55,3 +55,4 @@
 #define V3K_RAM_KEY_SCRIPT "script"
 #define V3K_RAM_KEY_FORCE "force"
 #define V3K_RAM_KEY_TEXT "text"
+#define V3K_RAM_KEY_PORT "port"

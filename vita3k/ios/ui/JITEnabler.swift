@@ -16,6 +16,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 import Metal
+import Network
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -322,8 +323,27 @@ final class BuiltinJIT: ObservableObject {
             return
         }
         busy = true
-        status = "Starting"
+        status = "Looking for the device (LocalDevVPN)"
         v3k_log_jit_state("built-in JIT started")
+        // The device's developer services are found from the app first: iOS only asks for Local Network
+        // access from the app, and newer iOS versions move the Remote Pairing port away from 49152
+        DeviceTunnel.find { [weak self] found in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    v3k_log_ui("Built-in JIT: \(found.log)")
+                    if let port = found.port {
+                        self.start(pairing: pairing, port: port)
+                    } else {
+                        self.finished(ok: false, message: found.problem ?? "LocalDevVPN isn't connected")
+                    }
+                }
+            }
+        }
+    }
+
+    private func start(pairing: Data, port: UInt16) {
+        status = "Starting"
         // Hinoki prepares its JIT memory as soon as the debugger is there (as with StikDebug)
         LibraryHost.watchForJITScript(until: .distantFuture)
         // Same script choice as the StikDebug link: Hinoki's own script on iOS 26 without TXM, StikJIT's
@@ -343,9 +363,9 @@ final class BuiltinJIT: ObservableObject {
         pairing.withUnsafeBytes { raw in
             let bytes = raw.bindMemory(to: UInt8.self).baseAddress
             if let script {
-                script.withCString { v3k_builtin_jit_start(bytes, pairing.count, $0, force, builtinJITProgress, builtinJITDone) }
+                script.withCString { v3k_builtin_jit_start(bytes, pairing.count, $0, force, port, builtinJITProgress, builtinJITDone) }
             } else {
-                v3k_builtin_jit_start(bytes, pairing.count, nil, force, builtinJITProgress, builtinJITDone)
+                v3k_builtin_jit_start(bytes, pairing.count, nil, force, port, builtinJITProgress, builtinJITDone)
             }
         }
     }
@@ -371,13 +391,189 @@ final class BuiltinJIT: ObservableObject {
             let reason = message ?? "unknown error"
             // The usual cause: no route to the device's own developer services
             let lowered = reason.lowercased()
-            if lowered.contains("unreachable") || lowered.contains("timed out") || lowered.contains("connect") {
+            if reason.hasPrefix("Local Network") || reason.hasPrefix("LocalDevVPN") {
+                status = reason
+            } else if lowered.contains("unreachable") || lowered.contains("timed out") || lowered.contains("connect") {
                 status = "Couldn't reach the device: is LocalDevVPN connected? (\(reason))"
             } else {
                 status = "Failed: \(reason)"
             }
         }
         v3k_log_jit_state(ok ? "built-in JIT done" : "built-in JIT failed")
+    }
+}
+
+/// Finds the device's own Remote Pairing service through LocalDevVPN (10.7.0.1) and checks it answers.
+/// The port comes from Bonjour, as StikJIT does it, but only one that really answers on 10.7.0.1 is
+/// used: on Wi-Fi other Apple devices advertise the same service, and taking theirs (StikJIT takes the
+/// first one found when none is on the loopback) gave a port this iPhone doesn't listen on.
+enum DeviceTunnel {
+    static let address = "10.7.0.1"
+    static let defaultPort: UInt16 = 49152
+
+    struct Found {
+        var port: UInt16?
+        var problem: String?
+        var log: String
+    }
+
+    private static let queue = DispatchQueue(label: "hinoki.builtin-jit.tunnel")
+
+    static func find(completion: @escaping (Found) -> Void) {
+        queue.async {
+            let browsed = browse(timeout: 4)
+            var tried: [UInt16] = []
+            // the loopback service first (the device's own, through the tunnel), then the usual port, then the rest
+            let ordered = browsed.loopback + [defaultPort] + browsed.other
+            for port in ordered where !tried.contains(port) {
+                tried.append(port)
+                if reachable(port: port, timeout: port == defaultPort || browsed.loopback.contains(port) ? 8 : 3) {
+                    completion(Found(port: port, problem: nil, log: "device reachable at \(address):\(port) (Bonjour: \(browsed.summary))"))
+                    return
+                }
+            }
+            let problem: String
+            if browsed.denied {
+                problem = "Local Network access is off for Hinoki: turn it on in Settings › Privacy & Security › Local Network, then try again"
+            } else {
+                problem = "LocalDevVPN isn't connected: open LocalDevVPN, connect it, then try again (nothing answered at \(address))"
+            }
+            completion(Found(port: nil, problem: problem, log: "device not reachable, tried ports \(tried) (Bonjour: \(browsed.summary))"))
+        }
+    }
+
+    private struct Browsed {
+        var loopback: [UInt16] = []
+        var other: [UInt16] = []
+        var denied = false
+        var summary = "nothing found"
+    }
+
+    /// Lists the _remotepairing._tcp services and resolves their ports (iOS asks for Local Network access here)
+    private static func browse(timeout: TimeInterval) -> Browsed {
+        final class State: @unchecked Sendable {
+            let lock = NSLock()
+            var services: [(endpoint: NWEndpoint, loopback: Bool)] = []
+            var denied = false
+            var failure: String?
+        }
+        let state = State()
+        let browseQueue = DispatchQueue(label: "hinoki.builtin-jit.browse")
+        let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = true
+        let browser = NWBrowser(for: .bonjour(type: "_remotepairing._tcp", domain: "local."), using: parameters)
+        browser.browseResultsChangedHandler = { results, _ in
+            state.lock.lock()
+            state.services = results.compactMap { result -> (endpoint: NWEndpoint, loopback: Bool)? in
+                guard case .service = result.endpoint else { return nil }
+                return (endpoint: result.endpoint, loopback: result.interfaces.contains { $0.name.hasPrefix("lo") })
+            }
+            state.lock.unlock()
+        }
+        browser.stateUpdateHandler = { browserState in
+            var error: NWError?
+            switch browserState {
+            case .failed(let e): error = e
+            case .waiting(let e): error = e
+            default: break
+            }
+            guard let error else { return }
+            state.lock.lock()
+            state.failure = "\(error)"
+            // kDNSServiceErr_PolicyDenied: Local Network access refused
+            if case .dns(let code) = error, code == -65570 || code == -65555 { state.denied = true }
+            state.lock.unlock()
+        }
+        browser.start(queue: browseQueue)
+        // done early once the device's own (loopback) service shows up, or the browse is refused
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            state.lock.lock()
+            let settled = state.denied || state.services.contains { $0.loopback }
+            state.lock.unlock()
+            if settled { break }
+        }
+        browser.cancel()
+
+        state.lock.lock()
+        let services = state.services
+        var result = Browsed()
+        result.denied = state.denied
+        let failure = state.failure
+        state.lock.unlock()
+
+        for service in services.prefix(6) {
+            guard let port = resolvePort(service.endpoint, parameters: parameters) else { continue }
+            if service.loopback { result.loopback.append(port) } else { result.other.append(port) }
+        }
+        result.summary = "\(services.count) service(s), loopback ports \(result.loopback), other ports \(result.other)\(failure.map { ", \($0)" } ?? "")"
+        return result
+    }
+
+    private static func resolvePort(_ endpoint: NWEndpoint, parameters: NWParameters) -> UInt16? {
+        final class Box: @unchecked Sendable {
+            let lock = NSLock()
+            var port: UInt16?
+        }
+        let box = Box()
+        let done = DispatchSemaphore(value: 0)
+        let connection = NWConnection(to: endpoint, using: parameters)
+        let record = { [weak connection] in
+            guard let connection, case .hostPort(_, let port) = connection.currentPath?.remoteEndpoint, port.rawValue != 0 else { return }
+            box.lock.lock()
+            let first = box.port == nil
+            box.port = port.rawValue
+            box.lock.unlock()
+            if first { done.signal() }
+        }
+        connection.pathUpdateHandler = { path in
+            if path.status == .satisfied { record() }
+        }
+        connection.stateUpdateHandler = { connectionState in
+            switch connectionState {
+            case .ready, .waiting: record()
+            case .failed: done.signal()
+            default: break
+            }
+        }
+        connection.start(queue: DispatchQueue(label: "hinoki.builtin-jit.resolve"))
+        _ = done.wait(timeout: .now() + 2)
+        connection.cancel()
+        box.lock.lock()
+        defer { box.lock.unlock() }
+        return box.port
+    }
+
+    /// A TCP connection to the device's developer services through the tunnel
+    private static func reachable(port: UInt16, timeout: TimeInterval) -> Bool {
+        guard let endpointPort = NWEndpoint.Port(rawValue: port) else { return false }
+        final class Box: @unchecked Sendable {
+            let lock = NSLock()
+            var ok = false
+        }
+        let box = Box()
+        let done = DispatchSemaphore(value: 0)
+        let connection = NWConnection(host: NWEndpoint.Host(address), port: endpointPort, using: .tcp)
+        connection.stateUpdateHandler = { connectionState in
+            switch connectionState {
+            case .ready:
+                box.lock.lock()
+                box.ok = true
+                box.lock.unlock()
+                done.signal()
+            case .failed:
+                done.signal()
+            default:
+                break
+            }
+        }
+        connection.start(queue: DispatchQueue(label: "hinoki.builtin-jit.probe"))
+        _ = done.wait(timeout: .now() + timeout)
+        connection.cancel()
+        box.lock.lock()
+        defer { box.lock.unlock() }
+        return box.ok
     }
 }
 

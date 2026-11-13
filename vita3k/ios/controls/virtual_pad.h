@@ -51,6 +51,10 @@ bool v3k_game_paused_by_user(void);
 // phase: 0 down, 1 moved, 2 up, 3 cancelled. x and y are 0...1 across the phone's screen.
 void v3k_touch_inject(int phase, unsigned long long finger, float x, float y);
 
+// The game window moved to a TV (true) or back to the phone: the screen renderer keeps at most one
+// frame waiting for the display while it is on a TV (less lag behind the phone's controls)
+void v3k_set_tv_mode(bool on);
+
 #ifdef __cplusplus
 }
 #endif

@@ -88,7 +88,7 @@ xpc_object_t create_region(uint64_t size, NSString **error) {
 
 // Built-in JIT: builtin_jit_helper.swift (StikJIT), present when the build bundled StikJIT
 #if V3K_HELPER_HAS_STIKJIT
-extern "C" char *v3k_helper_enable_jit(int32_t pid, const uint8_t *pairing, long pairing_length, const char *script_base64, bool force_script, void (*progress)(const char *));
+extern "C" char *v3k_helper_enable_jit(int32_t pid, const uint8_t *pairing, long pairing_length, const char *script_base64, bool force_script, int32_t port, void (*progress)(const char *));
 #endif
 
 xpc_connection_t g_channel = nil;
@@ -114,9 +114,10 @@ void enable_jit(xpc_connection_t channel, xpc_object_t message, xpc_object_t rep
     const char *script = xpc_dictionary_get_string(message, V3K_RAM_KEY_SCRIPT);
     NSString *script_copy = script ? @(script) : nil;
     const bool force = xpc_dictionary_get_bool(message, V3K_RAM_KEY_FORCE);
+    const int32_t port = static_cast<int32_t>(xpc_dictionary_get_uint64(message, V3K_RAM_KEY_PORT));
     dispatch_async(queue, ^{
         char *error = v3k_helper_enable_jit(pid, static_cast<const uint8_t *>(pairing.bytes), static_cast<long>(pairing.length),
-            script_copy.UTF8String, force, send_jit_progress);
+            script_copy.UTF8String, force, port, send_jit_progress);
         if (error) {
             xpc_dictionary_set_string(reply, V3K_RAM_KEY_ERROR, error);
             free(error);

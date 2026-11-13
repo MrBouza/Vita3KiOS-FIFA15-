@@ -90,7 +90,7 @@ NSString *helper_identifier() {
     return nil;
 }
 
-void run(NSData *pairing, NSString *script, bool force, void (*progress)(const char *), void (*done)(bool, const char *)) {
+void run(NSData *pairing, NSString *script, bool force, uint16_t port, void (*progress)(const char *), void (*done)(bool, const char *)) {
     const auto finish = [&](bool ok, const std::string &message) {
         log_line(!ok, ok ? "JIT enabled" : message);
         g_busy = false;
@@ -171,6 +171,7 @@ void run(NSData *pairing, NSString *script, bool force, void (*progress)(const c
     if (script.length)
         xpc_dictionary_set_string(request, V3K_RAM_KEY_SCRIPT, script.UTF8String);
     xpc_dictionary_set_bool(request, V3K_RAM_KEY_FORCE, force);
+    xpc_dictionary_set_uint64(request, V3K_RAM_KEY_PORT, port);
 
     __block std::string result = "The helper stopped before it answered";
     __block bool ok = false;
@@ -215,7 +216,7 @@ bool v3k_builtin_jit_busy(void) {
 }
 
 void v3k_builtin_jit_start(const uint8_t *pairing, size_t pairing_length, const char *script_base64, bool force_script,
-    void (*progress)(const char *text), void (*done)(bool ok, const char *message)) {
+    uint16_t port, void (*progress)(const char *text), void (*done)(bool ok, const char *message)) {
     if (g_busy.exchange(true)) {
         if (done)
             done(false, "Already enabling JIT");
@@ -225,7 +226,7 @@ void v3k_builtin_jit_start(const uint8_t *pairing, size_t pairing_length, const 
     NSString *script = script_base64 ? @(script_base64) : nil;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
-            run(pairing_data, script, force_script, progress, done);
+            run(pairing_data, script, force_script, port, progress, done);
         }
     });
 }

@@ -17,8 +17,11 @@
 
 #include "audio/impl/sdl_audio.h"
 #include "util/log.h"
+
 #include <SDL3/SDL_audio.h>
 #include <SDL3/SDL_hints.h>
+#include <algorithm>
+#include <chrono>
 
 #define SDL_CHECK_EXT(condition, ret)                         \
     do {                                                      \
@@ -149,12 +152,21 @@ void SDLAudioAdapter::audio_output(AudioOutPort &out_port, const void *buffer) {
 
     //  Put audio to the port's stream and see how much is left to play.
     SDLAudioOutPort &port = static_cast<SDLAudioOutPort &>(out_port);
-    // If there's lots of audio left to play, stop this thread.
-    // The audio callback will wake it up later when it's running out of data.
-    const int samples_available = get_rest_sample(port);
-    if (samples_available > get_threshold_samples(device_buffer_samples)) {
+    // If there's lots of audio left to play, stop this thread until the device has played it down.
+    // The game's audio thread is paced by this wait (a Vita blocks here until its buffer is out), and
+    // so is everything a game times by its audio: voices, subtitles, cutscenes. The device callback
+    // wakes this thread on every refill, so the level is checked again after each wake: waiting for
+    // one wake only let the game put one buffer per device refill, and on iOS (smaller, more frequent
+    // refills than a game's buffer) games ran their dialogue up to 2x too fast (Dragon Ball Z: Battle of
+    // Z, Dynasty Warriors 8) while the queued sound fell further and further behind.
+    const int threshold = std::max(get_threshold_samples(device_buffer_samples),
+        static_cast<int>(static_cast<uint64_t>(out_port.len_microseconds) * std::max(dst_spec.freq, 1) / 1'000'000ULL));
+    // never longer than a few buffers in all: a device that stopped consuming (closed off screen, iOS
+    // interrupting the audio) must not hang the game's audio thread
+    const auto give_up = std::chrono::steady_clock::now() + std::chrono::microseconds(out_port.len_microseconds * 4 + 20'000);
+    while (get_rest_sample(port) > threshold && std::chrono::steady_clock::now() < give_up) {
         std::unique_lock<std::mutex> lock(port.mutex);
-        port.cond_var.wait_for(lock, std::chrono::microseconds(port.len_microseconds * 2));
+        port.cond_var.wait_until(lock, std::min(give_up, std::chrono::steady_clock::now() + std::chrono::microseconds(out_port.len_microseconds)));
         if (out_port.stopping)
             return;
     }

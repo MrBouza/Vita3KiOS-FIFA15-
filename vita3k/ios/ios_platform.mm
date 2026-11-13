@@ -540,8 +540,38 @@ void v3k_perform_shortcut(id, SEL, UIWindowScene *, UIApplicationShortcutItem *i
         completion(handled);
 }
 
+bool is_external_display_role(UISceneSessionRole role) {
+    if (@available(iOS 16.0, *)) {
+        if ([role isEqualToString:UIWindowSceneSessionRoleExternalDisplayNonInteractive])
+            return true;
+    }
+    return [role isEqualToString:@"UIWindowSceneSessionRoleExternalDisplay"];
+}
+
+// A TV or display (AirPlay, cable) gets its own scene, empty until TV mode moves the game window onto
+// it (TouchControls.swift, TVMode). Without one iOS only mirrors the phone: the phone kept showing the
+// game and the TV got a copy, a mirror's extra encode behind. It must never reach SDL's scene delegate,
+// which would start a second launch screen and run the app's main again.
+IMP original_scene_configuration = nullptr;
+
+UISceneConfiguration *v3k_scene_configuration(id self, SEL cmd, UIApplication *application, UISceneSession *session, UISceneConnectionOptions *options) {
+    if (is_external_display_role(session.role)) {
+        UISceneConfiguration *config = [[UISceneConfiguration alloc] initWithName:@"V3KExternalDisplay" sessionRole:session.role];
+        config.delegateClass = NSClassFromString(@"V3KExternalDisplaySceneDelegate");
+        return config;
+    }
+    if (original_scene_configuration)
+        return reinterpret_cast<UISceneConfiguration *(*)(id, SEL, UIApplication *, UISceneSession *, UISceneConnectionOptions *)>(original_scene_configuration)(self, cmd, application, session, options);
+    UISceneConfiguration *config = [[UISceneConfiguration alloc] initWithName:@"SDLSceneConfiguration" sessionRole:session.role];
+    config.delegateClass = NSClassFromString(@"SDLUIKitSceneDelegate");
+    return config;
+}
+
 // Quick action that launched Vita3K
 void v3k_will_connect(id self, SEL cmd, UIScene *scene, UISceneSession *session, UISceneConnectionOptions *options) {
+    // a display's scene is TV mode's, never SDL's (see above)
+    if (is_external_display_role(session.role))
+        return;
     if (options.shortcutItem)
         take_shortcut(options.shortcutItem);
     if (original_will_connect)
@@ -549,6 +579,17 @@ void v3k_will_connect(id self, SEL cmd, UIScene *scene, UISceneSession *session,
 }
 
 } // namespace
+
+// The scene of a TV or other display: nothing to set up, TV mode puts the game window on it
+@interface V3KExternalDisplaySceneDelegate : UIResponder <UIWindowSceneDelegate>
+@property (nonatomic, strong) UIWindow *window;
+@end
+
+@implementation V3KExternalDisplaySceneDelegate
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
+    v3k_log_ui("TV: a display connected (its own scene)");
+}
+@end
 
 @interface V3KLaunchLinks : NSObject
 @end
@@ -565,6 +606,11 @@ void v3k_will_connect(id self, SEL cmd, UIScene *scene, UISceneSession *session,
         original_will_connect = method_setImplementation(method, reinterpret_cast<IMP>(v3k_will_connect));
     class_addMethod(delegate, @selector(windowScene:performActionForShortcutItem:completionHandler:),
         reinterpret_cast<IMP>(v3k_perform_shortcut), "v@:@@@?");
+    const SEL configuration = @selector(application:configurationForConnectingSceneSession:options:);
+    if (Method method = class_getInstanceMethod(delegate, configuration))
+        original_scene_configuration = method_setImplementation(method, reinterpret_cast<IMP>(v3k_scene_configuration));
+    else
+        class_addMethod(delegate, configuration, reinterpret_cast<IMP>(v3k_scene_configuration), "@@:@@@");
 }
 @end
 

@@ -30,7 +30,7 @@ public typealias V3KJITProgress = @convention(c) (UnsafePointer<CChar>?) -> Void
 /// on success, else a malloc'd message (free it).
 @_cdecl("v3k_helper_enable_jit")
 public func v3kHelperEnableJIT(_ pid: Int32, _ pairing: UnsafePointer<UInt8>?, _ pairingLength: Int,
-                               _ scriptBase64: UnsafePointer<CChar>?, _ forceScript: Bool,
+                               _ scriptBase64: UnsafePointer<CChar>?, _ forceScript: Bool, _ port: Int32,
                                _ progress: V3KJITProgress?) -> UnsafeMutablePointer<CChar>? {
     func report(_ text: String) {
         text.withCString { progress?($0) }
@@ -65,10 +65,23 @@ public func v3kHelperEnableJIT(_ pid: Int32, _ pairing: UnsafePointer<UInt8>?, _
         script = .universal
     }
 
+    // The device's Remote Pairing port: newer iOS versions don't keep it at 49152, and StikJIT finds it
+    // over Bonjour. Hinoki looks for it from the app (where iOS can ask for Local Network access) and
+    // passes it here; without one, StikJIT looks itself. A longer timeout than StikJIT's 5 s: the
+    // LocalDevVPN tunnel can take a few seconds to answer right after it connects
+    let configuration: StikJIT.Configuration
+    if port > 0, port <= Int32(UInt16.max) {
+        report("Device port \(port)")
+        configuration = StikJIT.Configuration(rsdPort: UInt16(port), automaticallyDiscoverRSDPort: false, connectionTimeout: 12)
+    } else {
+        configuration = StikJIT.Configuration(automaticallyDiscoverRSDPort: true, connectionTimeout: 12)
+    }
+
     do {
         try StikJIT.enableJIT(targetPID: pid,
                               pairingFile: pairingURL,
                               ddiPaths: paths,
+                              configuration: configuration,
                               script: script,
                               forceScript: forceScript,
                               preparationProgress: { stage in

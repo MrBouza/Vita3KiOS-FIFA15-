@@ -959,56 +959,83 @@ enum TVMode {
         phoneScene = window.windowScene
         let center = NotificationCenter.default
         observers = [
-            center.addObserver(forName: UIScreen.didConnectNotification, object: nil, queue: .main) { _ in
+            // the display's own scene (ios_platform.mm gives it one, so iOS doesn't just mirror the phone)
+            // comes and goes with it; activation is when it can show a window
+            center.addObserver(forName: UIScene.willConnectNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { enterIfConnected() }
+            },
+            center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { enterIfConnected() }
+            },
+            center.addObserver(forName: UIScene.didDisconnectNotification, object: nil, queue: .main) { note in
                 MainActor.assumeIsolated {
-                    if let screen = externalScreen() { enter(screen) }
+                    if let scene = note.object as? UIWindowScene, isExternal(scene) { leave() }
                 }
             },
-            center.addObserver(forName: UIScreen.didDisconnectNotification, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { leave() }
+            center.addObserver(forName: UIScreen.didConnectNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { enterIfConnected() }
             },
-            // a scene for the external screen can appear after the screen itself
-            center.addObserver(forName: UIScene.willConnectNotification, object: nil, queue: .main) { _ in
+            center.addObserver(forName: UIScreen.didDisconnectNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated {
-                    if !active, let screen = externalScreen() { enter(screen) }
+                    if externalScene() == nil { leave() }
                 }
             },
         ]
-        if let screen = externalScreen() { enter(screen) }
+        enterIfConnected()
+    }
+
+    private static func isExternal(_ scene: UIWindowScene) -> Bool {
+        if #available(iOS 16.0, *) {
+            if scene.session.role == .windowExternalDisplayNonInteractive { return true }
+        }
+        return scene.session.role.rawValue == "UIWindowSceneSessionRoleExternalDisplay" || scene.screen !== UIScreen.main
+    }
+
+    private static func externalScene() -> UIWindowScene? {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { isExternal($0) }
+    }
+
+    private static func enterIfConnected() {
+        guard !active else { return }
+        if let scene = externalScene() {
+            enter(scene)
+        }
     }
 
     /// The game is ending: forget the window (it is being destroyed), nothing to move back
     static func stop() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
-        if active { setOverlay(tv: false) }
+        if active {
+            setOverlay(tv: false)
+            v3k_set_tv_mode(false)
+        }
         active = false
         gameWindow = nil
     }
 
-    private static func externalScreen() -> UIScreen? {
-        UIScreen.screens.first { $0 !== UIScreen.main }
-    }
-
-    private static func scene(for screen: UIScreen) -> UIWindowScene? {
-        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.screen === screen }
-    }
-
-    private static func enter(_ screen: UIScreen) {
+    private static func enter(_ scene: UIWindowScene) {
         guard !active, let window = gameWindow else { return }
-        if let scene = scene(for: screen) {
-            window.windowScene = scene
-        } else {
-            window.screen = screen
+        let screen = scene.screen
+        // Lower latency: the stream to the TV is encoded at the display's mode, so a 4K mode costs a
+        // much bigger encode per frame than 1080p; prefer a mode no larger than 1080p when the TV offers one
+        if let mode = screen.availableModes.filter({ $0.size.width <= 1920 && $0.size.height <= 1080 })
+            .max(by: { $0.size.width * $0.size.height < $1.size.width * $1.size.height }),
+            mode != screen.currentMode {
+            screen.currentMode = mode
         }
-        window.frame = screen.bounds
+        screen.overscanCompensation = .none
+        window.windowScene = scene
+        window.frame = scene.coordinateSpace.bounds
         window.isHidden = false
+        window.makeKeyAndVisible()
         window.setNeedsLayout()
         window.layoutIfNeeded()
         active = true
+        v3k_set_tv_mode(true)
         v3k_pad_release_all()
         setOverlay(tv: true)
-        v3k_log_ui("TV: the game moved to a \(Int(screen.nativeBounds.width))x\(Int(screen.nativeBounds.height)) screen, the phone is the controller")
+        v3k_log_ui("TV: the game moved to a \(Int(screen.nativeBounds.width))x\(Int(screen.nativeBounds.height)) display (mode \(Int(screen.currentMode?.size.width ?? 0))x\(Int(screen.currentMode?.size.height ?? 0))), the phone is the controller")
     }
 
     private static func leave() {
@@ -1019,9 +1046,11 @@ enum TVMode {
             window.screen = UIScreen.main
         }
         window.frame = UIScreen.main.bounds
+        window.isHidden = false
         window.setNeedsLayout()
         window.layoutIfNeeded()
         active = false
+        v3k_set_tv_mode(false)
         v3k_pad_release_all()
         setOverlay(tv: false)
         v3k_log_ui("TV: disconnected, the game is back on the phone")
