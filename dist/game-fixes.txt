@@ -45,3 +45,10 @@ PCSE00915 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact f
 PCSB00983 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact floating point: fixes names and menus leaving trails (broke with Fast CPU on by default in v1.4.0)
 PCSH00196 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact floating point: fixes names and menus leaving trails (broke with Fast CPU on by default in v1.4.0)
 PCSG00738 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact floating point: fixes names and menus leaving trails (broke with Fast CPU on by default in v1.4.0)
+
+# Dragon Ball Z: Battle of Z: voices are CRI audio decoded in software with floating point. Fast CPU
+# (floating-point shortcuts, on by default in v1.4.0) garbles them; forced off even with the player's settings
+PCSE00305 fast-cpu=off high-accuracy=off | Exact floating point: clean voice lines (the voice decoder is floating point); high accuracy off for speed
+
+# Borderlands 2: high accuracy only slows it down
+PCSE00383 high-accuracy=off | High accuracy off: faster, nothing it draws needs it

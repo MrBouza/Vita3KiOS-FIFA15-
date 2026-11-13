@@ -399,7 +399,8 @@ static const char *with_working_directory(const char *path, std::string &storage
 // (Madden NFL 13 checks its save slots hundreds of times a session: 775 error lines plus as many
 // warnings in one 1.6-minute log)
 static bool is_existence_probe(const char *export_name) {
-    return export_name && std::strcmp(export_name, "sceAppUtilSaveDataSlotGetParam") == 0;
+    // save slots a game looks for (Borderlands 2 checks 49 at boot): missing is the normal answer
+    return export_name && (std::strcmp(export_name, "sceAppUtilSaveDataSlotGetParam") == 0 || std::strcmp(export_name, "sceAppUtilSaveDataSlotSearch") == 0);
 }
 
 SceUID open_file(IOState &io, const char *path, const int flags, const fs::path &vita_fs_path, const char *export_name) {
