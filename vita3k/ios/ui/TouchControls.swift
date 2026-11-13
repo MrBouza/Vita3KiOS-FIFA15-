@@ -1027,8 +1027,8 @@ enum TVMode {
         screen.overscanCompensation = .none
         window.windowScene = scene
         window.frame = scene.coordinateSpace.bounds
+        // shown, not made key: the TV's scene takes no input, and keyboard events go to the key window
         window.isHidden = false
-        window.makeKeyAndVisible()
         window.setNeedsLayout()
         window.layoutIfNeeded()
         active = true

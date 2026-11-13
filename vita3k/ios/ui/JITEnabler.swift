@@ -562,7 +562,8 @@ enum DeviceTunnel {
                 box.ok = true
                 box.lock.unlock()
                 done.signal()
-            case .failed:
+            case .failed, .waiting:
+                // waiting: no route to 10.7.0.1 (LocalDevVPN off) or the connection was refused
                 done.signal()
             default:
                 break
