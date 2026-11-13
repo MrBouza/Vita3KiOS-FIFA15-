@@ -1,0 +1,17 @@
+diff --git a/src/audio/coreaudio/SDL_coreaudio.m b/src/audio/coreaudio/SDL_coreaudio.m
+index dda5f573c..84cd32e1f 100644
+--- a/src/audio/coreaudio/SDL_coreaudio.m
++++ b/src/audio/coreaudio/SDL_coreaudio.m
+@@ -349,6 +349,12 @@ static void InterruptionBegin(SDL_AudioDevice *device)
+ 
+ static void InterruptionEnd(SDL_AudioDevice *device)
+ {
++    // Hinoki: never restart audio while the app is off screen. Another app ending its interruption
++    // (a video finishing, a call) restarted this queue in the background, which took the audio back
++    // from the app on screen and stopped its videos. applicationBecameActive resumes it on return.
++    if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) {
++        return;
++    }
+     if (device != NULL && device->hidden != NULL && device->hidden->audioQueue != NULL && device->hidden->interrupted && AudioQueueStart(device->hidden->audioQueue, NULL) == AVAudioSessionErrorCodeNone) {
+         device->hidden->interrupted = false;
+     }

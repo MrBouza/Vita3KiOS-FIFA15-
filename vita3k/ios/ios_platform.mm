@@ -190,16 +190,19 @@ void set_activity_callback(void (*callback)(bool active)) {
 static std::atomic<bool> audio_session_released{ false };
 
 // Off screen, keep the session released: anything that takes it back while the app is away (a
-// notification handler, a late audio callback) is undone within two seconds, for as long as the
-// app keeps running in the background.
+// notification handler, a late audio callback) is undone, for as long as the app keeps running in
+// the background. Quietly: this used to pass NotifyOthersOnDeactivation every two seconds, and each
+// one told the app on screen it could resume its audio. Discord's video player restarted on every
+// one of them and never got past 0:00 (videos "not playing in other apps" while Hinoki ran in the
+// background). Other apps are told once, when the session is first handed back.
 static void keep_audio_session_released(unsigned round = 0) {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (app_activity::gpu_allowed().load() || !audio_session_released)
             return;
         NSError *error = nil;
-        if (![AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error])
+        if (![AVAudioSession.sharedInstance setActive:NO error:&error])
             NSLog(@"Hinoki: audio session still in use off screen: %@", error);
-        if (round < 600)
+        if (round < 240)
             keep_audio_session_released(round + 1);
     });
 }
