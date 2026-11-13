@@ -124,4 +124,30 @@ void v3k_pad_clear_quit_request(void) {
     quit_requested_ms = 0;
 }
 
+void v3k_touch_inject(int phase, unsigned long long finger, float x, float y) {
+    int count = 0;
+    SDL_Window **windows = SDL_GetWindows(&count);
+    const SDL_WindowID window_id = (windows && count > 0) ? SDL_GetWindowID(windows[0]) : 0;
+    SDL_free(windows);
+    if (window_id == 0)
+        return;
+
+    SDL_Event event{};
+    switch (phase) {
+    case 0: event.type = SDL_EVENT_FINGER_DOWN; break;
+    case 1: event.type = SDL_EVENT_FINGER_MOTION; break;
+    case 2: event.type = SDL_EVENT_FINGER_UP; break;
+    default: event.type = SDL_EVENT_FINGER_CANCELED; break;
+    }
+    event.tfinger.timestamp = SDL_GetTicksNS();
+    // a touch device id of its own, so these never mix with the game window's real touches
+    event.tfinger.touchID = 0x48494E4F4B49ull;
+    event.tfinger.fingerID = finger ? finger : 1;
+    event.tfinger.x = std::clamp(x, 0.0f, 1.0f);
+    event.tfinger.y = std::clamp(y, 0.0f, 1.0f);
+    event.tfinger.pressure = (phase == 2 || phase == 3) ? 0.0f : 1.0f;
+    event.tfinger.windowID = window_id;
+    SDL_PushEvent(&event);
+}
+
 } // extern "C"

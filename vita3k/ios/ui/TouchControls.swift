@@ -266,7 +266,7 @@ enum PortraitMode {
     /// Games boot in landscape and portrait opens up once the game is on screen: starting upright
     /// stalled the GPU at boot (device lost), while turning the phone during play works
     static var unlocked = false
-    static var allowed: Bool { enabled && unlocked }
+    static var allowed: Bool { enabled && unlocked && !TVMode.active }
 }
 
 @_cdecl("v3k_set_portrait_unlocked")
@@ -497,11 +497,36 @@ final class ControlsOverlayView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // Touches that miss every control go to the game (Vita touchscreen)
+    // Touches that miss every control go to the game (Vita touchscreen). With the game on a TV the
+    // game window isn't under this one any more, so this view takes them and passes them on.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
-        return hit === self ? nil : hit
+        return hit === self ? (forwardsTouches ? self : nil) : hit
     }
+
+    /// The game is on a TV: this phone is only the controller (black behind the controls, touches on
+    /// empty space go to the game's touchscreen)
+    var forwardsTouches = false {
+        didSet {
+            guard forwardsTouches != oldValue else { return }
+            backgroundColor = forwardsTouches ? .black : .clear
+            if forwardsTouches { showToast("Playing on the TV: this phone is the controller") }
+        }
+    }
+
+    private func forward(_ touches: Set<UITouch>, phase: Int32) {
+        guard forwardsTouches, bounds.width > 0, bounds.height > 0 else { return }
+        for touch in touches {
+            let point = touch.location(in: self)
+            let finger = UInt64(UInt(bitPattern: ObjectIdentifier(touch).hashValue))
+            v3k_touch_inject(phase, finger, Float(point.x / bounds.width), Float(point.y / bounds.height))
+        }
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { forward(touches, phase: 0) }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { forward(touches, phase: 1) }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { forward(touches, phase: 2) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { forward(touches, phase: 3) }
 
     private func applyVisibility() {
         let hidden = editor == nil && (controlsHidden || (hideWithController && controllerConnected))
@@ -914,7 +939,101 @@ final class ControlsViewController: UIViewController {
 final class PassthroughWindow: UIWindow {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
+        if hit === rootViewController?.view, TVMode.active { return hit }
         return (hit === self || hit === rootViewController?.view) ? nil : hit
+    }
+}
+
+/// AirPlay / HDMI: while a TV (or any second screen) is connected, the game's window moves onto it, full
+/// screen, and the phone keeps only the controls. Unplugging or stopping AirPlay brings the game back.
+@MainActor
+enum TVMode {
+    nonisolated(unsafe) private(set) static var active = false
+    private static weak var gameWindow: UIWindow?
+    private static weak var phoneScene: UIWindowScene?
+    private static var observers: [NSObjectProtocol] = []
+
+    static func start(gameWindow window: UIWindow) {
+        stop()
+        gameWindow = window
+        phoneScene = window.windowScene
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: UIScreen.didConnectNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    if let screen = externalScreen() { enter(screen) }
+                }
+            },
+            center.addObserver(forName: UIScreen.didDisconnectNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { leave() }
+            },
+            // a scene for the external screen can appear after the screen itself
+            center.addObserver(forName: UIScene.willConnectNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    if !active, let screen = externalScreen() { enter(screen) }
+                }
+            },
+        ]
+        if let screen = externalScreen() { enter(screen) }
+    }
+
+    /// The game is ending: forget the window (it is being destroyed), nothing to move back
+    static func stop() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers = []
+        if active { setOverlay(tv: false) }
+        active = false
+        gameWindow = nil
+    }
+
+    private static func externalScreen() -> UIScreen? {
+        UIScreen.screens.first { $0 !== UIScreen.main }
+    }
+
+    private static func scene(for screen: UIScreen) -> UIWindowScene? {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.screen === screen }
+    }
+
+    private static func enter(_ screen: UIScreen) {
+        guard !active, let window = gameWindow else { return }
+        if let scene = scene(for: screen) {
+            window.windowScene = scene
+        } else {
+            window.screen = screen
+        }
+        window.frame = screen.bounds
+        window.isHidden = false
+        window.setNeedsLayout()
+        window.layoutIfNeeded()
+        active = true
+        v3k_pad_release_all()
+        setOverlay(tv: true)
+        v3k_log_ui("TV: the game moved to a \(Int(screen.nativeBounds.width))x\(Int(screen.nativeBounds.height)) screen, the phone is the controller")
+    }
+
+    private static func leave() {
+        guard active, let window = gameWindow else { return }
+        if let phoneScene {
+            window.windowScene = phoneScene
+        } else {
+            window.screen = UIScreen.main
+        }
+        window.frame = UIScreen.main.bounds
+        window.setNeedsLayout()
+        window.layoutIfNeeded()
+        active = false
+        v3k_pad_release_all()
+        setOverlay(tv: false)
+        v3k_log_ui("TV: disconnected, the game is back on the phone")
+    }
+
+    private static func setOverlay(tv: Bool) {
+        guard let overlayWindow = ControlsHost.window else { return }
+        (overlayWindow.rootViewController?.view as? ControlsOverlayView)?.forwardsTouches = tv
+        overlayWindow.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        if tv, let scene = overlayWindow.windowScene, scene.interfaceOrientation.isPortrait {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape)) { _ in }
+        }
     }
 }
 
@@ -936,9 +1055,11 @@ enum ControlsHost {
         overlay.rootViewController = ControlsViewController()
         overlay.isHidden = false // shown but not key: the game window keeps keyboard/gamepad focus
         window = overlay
+        TVMode.start(gameWindow: gameWindow)
     }
 
     static func detach() {
+        TVMode.stop()
         window?.isHidden = true
         window = nil
     }

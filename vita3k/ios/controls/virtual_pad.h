@@ -47,6 +47,10 @@ void v3k_pad_clear_quit_request(void);
 void v3k_set_game_paused(int reason, bool paused);
 bool v3k_game_paused_by_user(void);
 
+// A finger on the phone while the game is on a TV (AirPlay / HDMI): sent to the game window as a touch.
+// phase: 0 down, 1 moved, 2 up, 3 cancelled. x and y are 0...1 across the phone's screen.
+void v3k_touch_inject(int phase, unsigned long long finger, float x, float y);
+
 #ifdef __cplusplus
 }
 #endif
