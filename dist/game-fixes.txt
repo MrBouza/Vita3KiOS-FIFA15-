@@ -8,7 +8,7 @@
 #
 # Settings: memory-mapping, native-buffer, surface-sync, high-accuracy, async-shaders, texture-cache,
 #           shader-cache, fps-hack, cpu-opt, stretch, fast-cpu, accurate-cpu, precise-math,
-#           vertex-realign (on/off), resolution (0.5 to 4), screen-filter (Nearest, Bilinear, Bicubic, FXAA)
+#           vertex-realign, v-sync (on/off), resolution (0.5 to 4), screen-filter (Nearest, Bilinear, Bicubic, FXAA)
 #           precise-math=on: no Metal fast math at all (lighting that is too bright or flickers)
 #           vertex-realign=off: only if a game's models break since vertex realignment (v1.2.0)
 # Lines starting with # are ignored.

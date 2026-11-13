@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <chrono>
+
 #include <vkutil/objects.h>
 
 #include "screen_filters.h"
@@ -44,6 +46,16 @@ public:
     vk::SurfaceCapabilitiesKHR surface_capabilities;
     vk::SurfaceFormatKHR surface_format;
     vk::PresentModeKHR present_mode{};
+    // V-Sync on: the mode picked at start (FIFO on iOS: frames wait for the screen). Off: a mode that
+    // doesn't wait if the device has one, and in any case a frame is skipped instead of waiting when
+    // the screen has no image free, so the game never waits on the display
+    vk::PresentModeKHR vsync_on_mode{};
+    vk::PresentModeKHR vsync_off_mode{};
+    bool vsync = true;
+    void set_vsync(bool enabled);
+    // V-Sync off: when the frames already handed to the screen will keep it busy until (MoltenVK takes
+    // no timeout and would block in nextDrawable once every drawable is queued)
+    std::chrono::steady_clock::time_point screen_busy_until{};
     vk::Extent2D extent;
     uint32_t swapchain_size{};
     std::vector<vk::Image> swapchain_images;

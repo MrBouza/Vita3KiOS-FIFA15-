@@ -285,6 +285,7 @@ struct GameSettingsView: View {
                 toggle("Compile shaders in the background", \.asyncShaders, "async-shaders", "Less stutter. New objects can be missing for a moment.")
                 toggle("Shader cache", \.shaderCache, "shader-cache", "Saves compiled shaders, so the next launch stutters less.")
                 toggle("CPU optimisations", \.cpuOpt, "cpu-opt", "Much faster. Turn off only to test a game that breaks.")
+                toggle("V-Sync", \.vSync, "v-sync", "On: frames wait for the screen. Off: the game never waits for it (a frame the screen can't take yet is skipped). Off helps games that slow down or stutter with it on.")
                 toggle("60 FPS mode", \.fpsHack, "fps-hack", "Runs 30 FPS games at 60 when possible. Some games then run 2× too fast: turn it off for those.")
                 Toggle(isOn: Binding(get: { !settings.disableSurfaceSync }, set: { on in
                     settings.disableSurfaceSync = !on

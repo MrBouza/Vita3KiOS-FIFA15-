@@ -1300,6 +1300,10 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState 
     if (!frame.base && !has_overlays)
         return;
 
+    // V-Sync (game settings, applied at launch): Vulkan reads it here, on the render thread
+    if (const int vsync_request = pending_vsync.exchange(-1, std::memory_order_relaxed); vsync_request >= 0)
+        screen_renderer.set_vsync(vsync_request != 0);
+
     if (!screen_renderer.acquire_swapchain_image())
         return;
 

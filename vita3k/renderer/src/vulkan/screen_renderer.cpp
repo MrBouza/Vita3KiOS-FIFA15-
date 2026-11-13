@@ -21,6 +21,8 @@
 #include "util/log.h"
 #include "vkutil/vkutil.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <exception>
 
@@ -214,7 +216,21 @@ bool ScreenRenderer::setup() {
             present_mode = mode;
         }
     }
-    LOG_INFO("Present mode: {}", vk::to_string(present_mode));
+    vsync_on_mode = present_mode;
+    // V-Sync off: no waiting for the screen (Immediate, else Mailbox, else the same mode with frames
+    // skipped rather than waited for, see acquire_swapchain_image)
+    vsync_off_mode = present_mode;
+    for (const auto &mode : present_modes) {
+        if (mode == vk::PresentModeKHR::eImmediate) {
+            vsync_off_mode = mode;
+            break;
+        }
+        if (mode == vk::PresentModeKHR::eMailbox)
+            vsync_off_mode = mode;
+    }
+    if (!vsync)
+        present_mode = vsync_off_mode;
+    LOG_INFO("Present mode: {} (V-Sync off: {})", vk::to_string(present_mode), vk::to_string(vsync_off_mode));
 
     create_render_pass();
 
@@ -431,6 +447,24 @@ static constexpr uint64_t next_image_timeout = 1'000'000'000ULL;
 static constexpr uint64_t next_image_timeout = std::numeric_limits<uint64_t>::max();
 #endif
 
+void ScreenRenderer::set_vsync(bool enabled) {
+    if (vsync == enabled)
+        return;
+    vsync = enabled;
+    // before create() the modes are not known yet: create() applies the choice
+    if (vsync_on_mode == vsync_off_mode && present_mode == vsync_on_mode && !swapchain) {
+        LOG_INFO("V-Sync: {}", enabled ? "on" : "off");
+        return;
+    }
+    const vk::PresentModeKHR wanted = enabled ? vsync_on_mode : vsync_off_mode;
+    if (wanted != present_mode) {
+        present_mode = wanted;
+        need_rebuild = true;
+    }
+    LOG_INFO("V-Sync {}: present mode {}{}", enabled ? "on" : "off", vk::to_string(present_mode),
+        enabled || vsync_off_mode != vsync_on_mode ? "" : ", frames the screen can't take at once are skipped");
+}
+
 bool ScreenRenderer::acquire_swapchain_image() {
     if (!window_has_drawable_size(state)) {
         need_rebuild = true;
@@ -451,12 +485,31 @@ bool ScreenRenderer::acquire_swapchain_image() {
         return false;
     }
 
+    // V-Sync off: if the screen already has every image but one queued, this frame would wait for it
+    // (on iOS inside Metal's nextDrawable, which ignores the acquire timeout): skip it instead. The
+    // screen takes one image per refresh (60 Hz assumed: a faster screen only empties the queue sooner)
+    if (!vsync && swapchain && swapchain_size > 1) {
+        constexpr auto refresh = std::chrono::nanoseconds(16'666'667);
+        const auto queued = screen_busy_until - std::chrono::steady_clock::now();
+        if (queued >= refresh * (swapchain_size - 1)) {
+            current_cmd_buffer = nullptr;
+            swapchain_image_idx = 0xDEADBEAF;
+            return false;
+        }
+    }
+
     if (swapchain)
         acquire_result = state.device.acquireNextImageKHR(swapchain,
-            next_image_timeout, image_acquired_semaphores[current_frame], vk::Fence(), &swapchain_image_idx);
+            vsync ? next_image_timeout : 0, image_acquired_semaphores[current_frame], vk::Fence(), &swapchain_image_idx);
 
     const bool has_acquired_image = acquire_result == vk::Result::eSuccess || acquire_result == vk::Result::eSuboptimalKHR;
     if (!has_acquired_image) {
+        if (!vsync && (acquire_result == vk::Result::eTimeout || acquire_result == vk::Result::eNotReady)) {
+            // V-Sync off: every image is still on its way to the screen; skip this frame, don't wait
+            current_cmd_buffer = nullptr;
+            swapchain_image_idx = 0xDEADBEAF;
+            return false;
+        }
         if (acquire_result == vk::Result::eTimeout || acquire_result == vk::Result::eNotReady) {
 #ifdef __APPLE__
             LOG_WARN_ONCE("The screen did not give an image within a second: skipping the frame and rebuilding the swapchain");
@@ -609,6 +662,11 @@ void ScreenRenderer::swap_window() {
         swapchain_image_idx = ~0;
         current_cmd_buffer = nullptr;
         return;
+    }
+
+    if (!vsync) {
+        constexpr auto refresh = std::chrono::nanoseconds(16'666'667);
+        screen_busy_until = std::max(screen_busy_until, std::chrono::steady_clock::now()) + refresh;
     }
 
     swapchain_image_idx = ~0;

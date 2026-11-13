@@ -391,7 +391,9 @@ struct EmulationSections: View {
             } label: {
                 described("Anisotropic filtering", "Sharper floors and walls seen at an angle. Higher costs a little GPU.")
             }
-            // (No V-Sync switch: iOS always shows frames in step with the screen, so it did nothing)
+            Toggle(isOn: binding(\.vSync) { model.setBool("v-sync", $0) }) {
+                described("V-Sync", "On: every frame waits for the screen (smoothest, no skipped frames). Off: the game never waits for the screen; a frame the screen can't take yet is skipped. Turn off for games that slow down or stutter with it on. Applies from the next game launch.")
+            }
             Toggle(isOn: binding(\.textureCache) { model.setBool("texture-cache", $0) }) {
                 described("Texture cache", "Reuses textures instead of reloading them. Faster; turn off only if textures look wrong.")
             }
