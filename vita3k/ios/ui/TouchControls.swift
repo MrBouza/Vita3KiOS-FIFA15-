@@ -262,14 +262,6 @@ enum TouchLayout {
 /// Settings › Controls › Portrait mode: holding the phone upright puts the game on top and the
 /// controls below. Landscape is unaffected.
 enum PortraitMode {
-    private static var mirroringNoticeShown = false
-
-    /// Inside LiveContainer (or a similar app container), the container's own app settings decide
-    /// whether a TV gets a scene of its own
-    private static var inContainer: Bool {
-        ProcessInfo.processInfo.environment["LC_HOME_PATH"] != nil || Bundle.main.bundlePath.contains("/Documents/Applications/")
-    }
-
     static var enabled: Bool { UserDefaults.standard.object(forKey: "v3k.portraitMode") as? Bool ?? true }
     /// Games boot in landscape and portrait opens up once the game is on screen: starting upright
     /// stalled the GPU at boot (device lost), while turning the phone during play works
@@ -986,6 +978,14 @@ enum TVMode {
     nonisolated(unsafe) private(set) static var active = false
     private static weak var gameWindow: UIWindow?
     private static var observers: [NSObjectProtocol] = []
+
+    private static var mirroringNoticeShown = false
+
+    /// Inside LiveContainer (or a similar app container), the container's own app settings decide
+    /// whether a TV gets a scene of its own
+    private static var inContainer: Bool {
+        ProcessInfo.processInfo.environment["LC_HOME_PATH"] != nil || Bundle.main.bundlePath.contains("/Documents/Applications/")
+    }
 
     static var enabled: Bool {
         UserDefaults.standard.object(forKey: "v3k.tvMode") as? Bool ?? true
