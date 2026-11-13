@@ -120,6 +120,9 @@ struct ColorSurfaceCacheInfo : public SurfaceCacheInfo {
     bool need_buffer_sync = false;
 
     std::shared_ptr<bool> dirty = std::make_shared<bool>(false);
+    // its memory protection was lifted (by any access in the protected region it shares): protect it
+    // again the next time it is drawn to
+    std::shared_ptr<bool> unprotected = std::make_shared<bool>(false);
 
     ColorSurfaceCacheInfo() = default;
     ~ColorSurfaceCacheInfo();

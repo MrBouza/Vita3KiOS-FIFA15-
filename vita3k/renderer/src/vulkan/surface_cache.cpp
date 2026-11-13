@@ -145,13 +145,23 @@ static void protect_surface(MemState &mem, ColorSurfaceCacheInfo &info) {
     std::shared_ptr<bool> need_sync = trap_reads ? info.need_surface_sync : nullptr;
     // Don't track dirty for small surfaces to avoid false positives from unrelated writes
     std::shared_ptr<bool> dirty = small_surface ? nullptr : info.dirty;
+    std::shared_ptr<bool> unprotected = info.unprotected;
 
+    // Protected regions sharing a host page (16 KiB on iOS) are merged, and a fault in any of them
+    // calls every callback of the merged region. Only a write inside this surface means the game
+    // changed it: counting writes to its neighbours (other surfaces, textures, data around it) marked
+    // Madden NFL 13's stadium screen as changed all the time, so it was read from memory instead of
+    // from the GPU and stayed black. Any fault still lifts the protection, so the surface is
+    // protected again the next time it is drawn to.
+    const Address surface_begin = info.data.address();
+    const Address surface_end = surface_begin + info.total_bytes;
     add_protect(mem, addr_start, addr_end - addr_start, perm,
-        [dirty, need_sync](Address, bool write) {
-            if (write && dirty)
+        [dirty, need_sync, unprotected, surface_begin, surface_end](Address addr, bool write) {
+            if (write && dirty && addr >= surface_begin && addr < surface_end)
                 *dirty = true;
             if (need_sync)
                 *need_sync = true;
+            *unprotected = true;
             return true;
         });
 }
@@ -357,9 +367,10 @@ SurfaceRetrieveResult VKSurfaceCache::retrieve_color_surface_for_framebuffer(Mem
             info.bound_width = static_cast<uint16_t>(std::min<uint32_t>(original_width, info.original_width));
             info.bound_height = static_cast<uint16_t>(std::min<uint32_t>(original_height, info.original_height));
 
-            if (info.data && *info.dirty)
+            if (info.data && (*info.dirty || *info.unprotected))
                 protect_surface(mem, info);
             *info.dirty = false;
+            *info.unprotected = false;
 
             last_written_surface = &info;
 
@@ -456,6 +467,7 @@ SurfaceRetrieveResult VKSurfaceCache::retrieve_color_surface_for_framebuffer(Mem
     info_added.need_surface_sync.reset();
     info_added.need_surface_sync = std::make_shared<bool>(false);
     info_added.dirty = std::make_shared<bool>(false);
+    info_added.unprotected = std::make_shared<bool>(false);
 
     // we only support surface sync of linear surfaces for now
     if (!can_mprotect_mapped_memory) {
