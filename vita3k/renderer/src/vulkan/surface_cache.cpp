@@ -1423,7 +1423,6 @@ ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
     if (last_written_surface == nullptr || !*last_written_surface->need_surface_sync)
         return nullptr;
 
-
     VKContext *context = reinterpret_cast<VKContext *>(state.context);
     vk::CommandBuffer cmd_buffer = context->render_cmd;
 
