@@ -27,6 +27,12 @@
 #include <util/align.h>
 #include <vkutil/vkutil.h>
 
+#include <algorithm>
+
+#if defined(VITA3K_PLATFORM_IOS)
+#include <sys/sysctl.h>
+#endif
+
 namespace renderer::vulkan {
 
 // return if this format can be used to read a depth stencil buffer
@@ -55,7 +61,19 @@ static bool is_depth_stencil_compatible_format(SceGxmTextureBaseFormat format, b
 }
 
 VKTextureCache::VKTextureCache(VKState &state)
-    : state(state) {}
+    : state(state) {
+#if defined(VITA3K_PLATFORM_IOS)
+    // A sixth of the phone's memory (1 GiB on a 6 GB iPhone), between 512 MiB and 1.5 GiB. Super Robot
+    // Wars V filled 2.2 GB with textures on an iPhone 13 Pro Max and iOS closed it, although the game
+    // itself used 360 MB.
+    uint64_t ram = 0;
+    size_t length = sizeof(ram);
+    if (sysctlbyname("hw.memsize", &ram, &length, nullptr, 0) != 0 || ram == 0)
+        ram = 6ull << 30;
+    memory_budget = std::clamp<uint64_t>(ram / 6, 512ull << 20, 1536ull << 20);
+    LOG_INFO("Texture cache: up to {} MiB of graphics memory", memory_budget >> 20);
+#endif
+}
 
 void VKTextureCache::cleanup() {
     for (auto &entry : textures) {
@@ -309,6 +327,19 @@ bool VKTextureCache::init(const bool hashless_texture_cache, const fs::path &tex
     support_astc = static_cast<bool>(astc_support.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage);
 
     return true;
+}
+
+uint64_t VKTextureCache::texture_memory(size_t index) const {
+    const TextureCacheEntry &entry = textures[index];
+    return entry.texture.image ? entry.memory_needed : 0;
+}
+
+void VKTextureCache::release_texture(size_t index) {
+    TextureCacheEntry &entry = textures[index];
+    // destroyed once the frames that may still sample it have finished
+    if (entry.texture.image)
+        state.frame().destroy_queue.add_image(entry.texture);
+    entry.memory_needed = 0;
 }
 
 void VKTextureCache::select(size_t index, const SceGxmTexture &texture) {

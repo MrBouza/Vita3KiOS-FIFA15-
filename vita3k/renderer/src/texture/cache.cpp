@@ -24,6 +24,7 @@
 #include <mem/functions.h>
 #include <mem/ptr.h>
 #include <util/align.h>
+#include <util/gpu_memory.h>
 #include <util/log.h>
 
 #include <algorithm>
@@ -776,6 +777,7 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
     select(index, gxm_texture);
 
     if (configure) {
+        const uint64_t previous_memory = texture_memory(index);
         bool need_configure = true;
 
         if (importing_texture)
@@ -786,6 +788,15 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
             importing_texture = false;
             info->is_imported = false;
         }
+
+        const uint64_t new_memory = texture_memory(index);
+        memory_used = memory_used - std::min(memory_used, previous_memory) + new_memory;
+        if (previous_memory == 0 && new_memory != 0)
+            textures_held++;
+        else if (previous_memory != 0 && new_memory == 0 && textures_held)
+            textures_held--;
+        if (memory_budget)
+            keep_within_budget(info);
     }
     if (upload) {
         if (export_textures && !importing_texture)
@@ -821,6 +832,50 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
     // retrieve the appropriate sampler if needed
     if (use_sampler_cache)
         cache_and_bind_sampler(gxm_texture);
+}
+
+void TextureCache::keep_within_budget(const TextureCacheInfo *keep) {
+    // Each low-memory warning from the system lowers the budget by a quarter (to at least 256 MiB)
+    const uint32_t pressure = gpu_memory::pressure().load(std::memory_order_relaxed);
+    if (pressure != seen_pressure) {
+        for (; seen_pressure < pressure; seen_pressure++)
+            memory_budget = std::max<uint64_t>(memory_budget - memory_budget / 4, 256ull * 1024 * 1024);
+        LOG_INFO("Texture cache: memory is low, its budget is now {} MiB ({} MiB in {} textures)", memory_budget >> 20, memory_used >> 20, textures_held);
+    }
+
+    if (memory_used > memory_budget) {
+        // Drop the least recently used textures until the cache fits; they are uploaded again if used
+        uint32_t dropped = 0;
+        const uint64_t before = memory_used;
+        texture_queue.for_each_from_lru([&](TextureCacheInfo *candidate) {
+            if (memory_used <= memory_budget - memory_budget / 8)
+                return false;
+            if (candidate == keep || candidate->texture_size == 0)
+                return true;
+            const uint64_t held = texture_memory(candidate->index);
+            if (held == 0)
+                return true;
+            texture_lookup.erase(std::bit_cast<TextureGxmDataRepr>(candidate->texture));
+            release_texture(candidate->index);
+            candidate->texture_size = 0;
+            candidate->is_imported = false;
+            candidate->dirty = false;
+            memory_used -= std::min(memory_used, held);
+            if (textures_held)
+                textures_held--;
+            dropped++;
+            return true;
+        });
+        static int logged = 0;
+        if (dropped && logged < 8) {
+            logged++;
+            LOG_INFO("Texture cache: over its {} MiB budget, dropped {} unused textures ({} -> {} MiB)", memory_budget >> 20, dropped, before >> 20, memory_used >> 20);
+        }
+    }
+
+    gpu_memory::texture_bytes().store(memory_used, std::memory_order_relaxed);
+    gpu_memory::texture_count().store(textures_held, std::memory_order_relaxed);
+    gpu_memory::texture_budget().store(memory_budget, std::memory_order_relaxed);
 }
 
 int TextureCache::cache_and_bind_sampler(const SceGxmTexture &gxm_texture, bool is_depth) {

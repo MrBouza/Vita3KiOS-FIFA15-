@@ -70,6 +70,8 @@ struct VKTextureCache : public TextureCache {
     bool is_texture_transfer_ready = false;
 
     VKTextureCache(VKState &state);
+    uint64_t texture_memory(size_t index) const override;
+    void release_texture(size_t index) override;
     // get an available staging buffer, wait for one if all are busy
     void prepare_staging_buffer(bool is_configure = false);
 

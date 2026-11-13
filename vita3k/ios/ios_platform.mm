@@ -23,6 +23,7 @@ extern "C" void v3k_log_ui(const char *message);
 
 #include <util/adhoc_peers.h>
 #include <util/app_activity.h>
+#include <util/gpu_memory.h>
 #include <util/thermal.h>
 
 #import <AVFoundation/AVFoundation.h>
@@ -290,7 +291,11 @@ void observe_app_state() {
                     usingBlock:^(NSNotification *) { release_audio_session(); }];
     // iOS warns before it closes an app for memory: counted, logged by the game watchdog
     [center addObserverForName:UIApplicationDidReceiveMemoryWarningNotification object:nil queue:nil
-                    usingBlock:^(NSNotification *) { memory_warnings++; }];
+                    usingBlock:^(NSNotification *) {
+                        memory_warnings++;
+                        // the texture cache gives back a quarter of its budget
+                        gpu_memory::pressure()++;
+                    }];
 }
 
 bool app_in_background() {

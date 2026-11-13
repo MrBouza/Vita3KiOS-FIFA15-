@@ -163,6 +163,18 @@ public:
 
     virtual void configure_sampler(size_t index, const SceGxmTexture &texture, bool no_linear) {}
 
+    // Graphics memory a cached texture holds (0 when it holds none), and dropping it. Used to keep the
+    // cache within a memory budget on phones: the cache is sized by count (2048 textures), and a game
+    // with big textures filled 2.2 GB of graphics memory with it and was closed by iOS.
+    virtual uint64_t texture_memory(size_t index) const { return 0; }
+    virtual void release_texture(size_t index) {}
+    // Bytes the cached textures may use; 0 means no limit
+    uint64_t memory_budget = 0;
+    uint64_t memory_used = 0;
+    uint32_t textures_held = 0;
+    uint32_t seen_pressure = 0;
+    void keep_within_budget(const TextureCacheInfo *keep);
+
     void upload_texture(const SceGxmTexture &gxm_texture, MemState &mem);
     void cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemState &mem);
 

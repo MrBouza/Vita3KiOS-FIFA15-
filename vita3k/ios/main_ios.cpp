@@ -44,6 +44,7 @@
 #include <mem/functions.h>
 #include <renderer/vulkan/device_lost.h>
 #include <sdl-frontend/session.h>
+#include <util/gpu_memory.h>
 #include <util/log.h>
 #include <util/recent_imports.h>
 #include <util/thermal.h>
@@ -340,7 +341,8 @@ int main(int argc, char *argv[]) {
                         // Caches threads gave back while the game runs (finished threads) hold code nobody runs
                         trim_ios_jit_code_cache_pool();
 #endif
-                        LOG_INFO("Memory: {}", memory_breakdown());
+                        LOG_INFO("Memory: {}; textures {} MiB in {} (budget {} MiB)", memory_breakdown(),
+                            gpu_memory::texture_bytes().load() >> 20, gpu_memory::texture_count().load(), gpu_memory::texture_budget().load() >> 20);
                     }
                     last_memory_log = now;
                     frames_at_memory_log = last_frames;

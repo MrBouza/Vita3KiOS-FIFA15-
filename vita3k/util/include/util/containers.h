@@ -89,6 +89,16 @@ struct Queue {
         head = item;
     }
 
+    // visit the elements from the least to the most recently used, until f returns false
+    template <typename F>
+    void for_each_from_lru(F &&f) {
+        Item<T> *item = head->prev;
+        for (size_t i = 0; i < items.size(); i++, item = item->prev) {
+            if (!f(&item->content))
+                return;
+        }
+    }
+
     // set an element as the least recently used (useful if it is removed)
     void set_as_lru(T *ptr) {
         // just set as mru and change the head
