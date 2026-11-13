@@ -100,6 +100,38 @@ static void pack_rgba8_to_u4u4u4u4(uint8_t *dst, const uint8_t *src, uint32_t pi
     }
 }
 
+// A 16-bit RGBA4444 surface kept as native RGBA4444 on the GPU: its pixels land in game memory in the
+// GPU's channel order, and the game's format may order them differently (ARGB, ABGR...). Put each
+// pixel's four nibbles in the game's order. Without this the alpha nibble ended up in a colour slot
+// and images the game draws for itself came out transparent or black (Madden NFL 13's stadium screen).
+static bool surface_is_native_u4u4u4u4(const ColorSurfaceCacheInfo &surface) {
+    return surface.format == SCE_GXM_COLOR_BASE_FORMAT_U4U4U4U4 && surface.texture.format == vk::Format::eR4G4B4A4UnormPack16;
+}
+
+static void swizzle_native_u4u4u4u4(uint8_t *pixels, uint32_t pixel_stride, const vk::Rect2D &region, const vk::ComponentMapping &swizzle) {
+    const auto mapping = vkutil::color_to_texture_swizzle(swizzle, vkutil::rgba_mapping);
+    const std::array components{ mapping.r, mapping.g, mapping.b, mapping.a };
+    std::array<uint32_t, 4> channels;
+    for (size_t i = 0; i < channels.size(); ++i) {
+        if (components[i] < vk::ComponentSwizzle::eR || components[i] > vk::ComponentSwizzle::eA)
+            return;
+        channels[i] = static_cast<uint32_t>(components[i]) - static_cast<uint32_t>(vk::ComponentSwizzle::eR);
+    }
+    if (channels[0] == 0 && channels[1] == 1 && channels[2] == 2 && channels[3] == 3)
+        return;
+
+    for (uint32_t y = region.offset.y; y < region.offset.y + region.extent.height; ++y) {
+        uint8_t *row = pixels + static_cast<size_t>(y) * pixel_stride * sizeof(uint16_t);
+        for (uint32_t x = region.offset.x; x < region.offset.x + region.extent.width; ++x) {
+            uint16_t value;
+            memcpy(&value, row + x * sizeof(value), sizeof(value));
+            const uint32_t nibbles[4] = { (value >> 12) & 0xFu, (value >> 8) & 0xFu, (value >> 4) & 0xFu, value & 0xFu };
+            const uint16_t packed = static_cast<uint16_t>((nibbles[channels[0]] << 12) | (nibbles[channels[1]] << 8) | (nibbles[channels[2]] << 4) | nibbles[channels[3]]);
+            memcpy(row + x * sizeof(packed), &packed, sizeof(packed));
+        }
+    }
+}
+
 static vk::ImageView retrieve_surface_gamma_view(vk::Device device, ColorSurfaceCacheInfo &surface) {
     if (!surface.gamma_view) {
         const vk::ImageViewUsageCreateInfo usage_info{
@@ -1441,7 +1473,7 @@ ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
     // this works for surface swizzles
     bool is_swizzle_identity = last_written_surface->swizzle.r == vk::ComponentSwizzle::eR;
     if (!is_swizzle_identity && !format_support_swizzle(last_written_surface->format)
-        && !surface_sync_needs_u4u4u4u4_repack(*last_written_surface)) {
+        && !surface_sync_needs_u4u4u4u4_repack(*last_written_surface) && !surface_is_native_u4u4u4u4(*last_written_surface)) {
         LOG_WARN_ONCE("Surface sync with swizzle not support on {}", vk::to_string(last_written_surface->texture.format));
 
         is_swizzle_identity = true;
@@ -1604,6 +1636,11 @@ void VKSurfaceCache::perform_post_surface_sync(const MemState &mem, ColorSurface
     if (surface_sync_needs_u4u4u4u4_repack(*surface)) {
         const vk::Rect2D region{ { 0, 0 }, { sync_width(*surface), rows } };
         pack_rgba8_to_u4u4u4u4(pixels, static_cast<const uint8_t *>(surface->copy_buffer->mapped_data), pixel_stride, region, surface->swizzle);
+        return;
+    }
+
+    if (surface_is_native_u4u4u4u4(*surface)) {
+        swizzle_native_u4u4u4u4(pixels, pixel_stride, vk::Rect2D{ { 0, 0 }, { sync_width(*surface), rows } }, surface->swizzle);
         return;
     }
 

@@ -1400,6 +1400,35 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
 
         pipeline_compile_queue.enqueue(pipeline_compile_queue_token, request);
 
+#ifdef __APPLE__
+        // Give the worker a few milliseconds before drawing without the pipeline: a shader Metal has
+        // compiled before (its own cache) or a small one is usually ready by then, and the object
+        // then shows up this frame instead of popping in a moment later. Bounded per draw and per
+        // frame, so a scene with many new shaders still never stalls more than a few milliseconds.
+        {
+            static uint64_t budget_frame = 0;
+            static int64_t budget_us = 0;
+            constexpr int64_t per_draw_us = 3000;
+            constexpr int64_t per_frame_us = 8000;
+            if (budget_frame != state.frame_timestamp) {
+                budget_frame = state.frame_timestamp;
+                budget_us = per_frame_us;
+            }
+            if (budget_us > 0) {
+                const auto start = std::chrono::steady_clock::now();
+                const auto limit = start + std::chrono::microseconds(std::min(per_draw_us, budget_us));
+                static_assert(sizeof(vk::Pipeline) == sizeof(uint64_t));
+                uint64_t *const slot = reinterpret_cast<uint64_t *>(&it->second);
+                const auto load = [slot] { return std::bit_cast<vk::Pipeline>(__atomic_load_n(slot, __ATOMIC_ACQUIRE)); };
+                while (load() == pipeline_compiling && std::chrono::steady_clock::now() < limit)
+                    std::this_thread::sleep_for(std::chrono::microseconds(200));
+                budget_us -= std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
+                const vk::Pipeline ready = load();
+                if (ready != pipeline_compiling && ready != failed_pipeline())
+                    return ready;
+            }
+        }
+#endif
         return nullptr;
     } else {
         // can't wait, compile it right now

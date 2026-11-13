@@ -310,7 +310,9 @@ final class ControlsOverlayView: UIView {
     private let pauseButton = UIButton(type: .system)
     private let rearButton = UIButton(type: .system)
     private let pausedBanner = UIButton(type: .system)
-    // Swipe up on the top buttons to tuck them away; this small handle brings them back (tap or swipe down)
+    // The last button of the top row tucks the row away (swiping up on it works too); a small button in
+    // the screen's top-left corner, outside the controls (beside the camera in landscape), brings it back
+    private let collapseButton = UIButton(type: .system)
     private let topHandle = UIButton(type: .system)
     private var topRowHidden = UserDefaults.standard.bool(forKey: "v3k.topButtonsHidden") {
         didSet {
@@ -404,17 +406,23 @@ final class ControlsOverlayView: UIView {
         rearButton.isHidden = !showRearButton
         addSubview(rearButton)
 
-        topHandle.setImage(UIImage(systemName: "chevron.compact.down"), for: .normal)
-        topHandle.tintColor = UIColor.white.withAlphaComponent(0.8)
-        topHandle.backgroundColor = UIColor.black.withAlphaComponent(0.35)
-        topHandle.layer.cornerRadius = 9
+        collapseButton.setImage(UIImage(systemName: "chevron.up"), for: .normal)
+        collapseButton.tintColor = UIColor.white.withAlphaComponent(0.85)
+        collapseButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        collapseButton.accessibilityLabel = "Hide these buttons"
+        collapseButton.addTarget(self, action: #selector(hideTopRow), for: .touchUpInside)
+        addSubview(collapseButton)
+
+        topHandle.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)), for: .normal)
+        topHandle.tintColor = UIColor.white.withAlphaComponent(0.7)
+        topHandle.backgroundColor = UIColor.black.withAlphaComponent(0.3)
         topHandle.accessibilityLabel = "Show buttons"
         topHandle.addTarget(self, action: #selector(showTopRow), for: .touchUpInside)
         addSubview(topHandle)
         let handleSwipe = UISwipeGestureRecognizer(target: self, action: #selector(showTopRow))
         handleSwipe.direction = .down
         topHandle.addGestureRecognizer(handleSwipe)
-        for button in [exitButton, pauseButton, hideButton, rearButton] {
+        for button in [exitButton, pauseButton, hideButton, rearButton, collapseButton] {
             let swipe = UISwipeGestureRecognizer(target: self, action: #selector(hideTopRow))
             swipe.direction = .up
             button.addGestureRecognizer(swipe)
@@ -616,9 +624,21 @@ final class ControlsOverlayView: UIView {
 
     private func applyTopRow() {
         let editing = editor != nil
-        [exitButton, pauseButton, hideButton].forEach { $0.isHidden = editing || topRowHidden }
+        [exitButton, pauseButton, hideButton, collapseButton].forEach { $0.isHidden = editing || topRowHidden }
         topHandle.isHidden = editing || !topRowHidden
         updateRearButton()
+    }
+
+    /// The button that brings the top row back: a small dot in the screen's top-left corner. In landscape it
+    /// sits in the strip beside the camera (outside the game picture's controls); in portrait, left of
+    /// the camera in the status bar's band, above the game picture.
+    private func layoutTopHandle() {
+        let size: CGFloat = 26
+        let insets = safeAreaInsets
+        let x = insets.left >= size + 8 ? (insets.left - size) / 2 : 4
+        let y = isPortrait ? max((insets.top - size) / 2, 4) : 6
+        topHandle.frame = CGRect(x: bounds.minX + x, y: bounds.minY + y, width: size, height: size)
+        topHandle.layer.cornerRadius = size / 2
     }
 
     @objc private func hideTopRow() { topRowHidden = true }
@@ -778,8 +798,8 @@ final class ControlsOverlayView: UIView {
 
         applyPlacements(in: area)
 
-        // Menu, show/hide and rear touchpad, top centre
-        let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton] : [exitButton, pauseButton, hideButton]
+        // Menu, show/hide, rear touchpad and the button that tucks them away, top centre
+        let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton, collapseButton] : [exitButton, pauseButton, hideButton, collapseButton]
         let rowWidth = CGFloat(topButtons.count) * 36 + CGFloat(topButtons.count - 1) * 8
         for (index, button) in topButtons.enumerated() {
             button.frame = CGRect(x: area.midX - rowWidth / 2 + CGFloat(index) * 44, y: area.minY, width: 36, height: 36)
@@ -789,7 +809,7 @@ final class ControlsOverlayView: UIView {
             rearButton.frame = CGRect(x: hideButton.frame.maxX + 8, y: area.minY, width: 36, height: 36)
             rearButton.layer.cornerRadius = 18
         }
-        topHandle.frame = CGRect(x: (exitButton.frame.minX + hideButton.frame.maxX) / 2 - 32, y: exitButton.frame.minY, width: 64, height: 18)
+        layoutTopHandle()
         if let editor { bringSubviewToFront(editor); editor.refresh() }
 
         if !hud.isHidden {
@@ -823,7 +843,7 @@ final class ControlsOverlayView: UIView {
         // Shoulder buttons along the top of the controls, the menu buttons between them
         l.frame = CGRect(x: controls.minX, y: controls.minY, width: unit * 1.7, height: unit * 0.75)
         r.frame = CGRect(x: controls.maxX - unit * 1.7, y: controls.minY, width: unit * 1.7, height: unit * 0.75)
-        let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton] : [exitButton, pauseButton, hideButton]
+        let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton, collapseButton] : [exitButton, pauseButton, hideButton, collapseButton]
         let rowWidth = CGFloat(topButtons.count) * 36 + CGFloat(topButtons.count - 1) * 8
         for (index, button) in topButtons.enumerated() {
             button.frame = CGRect(x: controls.midX - rowWidth / 2 + CGFloat(index) * 44, y: controls.minY + (unit * 0.75 - 36) / 2, width: 36, height: 36)
@@ -833,7 +853,7 @@ final class ControlsOverlayView: UIView {
             rearButton.frame = CGRect(x: hideButton.frame.maxX + 8, y: hideButton.frame.minY, width: 36, height: 36)
             rearButton.layer.cornerRadius = 18
         }
-        topHandle.frame = CGRect(x: (exitButton.frame.minX + hideButton.frame.maxX) / 2 - 32, y: exitButton.frame.minY, width: 64, height: 18)
+        layoutTopHandle()
 
         // Select / Start at the bottom, d-pad and face buttons above, sticks between them
         let smallWidth = unit * 1.4, smallHeight = unit * 0.55

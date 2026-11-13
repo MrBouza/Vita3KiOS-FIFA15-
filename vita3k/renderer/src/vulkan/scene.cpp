@@ -680,9 +680,14 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
         // Screen-shaped: the Vita's 960x544 or a scaled-down copy (720x408, 640x368, 480x272: games that
         // render 3D below native resolution), judged by the viewport the draw uses when it has one, so
         // games that draw their scene into a bigger or power-of-two target (1024x512, 1024x1024) get it too
-        constexpr float vita_aspect = 960.0f / 544.0f;
+        // Any landscape shape from 3:2 to 2:1 counts: games draw their 3D scene at 960x544, 16:9 (1024x576,
+        // 854x480), 5:3 (800x480) or 3:2 (720x480), and the narrow window around 960x544 left those out
+        // (widescreen "only working in some games"). Shadow maps and other square or tall buffers stay out.
         const auto screen_shaped = [&](float w, float h) {
-            return h > 0.0f && w >= 256.0f && std::abs(w / h - vita_aspect) < 0.06f;
+            if (h <= 0.0f || w < 256.0f)
+                return false;
+            const float aspect = w / h;
+            return aspect >= 1.45f && aspect <= 2.1f;
         };
         const bool target_shaped = screen_shaped(vert_ublock.screen_width, vert_ublock.screen_height);
         const bool viewport_shaped = !context.record.viewport_flat && screen_shaped(std::abs(context.viewport.width), std::abs(context.viewport.height));

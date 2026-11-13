@@ -122,10 +122,14 @@ inline void follow_game_qos(int &current, bool background_thread) {
 // `current` starts at -1 (not set yet).
 inline void follow_worker_qos(int &current) {
     int wanted = 0;
-    // Shaders compile in the background (the game draws without them for a frame or two), so with
-    // "Keep the phone cool" they never need the performance cores' top clocks
-    if (should_step_down() || keep_cool().load(std::memory_order_relaxed))
+    // While a shader compiles, whatever it draws is missing from the screen (objects "loading in
+    // late"). On the efficiency cores that lasted several times longer, so with "Keep the phone cool"
+    // they stay on the performance cores (without the race to top clocks) until the phone warms up,
+    // and only then move to the efficiency cores. Compiles come in short bursts on new scenes.
+    if (should_step_down())
         wanted = 2;
+    else if (keep_cool().load(std::memory_order_relaxed))
+        wanted = 1;
     if (wanted == current)
         return;
     static constexpr qos_class_t classes[] = { QOS_CLASS_USER_INTERACTIVE, QOS_CLASS_USER_INITIATED, QOS_CLASS_UTILITY };
