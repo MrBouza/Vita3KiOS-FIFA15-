@@ -21,6 +21,7 @@
 #include <renderer/vulkan/overlay_renderer.h>
 #include <renderer/vulkan/state.h>
 
+#include <overlay/common_dialog.h>
 #include <overlay/font.h>
 #include <util/log.h>
 
@@ -29,6 +30,35 @@
 #include <cmath>
 
 namespace renderer::vulkan {
+
+// TEMPORARY DIAGNOSTIC (dialog GPU hang): while a system dialog is open, its draws are let through
+// in stages, 4 s apart, so the time of the hang in the log shows which kind of draw causes it.
+// Stage 0: nothing drawn, 1: untextured shapes, 2: + shape effects (SDF/gloss/glow/blur),
+// 3: + text, 4: + images (everything).
+namespace dialog_diag {
+enum Kind { plain = 0, effect = 1, text = 2, image = 3 };
+static int stage = -1; // -1: no dialog, draw everything
+static std::chrono::steady_clock::time_point opened_at;
+static constexpr int stage_seconds = 4;
+static constexpr int last_stage = 4;
+
+static Kind kind_of(const overlay::compiled_resource::command_config &config) {
+    if (config.font_ref || config.texture_ref == overlay::font_file)
+        return text;
+    if (config.texture_ref != overlay::image_resource_none && config.texture_ref != overlay::game_icon
+        && config.texture_ref != overlay::backbuffer)
+        return image;
+    if (config.active_effect != overlay::compiled_resource::effect_type::none || config.pulse_glow || config.blur_strength > 0)
+        return effect;
+    return plain;
+}
+
+static bool allowed(const overlay::compiled_resource::command_config &config) {
+    if (stage < 0)
+        return true;
+    return stage >= static_cast<int>(kind_of(config)) + 1;
+}
+} // namespace dialog_diag
 
 static constexpr float VIRTUAL_WIDTH = 960.f;
 static constexpr float VIRTUAL_HEIGHT = 544.f;
@@ -955,6 +985,30 @@ void OverlayRenderer::prepare(vk::CommandBuffer cmd_buffer,
 
     manager.lock_shared();
 
+    {
+        bool dialog_open = false;
+        for (const auto &view : manager.get_views()) {
+            if (view && view->visible.load() && dynamic_cast<overlay::common_dialog_overlay *>(view.get()))
+                dialog_open = true;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        int new_stage = -1;
+        if (dialog_open) {
+            if (dialog_diag::stage < 0)
+                dialog_diag::opened_at = now;
+            const auto secs = std::chrono::duration_cast<std::chrono::seconds>(now - dialog_diag::opened_at).count();
+            new_stage = std::min<int>(static_cast<int>(secs / dialog_diag::stage_seconds), dialog_diag::last_stage);
+        }
+        if (new_stage != dialog_diag::stage) {
+            static const char *const names[] = { "nothing", "untextured shapes", "+ shape effects", "+ text", "+ images (everything)" };
+            if (new_stage >= 0)
+                LOG_INFO("Dialog diagnostic: stage {} ({})", new_stage, names[new_stage]);
+            else
+                LOG_INFO("Dialog diagnostic: dialog closed");
+            dialog_diag::stage = new_stage;
+        }
+    }
+
     for (const auto &view : manager.get_views()) {
         if (!view || !view->visible.load())
             continue;
@@ -965,8 +1019,12 @@ void OverlayRenderer::prepare(vk::CommandBuffer cmd_buffer,
 
         auto compiled = view->get_compiled();
 
+        int kind_counts[4] = {};
         for (const auto &draw_cmd : compiled.draw_commands) {
             const auto &config = draw_cmd.config;
+            kind_counts[dialog_diag::kind_of(config)]++;
+            if (!dialog_diag::allowed(config))
+                continue;
 
             if (config.font_ref) {
                 upload_font(cmd_buffer, config.font_ref);
@@ -994,6 +1052,15 @@ void OverlayRenderer::prepare(vk::CommandBuffer cmd_buffer,
                     if (info && (!icon.image || info->dirty))
                         upload_image(cmd_buffer, info, icon);
                 }
+            }
+        }
+
+        if (dialog_diag::stage >= 0) {
+            static int logged_stage = -2;
+            if (logged_stage != dialog_diag::stage) {
+                logged_stage = dialog_diag::stage;
+                LOG_INFO("Dialog diagnostic: view has {} shapes, {} effects, {} text, {} images",
+                    kind_counts[0], kind_counts[1], kind_counts[2], kind_counts[3]);
             }
         }
 
@@ -1033,6 +1100,8 @@ void OverlayRenderer::render(vk::CommandBuffer cmd_buffer,
 
     for (auto &prepared : m_prepared_views) {
         for (const auto &draw_cmd : prepared.compiled.draw_commands) {
+            if (!dialog_diag::allowed(draw_cmd.config))
+                continue;
             draw_command(cmd_buffer, draw_cmd,
                 viewport_w, viewport_h, viewport_x, viewport_y);
         }
