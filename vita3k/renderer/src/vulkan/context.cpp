@@ -20,6 +20,7 @@
 #include <renderer/vulkan/functions.h>
 #include <renderer/vulkan/gxm_to_vulkan.h>
 #include <renderer/vulkan/state.h>
+#include <renderer/vulkan/gpu_submit_log.h>
 
 #include <gxm/functions.h>
 #include <renderer/functions.h>
@@ -679,6 +680,8 @@ void VKContext::stop_recording(const SceGxmNotification &notif1, const SceGxmNot
         std::lock_guard<std::mutex> lock(state.queue_mutex);
         tolerate_device_lost("a GPU submit", [&] { state.general_queue.submit(submit_info, fence); });
     }
+    gpu_log::record(fence, 'S', record.color_surface.data.address(), record.color_surface.width, record.color_surface.height,
+        static_cast<uint32_t>(cmdbuffers_to_submit.size()));
     cmdbuffers_to_submit.clear();
     state.frame().rendered_fences.push_back(fence);
 
@@ -784,6 +787,8 @@ void new_frame(VKContext &context) {
             vk::Result result;
             do {
                 result = tolerate_device_lost("a frame fence wait", [&] { return device.waitForFences(frame.rendered_fences, VK_TRUE, 1'000'000'000ULL); });
+                if (result == vk::Result::eTimeout)
+                    gpu_log::dump(device, "the game's frame fence did not signal within a second");
             } while (result == vk::Result::eTimeout && !context.state.render_abort.load(std::memory_order_relaxed));
             if (result != vk::Result::eSuccess) {
                 LOG_ERROR("Could not wait for fences.");

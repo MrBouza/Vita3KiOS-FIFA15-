@@ -67,6 +67,8 @@ public:
     // How many frames already handed to the screen are still waiting to be shown (at least `frames`)
     bool screen_has_queued(uint32_t frames);
     vk::Extent2D extent;
+    // TEMPORARY DIAGNOSTIC: address of the game frame shown in the frame being recorded
+    uint32_t diag_presented_frame = 0;
     uint32_t swapchain_size{};
     std::vector<vk::Image> swapchain_images;
     std::vector<vk::ImageView> swapchain_views;

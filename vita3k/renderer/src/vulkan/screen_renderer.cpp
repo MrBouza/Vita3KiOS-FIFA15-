@@ -18,6 +18,7 @@
 #include "renderer/vulkan/screen_renderer.h"
 
 #include "renderer/vulkan/state.h"
+#include "renderer/vulkan/gpu_submit_log.h"
 #include "util/log.h"
 #include "util/presentation.h"
 #include "vkutil/vkutil.h"
@@ -571,6 +572,7 @@ bool ScreenRenderer::acquire_swapchain_image() {
     auto result = tolerate_device_lost("the swapchain fence wait", [&] { return state.device.waitForFences(fences[swapchain_image_idx], VK_TRUE, next_image_timeout); });
     if (result != vk::Result::eSuccess) {
         LOG_ERROR("Could not wait for fences.");
+        gpu_log::dump(state.device, "the screen's fence did not signal within a second");
         // the image was acquired but will not be drawn: rebuild, which also renews the semaphores
         need_rebuild = true;
         current_cmd_buffer = nullptr;
@@ -694,6 +696,7 @@ void ScreenRenderer::swap_window() {
         const auto present_start = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(state.queue_mutex);
         tolerate_device_lost("the screen submit", [&] { state.general_queue.submit(submit_info, fences[swapchain_image_idx]); });
+        gpu_log::record(fences[swapchain_image_idx], 'P', diag_presented_frame, extent.width, extent.height, swapchain_image_idx);
         result = state.general_queue.presentKHR(&present_info);
         presentation::counters().wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - present_start).count();
     }

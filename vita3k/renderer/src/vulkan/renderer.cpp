@@ -32,6 +32,7 @@
 
 #include <config/state.h>
 #include <config/version.h>
+#include <dialog/state.h>
 #include <display/state.h>
 #include <shader/spirv_recompiler.h>
 #include <util/align.h>
@@ -1389,6 +1390,21 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState 
         vk::ImageLayout layout = vk::ImageLayout::eGeneral;
         vk::ImageView surface_handle = surface_cache.sourcing_color_surface_for_presentation(
             frame.base, frame.pitch, viewport);
+        screen_renderer.diag_presented_frame = frame.base.address();
+        // TEMPORARY DIAGNOSTIC (dialog GPU hang): the frames shown in the first seconds of a dialog
+        {
+            static int dialog_frames_logged = 0;
+            const bool dialog_running = common_dialog && common_dialog->type != NO_DIALOG
+                && common_dialog->status == SCE_COMMON_DIALOG_STATUS_RUNNING;
+            if (!dialog_running)
+                dialog_frames_logged = 0;
+            else if (dialog_frames_logged < 40) {
+                dialog_frames_logged++;
+                LOG_INFO("Dialog diagnostic: showing game frame 0x{:X} ({}x{}, pitch {}, format {}) from {} on image {}",
+                    frame.base.address(), frame.image_size.x, frame.image_size.y, frame.pitch, frame.pixelformat,
+                    surface_handle ? "a rendered surface" : "memory (copied)", screen_renderer.swapchain_image_idx);
+            }
+        }
 
         if (!surface_handle) {
             vkutil::Image &vita_surface = screen_renderer.vita_surface[screen_renderer.swapchain_image_idx];
