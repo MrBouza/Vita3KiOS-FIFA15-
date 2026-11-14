@@ -92,6 +92,9 @@ private:
     vk::DeviceSize m_vertex_buffer_offset = 0;
 
     std::vector<std::vector<vkutil::Buffer>> m_staging_garbage;
+    // Images replaced while earlier frames may still sample them: destroyed once this frame slot
+    // comes around again (its fence was waited, and the queue runs frames in order)
+    std::vector<std::vector<vkutil::Image>> m_image_garbage;
 
     vkutil::Image m_dummy_texture;
     vkutil::Image m_dummy_texture_array;

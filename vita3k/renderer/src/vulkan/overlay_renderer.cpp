@@ -234,6 +234,7 @@ void OverlayRenderer::ensure_frame_resources(uint32_t frame_count) {
     m_desc_pools.resize(frame_count);
     m_vertex_buffers.resize(frame_count);
     m_staging_garbage.resize(frame_count);
+    m_image_garbage.resize(frame_count);
 
     for (size_t index = previous_size; index < frame_count; ++index) {
         m_desc_pools[index] = device.createDescriptorPool(pool_info);
@@ -432,6 +433,8 @@ void OverlayRenderer::destroy() {
     }
     m_staging_garbage.clear();
 
+    m_image_garbage.clear();
+
     for (auto &img : m_icon_images)
         img.destroy();
     m_icon_images.clear();
@@ -467,7 +470,9 @@ vk::ImageView OverlayRenderer::upload_font(vk::CommandBuffer cmd, const overlay:
 
     vk::Device device = m_state->device;
 
-    entry.image.destroy();
+    // the atlas grows when text needs a new codepage: frames still on the GPU sample the old one
+    if (entry.image.image)
+        m_image_garbage[m_active_frame_slot].push_back(std::move(entry.image));
 
     vk::ImageCreateInfo image_info{
         .imageType = vk::ImageType::e2D,
@@ -571,14 +576,13 @@ void OverlayRenderer::upload_image(vk::CommandBuffer cmd, const overlay::image_i
         : 1;
 
     if (dst.image && (dst.width != w || dst.height != h || dst.format != fmt)) {
-        dst.destroy();
+        // frames still on the GPU may sample it: destroy it later
+        m_image_garbage[m_active_frame_slot].push_back(std::move(dst));
     }
 
     if (!dst.image) {
-        vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eSampled
+        const vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eSampled
             | vk::ImageUsageFlagBits::eTransferDst;
-        if (need_mipmaps)
-            usage |= vk::ImageUsageFlagBits::eTransferSrc;
 
         vk::ImageCreateInfo image_info{
             .imageType = vk::ImageType::e2D,
@@ -618,11 +622,64 @@ void OverlayRenderer::upload_image(vk::CommandBuffer cmd, const overlay::image_i
         dst.view = device.createImageView(view_info);
     }
 
-    const size_t data_size = static_cast<size_t>(w) * h * img->channels;
+    // Mipmaps are made here on the CPU (2x2 box filter) and uploaded with the base level in one
+    // copy. They used to be made on the GPU with vkCmdBlitImage from one level of the image to the
+    // next, which MoltenVK turns into draws that read and write the same texture; the first frame
+    // of a system dialog (1024 px and 512 px icons, 11 levels) hung the GPU until iOS dropped it.
+    const uint32_t channels = static_cast<uint32_t>(img->channels);
+    std::vector<vk::BufferImageCopy> regions;
+    std::vector<std::pair<uint32_t, uint32_t>> level_dims;
+    std::vector<size_t> level_offsets;
+    size_t total_size = 0;
+    {
+        uint32_t lw = w, lh = h;
+        for (uint32_t level = 0; level < mip_levels; ++level) {
+            level_dims.emplace_back(lw, lh);
+            level_offsets.push_back(total_size);
+            total_size += (static_cast<size_t>(lw) * lh * channels + 15) & ~size_t(15);
+            lw = std::max(lw / 2, 1u);
+            lh = std::max(lh / 2, 1u);
+        }
+    }
 
-    vkutil::Buffer staging(data_size);
+    vkutil::Buffer staging(total_size);
     staging.init_buffer(vk::BufferUsageFlagBits::eTransferSrc, vkutil::vma_mapped_alloc);
-    memcpy(staging.mapped_data, img->get_data(), data_size);
+    uint8_t *const base = static_cast<uint8_t *>(staging.mapped_data);
+    memcpy(base, img->get_data(), static_cast<size_t>(w) * h * channels);
+
+    for (uint32_t level = 1; level < mip_levels; ++level) {
+        const auto [sw, sh] = level_dims[level - 1];
+        const auto [dw, dh] = level_dims[level];
+        const uint8_t *src = base + level_offsets[level - 1];
+        uint8_t *dst_px = base + level_offsets[level];
+        for (uint32_t y = 0; y < dh; ++y) {
+            const uint32_t y0 = std::min(y * 2, sh - 1), y1 = std::min(y * 2 + 1, sh - 1);
+            for (uint32_t x = 0; x < dw; ++x) {
+                const uint32_t x0 = std::min(x * 2, sw - 1), x1 = std::min(x * 2 + 1, sw - 1);
+                for (uint32_t c = 0; c < channels; ++c) {
+                    const uint32_t sum = src[(y0 * sw + x0) * channels + c] + src[(y0 * sw + x1) * channels + c]
+                        + src[(y1 * sw + x0) * channels + c] + src[(y1 * sw + x1) * channels + c];
+                    dst_px[(y * dw + x) * channels + c] = static_cast<uint8_t>((sum + 2) / 4);
+                }
+            }
+        }
+    }
+
+    for (uint32_t level = 0; level < mip_levels; ++level) {
+        regions.push_back(vk::BufferImageCopy{
+            .bufferOffset = level_offsets[level],
+            .bufferRowLength = level_dims[level].first,
+            .bufferImageHeight = level_dims[level].second,
+            .imageSubresource = {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .mipLevel = level,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .imageOffset = { 0, 0, 0 },
+            .imageExtent = { level_dims[level].first, level_dims[level].second, 1 },
+        });
+    }
 
     vk::ImageSubresourceRange all_mips{
         .aspectMask = vk::ImageAspectFlagBits::eColor,
@@ -633,84 +690,10 @@ void OverlayRenderer::upload_image(vk::CommandBuffer cmd, const overlay::image_i
     };
     vkutil::transition_image_layout_discard(cmd, dst.image,
         dst.layout, vkutil::ImageLayout::TransferDst, all_mips);
-
-    vk::BufferImageCopy region{
-        .bufferOffset = 0,
-        .bufferRowLength = w,
-        .bufferImageHeight = h,
-        .imageSubresource = vkutil::color_subresource_layer,
-        .imageOffset = { 0, 0, 0 },
-        .imageExtent = { w, h, 1 },
-    };
     cmd.copyBufferToImage(staging.buffer, dst.image,
-        vk::ImageLayout::eTransferDstOptimal, region);
-
-    if (need_mipmaps) {
-        uint32_t mip_w = w, mip_h = h;
-        for (uint32_t i = 1; i < mip_levels; ++i) {
-            vk::ImageSubresourceRange src_range{
-                .aspectMask = vk::ImageAspectFlagBits::eColor,
-                .baseMipLevel = i - 1,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            };
-            vkutil::transition_image_layout(cmd, dst.image,
-                vkutil::ImageLayout::TransferDst, vkutil::ImageLayout::TransferSrc, src_range);
-
-            uint32_t next_w = std::max(mip_w / 2, 1u);
-            uint32_t next_h = std::max(mip_h / 2, 1u);
-
-            vk::ImageBlit blit{
-                .srcSubresource = {
-                    .aspectMask = vk::ImageAspectFlagBits::eColor,
-                    .mipLevel = i - 1,
-                    .baseArrayLayer = 0,
-                    .layerCount = 1,
-                },
-                .dstSubresource = {
-                    .aspectMask = vk::ImageAspectFlagBits::eColor,
-                    .mipLevel = i,
-                    .baseArrayLayer = 0,
-                    .layerCount = 1,
-                },
-            };
-            blit.srcOffsets[0] = vk::Offset3D{ 0, 0, 0 };
-            blit.srcOffsets[1] = vk::Offset3D{ static_cast<int32_t>(mip_w), static_cast<int32_t>(mip_h), 1 };
-            blit.dstOffsets[0] = vk::Offset3D{ 0, 0, 0 };
-            blit.dstOffsets[1] = vk::Offset3D{ static_cast<int32_t>(next_w), static_cast<int32_t>(next_h), 1 };
-
-            cmd.blitImage(dst.image, vk::ImageLayout::eTransferSrcOptimal,
-                dst.image, vk::ImageLayout::eTransferDstOptimal,
-                blit, vk::Filter::eLinear);
-
-            mip_w = next_w;
-            mip_h = next_h;
-        }
-
-        vk::ImageSubresourceRange src_levels{
-            .aspectMask = vk::ImageAspectFlagBits::eColor,
-            .baseMipLevel = 0,
-            .levelCount = mip_levels - 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-        };
-        vkutil::transition_image_layout(cmd, dst.image,
-            vkutil::ImageLayout::TransferSrc, vkutil::ImageLayout::SampledImage, src_levels);
-
-        vk::ImageSubresourceRange last_level{
-            .aspectMask = vk::ImageAspectFlagBits::eColor,
-            .baseMipLevel = mip_levels - 1,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-        };
-        vkutil::transition_image_layout(cmd, dst.image,
-            vkutil::ImageLayout::TransferDst, vkutil::ImageLayout::SampledImage, last_level);
-    } else {
-        vkutil::transition_image_layout(cmd, dst.image,
-            vkutil::ImageLayout::TransferDst, vkutil::ImageLayout::SampledImage, all_mips);
-    }
+        vk::ImageLayout::eTransferDstOptimal, regions);
+    vkutil::transition_image_layout(cmd, dst.image,
+        vkutil::ImageLayout::TransferDst, vkutil::ImageLayout::SampledImage, all_mips);
 
     dst.layout = vkutil::ImageLayout::SampledImage;
 
@@ -964,6 +947,7 @@ void OverlayRenderer::prepare(vk::CommandBuffer cmd_buffer,
     for (auto &buf : garbage)
         buf.destroy();
     garbage.clear();
+    m_image_garbage[m_active_frame_slot].clear();
 
     m_state->device.resetDescriptorPool(m_desc_pools[m_active_frame_slot]);
 
