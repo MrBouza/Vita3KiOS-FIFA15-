@@ -128,6 +128,8 @@ struct VKState : public renderer::State {
     bool support_standard_layout = false;
     bool support_rasterized_order_access = false;
     bool support_native_rgba4_surface = false;
+    // the device can draw into RGBA4444 (support_native_rgba4_surface is decided for each game)
+    bool native_rgba4_capable = false;
     // VK_KHR_present_id + VK_KHR_present_wait: the screen renderer can tell how many frames are still
     // waiting to be shown, instead of assuming a 60 Hz screen
     bool support_present_wait = false;

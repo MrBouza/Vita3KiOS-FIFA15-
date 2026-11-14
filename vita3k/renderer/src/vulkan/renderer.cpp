@@ -696,6 +696,7 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         }
         support_native_rgba4_surface = rgba4_result == vk::Result::eSuccess
             && (rgba4_features & required_rgba4_features) == required_rgba4_features;
+        native_rgba4_capable = support_native_rgba4_surface;
         LOG_INFO("Vulkan RGBA4444 optimal tiling features: {}; surface usage query: {}",
             vk::to_string(rgba4_features), vk::to_string(rgba4_result));
 
@@ -1120,9 +1121,17 @@ void VKState::late_init(const Config &cfg, const std::string_view game_id, MemSt
         features.support_shader_interlock = false;
     }
 
+#ifdef __APPLE__
+    // MoltenVK reports RGBA4444 as renderable, but text that games draw into an RGBA4444 surface and
+    // then sample went missing (Dead or Alive Xtreme 3; Vita3K-Plus draws these as RGBA8 for Killzone's
+    // text). Draw them as RGBA8, as already happens with high accuracy on (shader interlock). Games
+    // with surface sync on keep the native format: Madden's field is copied back to guest memory from
+    // a native RGBA4444 surface, and that is the path confirmed to work for it.
+    support_native_rgba4_surface = native_rgba4_capable && !cfg.current_config.disable_surface_sync;
+#endif
     LOG_INFO("Vulkan RGBA4444 render surfaces: {}",
         features.support_shader_interlock ? "RGBA8 fallback (typed storage image required by shader interlock)"
-                                          : (support_native_rgba4_surface ? "native" : "RGBA8 fallback (native surface usages unsupported)"));
+                                          : (support_native_rgba4_surface ? "native" : "RGBA8 (native RGBA4444 drawing unsupported or unreliable)"));
 
     // texture viewport is faster but not entirely accurate
     if (support_standard_layout && !use_high_accuracy) {
