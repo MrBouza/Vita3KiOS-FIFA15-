@@ -15,6 +15,7 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#include <chrono>
 #include <cstdint>
 #include <renderer/functions.h>
 #include <renderer/state.h>
@@ -137,7 +138,27 @@ void State::update_overlays() {
     // Common dialog
     if (!is_paused) {
         auto dlg = overlay_manager->get<overlay::common_dialog_overlay>();
-        if (common_dialog && common_dialog->type != NO_DIALOG && common_dialog->status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
+        // TEMPORARY DIAGNOSTIC (dialog GPU hang): the dialog's overlay is held back for 8 s after the
+        // game opens a dialog, so the log shows whether the hang comes from the game or the overlay
+        static std::chrono::steady_clock::time_point dialog_running_since{};
+        static bool dialog_running = false;
+        static bool held_back = false;
+        const bool running_now = common_dialog && common_dialog->type != NO_DIALOG && common_dialog->status == SCE_COMMON_DIALOG_STATUS_RUNNING;
+        if (running_now && !dialog_running) {
+            dialog_running_since = std::chrono::steady_clock::now();
+            held_back = true;
+            LOG_INFO("Dialog diagnostic: the game opened a dialog (type {}); overlay held back for 8 s", static_cast<int>(common_dialog->type));
+        } else if (!running_now && dialog_running) {
+            LOG_INFO("Dialog diagnostic: the game closed the dialog");
+        }
+        dialog_running = running_now;
+        if (running_now && held_back) {
+            if (std::chrono::steady_clock::now() - dialog_running_since < std::chrono::seconds(8))
+                return;
+            held_back = false;
+            LOG_INFO("Dialog diagnostic: showing the dialog overlay now");
+        }
+        if (running_now) {
             bool just_created = false;
             if (!dlg) {
                 dlg = overlay_manager->create<overlay::common_dialog_overlay>();

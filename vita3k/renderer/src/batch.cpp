@@ -24,6 +24,7 @@
 #include <renderer/vulkan/types.h>
 
 #include <config/state.h>
+#include <dialog/state.h>
 #include <display/state.h>
 #include <functional>
 #include <overlay/display_manager.h>
@@ -343,6 +344,33 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState 
 
         if (state.should_display)
             last_game_frame_ms.store(steady_ms(), std::memory_order_relaxed);
+        // TEMPORARY DIAGNOSTIC (dialog GPU hang): while a dialog runs, count the frames shown and why
+        {
+            static int64_t window_start = 0;
+            static int game_frames = 0, overlay_frames = 0, timeout_frames = 0;
+            const bool dialog_running = state.common_dialog && state.common_dialog->type != NO_DIALOG
+                && state.common_dialog->status == SCE_COMMON_DIALOG_STATUS_RUNNING;
+            if (dialog_running) {
+                const int64_t now = steady_ms();
+                if (window_start == 0)
+                    window_start = now;
+                if (state.should_display)
+                    game_frames++;
+                else if (state.async_flip_requested.load(std::memory_order_relaxed))
+                    overlay_frames++;
+                else
+                    timeout_frames++;
+                if (now - window_start >= 250) {
+                    LOG_INFO("Dialog diagnostic: last {} ms: {} game frames, {} overlay frames, {} timed-out frames, {} batches queued",
+                        now - window_start, game_frames, overlay_frames, timeout_frames, state.command_buffer_queue.size());
+                    window_start = now;
+                    game_frames = overlay_frames = timeout_frames = 0;
+                }
+            } else {
+                window_start = 0;
+                game_frames = overlay_frames = timeout_frames = 0;
+            }
+        }
         state.render_frame(display, gxm, mem);
         state.swap_window();
         state.async_flip_requested.store(false, std::memory_order_relaxed);
